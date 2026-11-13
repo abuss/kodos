@@ -772,7 +772,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 	// is a vfat ESP mountpoint so generation links never merge into it:
 	// copy the dereferenced content instead (vmlinuz+config+System.map).
 	if bootGen := filepath.Join(gen, "boot"); isRealDir(bootGen) {
-		filepath.WalkDir(bootGen, func(p string, d fs.DirEntry, err error) error {
+		if err := filepath.WalkDir(bootGen, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return nil
 			}
@@ -783,7 +783,9 @@ func (e *executor) installBootloader(act map[string]any) error {
 				return err
 			}
 			return os.WriteFile(filepath.Join(e.s.chroot, "boot", rel), b, 0o644)
-		})
+		}); err != nil {
+			return fmt.Errorf("bootloader boot copy: %w", err)
+		}
 	}
 
 	// Alpine makes initramfs via apk TRIGGERS (which we bypass): for each
@@ -795,11 +797,17 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if dirs, _ := filepath.Glob(filepath.Join(modsGen, "*")); len(dirs) > 0 {
 		for _, md := range dirs {
 			abi := filepath.Base(md)
-			sufB, err := os.ReadFile(filepath.Join(md, "kernel-suffix"))
+			// chrootResolve: gen-tree files are chroot-rooted links that
+			// only resolve rooted at the chroot (raw host reads dangle).
+			sufB, err := os.ReadFile(e.s.chrootResolve(filepath.Join(md, "kernel-suffix")))
 			if err != nil {
 				continue // not a kernel modules dir
 			}
-			suffix := "-" + strings.TrimSpace(string(sufB))
+			// kernel-suffix content already carries the dash, e.g. "-virt"
+			suffix := strings.TrimSpace(string(sufB))
+			if !strings.HasPrefix(suffix, "-") {
+				suffix = "-" + suffix
+			}
 			if lexists(filepath.Join(e.s.chroot, "boot", "initramfs"+suffix)) {
 				continue // already built (idempotent re-run)
 			}
