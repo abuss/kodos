@@ -353,7 +353,10 @@ func repairFS(fstype, part string) error {
 	if _, err := exec.LookPath(tool); err != nil {
 		return nil
 	}
-	args := []string{"-a", "-y", part} // dosfsck: auto-fix, yes to prompts
+	// dosfsck -a is timid: it SKIPS the fixes that matter (broken LFN
+	// fragments stay, and every later op hitting that dir gets EIO).
+	// -y answers yes to every repair.
+	args := []string{"-y", part}
 	if tool == "e2fsck" {
 		args = []string{"-p", part} // preen
 	}
@@ -862,6 +865,14 @@ func (e *executor) installBootloader(act map[string]any) error {
 		}
 	}
 
+	// clear stale bootloader trees first: grub-install otherwise tries to
+	// backup-rename existing module files, which EIOs on an ESP with any
+	// directory damage, and a clean slate makes the rerun cheap anyway
+	for _, old := range []string{"boot/grub", "boot/EFI"} {
+		if err := os.RemoveAll(filepath.Join(e.s.chroot, old)); err != nil {
+			return fmt.Errorf("bootloader: clearing old %s: %w (fs damaged: run vm/run.sh fresh)", old, err)
+		}
+	}
 	if err := e.chrootSh("grub-install --removable --target=x86_64-efi " +
 		"--efi-directory=/boot --boot-directory=/boot"); err != nil {
 		return err
