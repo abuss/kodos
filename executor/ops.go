@@ -824,7 +824,14 @@ func (e *executor) installBootloader(act map[string]any) error {
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(filepath.Join(e.s.chroot, "boot", rel), b, 0o644)
+			// chrootResolve the DESTINATION too: when /boot is not a real
+			// mountpoint (scratch roots) it is a chroot-rooted link whose
+			// raw host path dangles.
+			bootDst := e.s.chrootResolve(filepath.Join(e.s.chroot, "boot"))
+			if err := os.MkdirAll(bootDst, 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(bootDst, rel), b, 0o644)
 		}); err != nil {
 			return fmt.Errorf("bootloader boot copy: %w", err)
 		}

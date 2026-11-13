@@ -78,7 +78,30 @@ func symlinkTree(src, dst, chroot string) error {
 	if isRealDir(dst) {
 		return nil // merged real dir wins over this package's symlink
 	}
-	return symlinkChroot(dst, src, chroot)
+	// Regular files become HARDLINKS into the store (store and generation
+	// dirs share the filesystem under <chroot>/kod): distro tools assume
+	// live paths are real files. mkinitfs' cpio pass-through in particular
+	// refuses to collect chroot-rooted symlinks, silently producing an
+	// initramfs without busybox or kernel modules. Package-shipped
+	// symlinks (applets, .so SONAMEs, cert dirs) stay links, verbatim.
+	if _, lerr := os.Readlink(src); lerr != nil {
+		os.Remove(dst)
+		if err := os.Link(src, dst); err == nil {
+			return nil
+		}
+		return cowCopy(src, dst) // cross-device edge: plain copy
+	}
+	// Package-shipped symlinks (applets, SONAMEs, cert dirs) are recreated
+	// with their target VERBATIM, not pointed through the store: their
+	// targets are root-relative in any tree used as /, and a store detour
+	// makes mkinitfs copy links into the initramfs that dangle there
+	// (no /kod/store inside the image -> /bin/sh broken -> boot panic).
+	t, _ := os.Readlink(src)
+	os.Remove(dst)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.Symlink(t, dst)
 }
 
 // chrootResolve resolves p the way the chroot's kernel would: absolute link
