@@ -321,7 +321,10 @@ func (e *executor) partitionDisk(act map[string]any) error {
 func (e *executor) formatPartition(act map[string]any) error {
 	part := field(act, "partition")
 	if out, _ := runOut("blkid", "-o", "value", "-s", "TYPE", part); out != "" {
-		return nil // already formatted: never re-mkfs a live partition
+		// never re-mkfs a live partition — but a fs torn by an earlier
+		// crashed run would poison later ops with mysterious I/O errors,
+		// so repair the fs we are about to reuse
+		return repairFS(out, part)
 	}
 	switch fs := field(act, "filesystem"); fs {
 	case "ext4":
@@ -331,6 +334,44 @@ func (e *executor) formatPartition(act map[string]any) error {
 	default:
 		return fmt.Errorf("format: unsupported filesystem %q", fs)
 	}
+}
+
+// repairFS: preen-check an existing filesystem before reusing it. fsck
+// exit 0=clean 1=repaired 2=repaired,reboot — all fine. >=4 uncorrected:
+// hard error, do NOT build a generation on a broken fs. Unknown host:
+// if the fsck tool is not installed, proceed as before.
+func repairFS(fstype, part string) error {
+	var tool string
+	switch fstype {
+	case "vfat":
+		tool = "fsck.vfat"
+	case "ext2", "ext3", "ext4":
+		tool = "e2fsck"
+	default:
+		return nil // swap etc: nothing to check
+	}
+	if _, err := exec.LookPath(tool); err != nil {
+		return nil
+	}
+	args := []string{"-a", "-y", part} // dosfsck: auto-fix, yes to prompts
+	if tool == "e2fsck" {
+		args = []string{"-p", part} // preen
+	}
+	out, err := exec.Command(tool, args...).CombinedOutput()
+	if ee, ok := err.(*exec.ExitError); ok {
+		// fsck exits are bitmasks: 1/2/3 (repaired) pass; 4 uncorrected,
+		// 8 operational, 16 usage = cannot trust this fs, hard error
+		if bad := ee.ExitCode() & (4 | 8 | 16); bad != 0 {
+			return fmt.Errorf("format: %s cannot repair %s (exit %d):\n%s\nthe on-disk fs is too damaged to reuse: run vm/run.sh fresh",
+				tool, part, ee.ExitCode(), strings.TrimSpace(string(out)))
+		}
+	} else if err != nil {
+		return err
+	}
+	if s := strings.TrimSpace(string(out)); s != "" {
+		fmt.Printf("format: %s repaired %s (%s)\n", tool, part, strings.ReplaceAll(s, "\n", "; "))
+	}
+	return nil
 }
 
 func (e *executor) createSwap(act map[string]any) error {
