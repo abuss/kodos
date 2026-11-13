@@ -57,6 +57,15 @@ do_install() {
     cd "$REPO/example/eszkoz"
     lua generate.lua system.lua ../../vm/vm-layer.lua layers/machine.lua \
         layers/user.lua > "$VMDIR/actions.json"
+    # /tmp/opencode snapshots can vanish (tmp cleanup): refetch like drift.sh
+    for r in main community; do
+        [ -s "$D/$r-324.apkindex" ] || {
+            echo "refetching $r index snapshot"
+            mkdir -p "$D"
+            curl -sf "https://dl-cdn.alpinelinux.org/alpine/v3.24/$r/x86_64/APKINDEX.tar.gz" \
+                | tar -xzO APKINDEX > "$D/$r-324.apkindex"
+        }
+    done
     lua lockfile.lua 0 "$D/main-324.apkindex" "$D/community-324.apkindex" -- \
         system.lua ../../vm/vm-layer.lua layers/machine.lua layers/user.lua \
         > "$VMDIR/generation-0.json"
