@@ -436,6 +436,19 @@ func (e *executor) chrootSh(script string) error {
 	return cmd.Run()
 }
 
+// chrootShOut runs a chrooted command capturing combined output (for
+// idempotence checks like rc-update's "already been added").
+func (e *executor) chrootShOut(script string) (string, error) {
+	if err := e.ensureChrootMounts(); err != nil {
+		return "", err
+	}
+	cmd := exec.Command("chroot", e.s.chroot, "/bin/sh", "-l", "-c", script)
+	cmd.Dir = e.s.chroot
+	cmd.Env = []string{"PATH=/sbin:/bin:/usr/sbin:/usr/bin", "HOME=/", "TERM=dumb"}
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 // runPostInstalls executes package .post-install scripts INSIDE the
 // activated generation. Alpine 3.24 busybox creates /bin/sh etc only via
 // its own hook (`#!/bin/busybox sh; /bin/busybox --install -s`), so:
@@ -466,6 +479,54 @@ func (e *executor) runPostInstalls(toInstall map[string]string) error {
 				return fmt.Errorf("post-install %s: %w", p, err)
 			}
 		}
+	}
+	// Post-install hooks (busybox addgroup, openrc, pam...) rewrite files
+	// through the managed /kod links: busybox-style tools REPLACE the symlink
+	// with a real file (rename-over), which then dangles or loops on the next
+	// activation. Copy such mutated files back into the generation's mutable
+	// etc_store and re-link, so /etc stays symlink-managed after hooks.
+	if err := e.syncMutatedEtc(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *executor) syncMutatedEtc() error {
+	gen := e.s.genDir(e.meta.Generation)
+	genEtc := filepath.Join(gen, "etc")
+	liveEtc := filepath.Join(e.s.chroot, "etc")
+	var paths []string
+	filepath.WalkDir(genEtc, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			paths = append(paths, p)
+		}
+		return nil
+	})
+	for _, src := range paths {
+		rel, _ := filepath.Rel(genEtc, src)
+		live := filepath.Join(liveEtc, rel)
+		st, err := os.Lstat(live)
+		if err != nil || !st.Mode().IsRegular() {
+			continue // missing or still a managed link: nothing mutated
+		}
+		tgt := e.s.chrootResolve(src) // real file inside the generation
+		if sameContent(tgt, live) {
+			continue // identical bytes: leave the file as-is
+		}
+		b, err := os.ReadFile(live)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(tgt, b, st.Mode().Perm()); err != nil {
+			return err
+		}
+		if err := os.Remove(live); err != nil {
+			return err
+		}
+		if err := symlinkChroot(live, filepath.Join(gen, "current", "etc", rel), e.s.chroot); err != nil {
+			return err
+		}
+		fmt.Printf("etc re-managed after hooks: %s\n", rel)
 	}
 	return nil
 }
@@ -656,7 +717,8 @@ func (e *executor) createUser(act map[string]any) error {
 func (e *executor) enableService(act map[string]any) error {
 	unit, runlevel := field(act, "unit"), field(act, "runlevel")
 	os.MkdirAll(filepath.Join(e.s.chroot, "etc/runlevels", runlevel), 0o755)
-	if err := e.chrootSh(fmt.Sprintf("rc-update add %s %s", shellQuote(unit), shellQuote(runlevel))); err != nil {
+	out, err := e.chrootShOut(fmt.Sprintf("rc-update add %s %s", shellQuote(unit), shellQuote(runlevel)))
+	if err != nil && !strings.Contains(out, "already been added") {
 		return fmt.Errorf("enable_service %s: %w", field(act, "name"), err)
 	}
 	return nil
