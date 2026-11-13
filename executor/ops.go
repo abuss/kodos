@@ -413,7 +413,12 @@ func dirExists(p string) bool {
 
 func (e *executor) umountChroot() {
 	for _, name := range []string{"run", "dev", "sys", "proc"} {
-		exec.Command("umount", "-R", filepath.Join(e.s.chroot, name)).Run() // best-effort
+		mp := filepath.Join(e.s.chroot, name)
+		// NEVER propagate unmounts outward: systemd shares /, and an rbind
+		// copy of /dev that stays shared will take the HOST's /dev/pts down
+		// with umount -R (killed every pty on the machine once).
+		run("mount", "--make-rprivate", mp)
+		exec.Command("umount", "-R", mp).Run() // best-effort
 	}
 }
 
