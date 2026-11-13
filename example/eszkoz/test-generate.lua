@@ -73,13 +73,13 @@ local cs_count = 0
 for _ in out:gmatch('"op": "configure_service"') do cs_count = cs_count + 1 end
 assert(cs_count == 1, "only ssh gets configure_service; connections are not settings")
 
--- canonical ordering (IR.md): storage -> install -> users -> generation
--- -> services -> activate -> bootloader
+-- canonical ordering (IR.md): storage -> install -> generation -> activate
+-- -> users/services (they run INSIDE the activated chroot) -> bootloader
 local order = {
     '"op": "configure_repos"', '"op": "partition_disk"', '"op": "format"',
     '"op": "mount"', '"op": "write_file"', '"op": "install_packages"',
-    '"op": "create_user"', '"op": "create_generation"',
-    '"op": "enable_service"', '"op": "activate_generation"',
+    '"op": "create_generation"', '"op": "activate_generation"',
+    '"op": "create_user"', '"op": "enable_service"',
     '"op": "install_bootloader"',
 }
 local last = 0

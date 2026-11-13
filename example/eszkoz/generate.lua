@@ -153,7 +153,14 @@ table.sort(nets, function(a, b)
 end)
 if #nets > 0 then act("configure_network", { connections = nets }) end
 
--- ====== 14. users (dict keyed by username; emit sorted for determinism) ======
+-- ====== 14. generation + activation (users/services run INSIDE the chroot:
+-- busybox + init.d scripts only exist once the generation is activated,
+-- so this must precede them) ======
+act("create_generation", { packages = all, root = conf.generations.root,
+                           keep = conf.generations.keep })
+act("activate_generation", { root = conf.generations.root })
+
+-- users (dict keyed by username; emit sorted for determinism)
 for _, n in ipairs(resolve.user_names(conf)) do
     local u = conf.users[n]
     act("create_user", {
@@ -164,9 +171,8 @@ for _, n in ipairs(resolve.user_names(conf)) do
     })
 end
 
--- ====== 15-18. generation + services ======
-act("create_generation", { packages = all, root = conf.generations.root,
-                           keep = conf.generations.keep })
+-- services + home services, then bootloader last (fstab + kernel args
+-- are in place by then)
 for _, s in ipairs(plan) do
     if s.unit then
         act("enable_service", { name = s.name, unit = s.unit,
@@ -178,9 +184,6 @@ for _, s in ipairs(hplan) do
                                  mechanism = s.mechanism, packages = s.packages,
                                  settings = s.settings })
 end
-act("activate_generation", { root = conf.generations.root })
-
--- ====== 19. bootloader last (fstab + kernel args are in place) ======
 local bl = conf.boot.bootloader
 act("install_bootloader", { type = bl.type, efi = bl.efi, timeout = bl.timeout })
 

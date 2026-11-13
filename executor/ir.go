@@ -31,16 +31,18 @@ type actionsFile struct {
 }
 
 // canonical emission order per IR.md (op -> minimum rank; ops may repeat
-// at the same rank, ranks never go backwards)
+// at the same rank, ranks never go backwards). #18 activation precedes
+// #19-22 because those run inside the activated chroot.
 var opRank = map[string]int{
 	"configure_repos": 1, "partition_disk": 2, "format": 3, "create_swap": 4,
 	"mount": 5, "write_file": 6, "install_packages": 7,
 	"configure_flatpak_remote": 8, "install_flatpak": 9,
 	"configure_locale": 10, "configure_keyboard": 11, "configure_timezone": 12,
 	"load_kernel_modules": 13, "set_kernel_arguments": 14,
-	"configure_service": 15, "configure_network": 16, "create_user": 17,
-	"create_generation": 18, "enable_service": 19, "enable_home_service": 20,
-	"activate_generation": 21, "install_bootloader": 22,
+	"configure_service": 15, "configure_network": 16,
+	"create_generation": 17, "activate_generation": 18,
+	"create_user": 19, "enable_service": 20, "enable_home_service": 21,
+	"install_bootloader": 22,
 }
 
 func loadJSON(path string, v any) error {
