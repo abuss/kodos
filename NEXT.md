@@ -19,6 +19,7 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
 | Flatpak: `repos.flatpak` + `{repo="flatpak"}` tags (system + per-user scope), backend tool package, strict remote rule | **implemented + tested** |
 | Version lock: `generation-N.json` pins every name to version+checksum | **implemented + tested** (`lockfile.lua`, `test-lock.lua`) |
 | IR contract + reference Lua generator | **implemented + tested** (`IR.md`, `generate.lua`, `test-generate.lua`) |
+| Executor language: **Go** (static binary, stdlib JSON/tar/gzip, cross-compile) — spike settled it | **decided 2026-11-12** (`executor/`) |
 | Networking: service-keyed `connections{}` dict (wifi/ethernet), `configure_network` IR op, NM keyfile rendering | **implemented + tested** (machine layer carries site networks) |
 | Secrets: raw values inexpressible; only `{secret="dotted.key"}` refs + field presence; 0600 `--secrets FILE` = executor's job | **config/IR side done**; resolver consumption lands in executor |
 
@@ -53,7 +54,22 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
    `test-lock.lua`: 88 pkgs pinned for layered eszkoz on v3.24,
    byte-deterministic, missing package = hard error. IR.md "Version lock"
    section defines the executor contract.
-5. **No executor**, and the language choice (Go/Nim/Rust) is still open.
+5. ~~**No executor**, and the language choice (Go/Nim/Rust) is still open.~~
+   **SPIKE DONE 2026-11-12** (`executor/`, Go 1.27): consumes
+   `actions.json` + `generation-N.json` with contract checks (unknown/op-out-
+   of-order/wrong-schema_version = hard error before any syscall).
+   Implemented: `configure_repos`, `write_file`, `install_packages`
+   (download + unpack pinned .apks into the store, idempotent),
+   `configure_network` (NM keyfile 0600, secrets resolved from `--secrets`
+   JSON), `create_generation`/`activate_generation` (faithful port of
+   install-apks.py: chroot-rooted links, seed_etc with edit preservation +
+   `.apknew` conflicts, current-alias activation, prune, rollback).
+   Verified: `kodos-exec selftest` (create/switch/prune/rollback/edit-keep)
+   + live scratch-root E2E with the REAL pinned `broot-1.54.0-r0` from
+   v3.24 (download, unpack, generation, activation, idempotent re-run).
+   NOT implemented yet (honest `not implemented` error): partition/format/
+   mount, users, services enable, locale/keyboard/timezone rendering,
+   bootloader — all need root or per-distro rendering; qcow2 VM E2E pending.
 6. ~~Workspace is **still not a git repo**~~ **DONE 2026-11-12**: baseline
    commit `fcbfe3a` (43 files; reference projects stay symlinks, secrets
    gitignored).
@@ -89,12 +105,12 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
 | 2 | ~~Action/IR contract + reference Lua generator~~ | **DONE 2026-11-11** |
 | 3 | ~~Port schema/validator~~ | **DONE 2026-11-12** (`validate.lua`, `test-validate.lua`; wired into generator + checker) |
 | 4 | ~~Version locking + generation metadata~~ | **DONE 2026-11-12** (`lockfile.lua`, `test-lock.lua`, IR.md contract) |
-| 5 | **Executor design + spike**: consume `actions.json` (IR.md); port `create_generation`/`seed_etc`/`activate_generation`/`chroot_resolve` from `install-apks.py`; decide Go/Nim/Rust then spike chroot+apk-store against a qcow2 VM | the only genuinely new code; the IR gives it a real, tested input contract today |
+| 5 | ~~Executor design + spike~~ | **SPIKE DONE 2026-11-12** (Go; store/generation core + install + network live-tested on a scratch root; remaining ops listed in item 5 above) |
 | 6 | Schema-gap backlog above (networking **done** 2026-11-12; display manager next) | fill gaps as real needs, not upfront |
 | 7 | Drift CI: re-fetch the 3 indexes + re-run all backends per Alpine release / weekly | `clang19→clang20` proved the failure mode is real |
 
-Suggested entry point: **5** — the executor spike now has everything it
-needs as input: schema-validated config → `actions.json` (IR.md) +
-`generation-N.json` (pinned versions). Remaining non-executor work in the
-meantime: step 6 gaps (display manager, mounts, secrets resolver lands
-inside the executor) and step 7 drift CI.
+Suggested entry point: **finish the executor against a qcow2 VM** —
+implement the root-needing ops (partition/mount/users/services/bootloader)
+and boot a real eszkoz install; the offline half of the contract is
+already proven in Go. Remaining non-executor work: step 6 gaps (display
+manager, mounts) and step 7 drift CI.
