@@ -96,9 +96,10 @@ end
 local strlist = { array_of = "string" }
 local tagged_list = { array_of = "tagged" }
 
--- system services: enable required (NixOS-style); anything not a known key
--- is a settings value and must be scalar (the settings writer's problem).
--- Note the honest limit: a typo'd settings key (enabkle=true) is
+-- system services: enable required (NixOS-style); connections is the
+-- networking section (see conn_spec); anything not a known key is a
+-- settings value and must be scalar (the settings writer's problem).
+-- Honest limit: a typo'd settings key (enabkle=true) is
 -- indistinguishable from a real settings key at schema level -- catching
 -- that needs per-service settings knowledge, which lives in the backend.
 local service_spec = {
@@ -106,6 +107,13 @@ local service_spec = {
         enable = "bool",
         packages = { optional = tagged_list },
         service_name = { optional = "str_or_false" },
+        connections = { optional = { dict_of = { record = {
+            type = { enum = { "wifi", "ethernet" } },
+            ssid = { optional = "string" },
+            -- psk MUST be a secret reference: a literal string fails this
+            -- check, so raw secrets can never enter config or the IR.
+            psk = { optional = { record = { secret = "string" } } },
+        } } } },
     },
     extra = "scalar",
 }
@@ -190,6 +198,18 @@ M.schema = {
 function M.validate(conf)
     local errs = {}
     check(conf, M.schema, "$", errs)
+    -- cross-field rules the shape checker cannot express
+    for sname, s in pairs(conf.services or {}) do
+        if type(s) == "table" then
+            for cname, c in pairs(s.connections or {}) do
+                if type(c) == "table" and c.type == "wifi"
+                   and not (type(c.psk) == "table" and c.psk.secret) then
+                    errs[#errs + 1] = "$.services." .. sname .. ".connections."
+                        .. cname .. ": wifi needs psk = { secret = \"key.ref\" }"
+                end
+            end
+        end
+    end
     return errs
 end
 

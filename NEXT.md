@@ -19,6 +19,8 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
 | Flatpak: `repos.flatpak` + `{repo="flatpak"}` tags (system + per-user scope), backend tool package, strict remote rule | **implemented + tested** |
 | Version lock: `generation-N.json` pins every name to version+checksum | **implemented + tested** (`lockfile.lua`, `test-lock.lua`) |
 | IR contract + reference Lua generator | **implemented + tested** (`IR.md`, `generate.lua`, `test-generate.lua`) |
+| Networking: service-keyed `connections{}` dict (wifi/ethernet), `configure_network` IR op, NM keyfile rendering | **implemented + tested** (machine layer carries site networks) |
+| Secrets: raw values inexpressible; only `{secret="dotted.key"}` refs + field presence; 0600 `--secrets FILE` = executor's job | **config/IR side done**; resolver consumption lands in executor |
 
 ## What is still paper, not code
 
@@ -30,7 +32,7 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
    semantics; layered configs pass `check-packages.lua` on all three
    distros.
 2. ~~**No generator.**~~ **DONE 2026-11-11 (reference)**: `IR.md` is the
-   Lua↔executor contract (19 ops, strict order, idempotent); `generate.lua`
+   Lua↔executor contract (22 ops, strict order, idempotent); `generate.lua`
    emits the JSON action stream for any backend (alpine: 30 actions from
    the layered eszkoz config); `test-generate.lua` pins shape, order,
    layering effects, determinism, hard errors. The **compiled executor**
@@ -40,7 +42,7 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
    records, dicts, lists, tagged packages, enums, required/optional,
    scalar service settings); runs on the MERGED config inside
    `generate.lua` and `check-packages.lua`; `test-validate.lua` proves
-   clean configs pass and 12 seeded errors are caught. Honest limit:
+   clean configs pass and 14 seeded errors are caught. Honest limit:
    typo'd *service-settings* keys are indistinguishable from real ones
    without backend settings knowledge (documented in validate.lua).
 4. ~~**No version pinning.**~~ **DONE 2026-11-12**: `lockfile.lua` —
@@ -52,21 +54,24 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
    byte-deterministic, missing package = hard error. IR.md "Version lock"
    section defines the executor contract.
 5. **No executor**, and the language choice (Go/Nim/Rust) is still open.
-6. Workspace is **still not a git repo** (flagged since day one; ~1400
-   lines of verified Lua now exist only on disk).
+6. ~~Workspace is **still not a git repo**~~ **DONE 2026-11-12**: baseline
+   commit `fcbfe3a` (43 files; reference projects stay symlinks, secrets
+   gitignored).
 
 ## Schema gaps found during the work (backlog, not blockers)
 
-- **Networking**: the Arch original had `connections = { wired = ... }`;
-  the neutral example dropped it. Network config is the biggest missing
-  first-class section.
+- ~~**Networking**~~ **DONE 2026-11-12**: `services.<nm>.connections` dict
+  (wifi/ethernet, wifi requires psk secret ref, literal psk = schema error),
+  `configure_network` IR op (#16). Static-IP connections still TODO.
 - **Mounts** (`configs.mount` pattern from kodos testvm) — fstab today is
   implied by `storage.devices` only.
 - **Desktop/display-manager**: dropped from the neutral dialect (only
   package lists); if eszkoz boots to GNOME this must come back.
 - **Kernel modules/initrd**: `boot.kernel.modules` exists but nothing
   says which mechanism loads them (/etc/modules + mkinitfs on Alpine).
-- Secrets injection (`hashed_password` lives outside config, no mechanism).
+- Secrets: refs + `configure_network` plumbing **done**; the resolver side
+  (secrets file format for the executor, `hashed_password` consumers)
+  lands with the executor.
 - Service ordering (`after`/`wanted_by`) unmodeled — first service that
   needs a dependency will force the OpenRC-header mapping.
 - OpenRC user services (syncthing) — backend marks mechanism TODO.
@@ -79,17 +84,17 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
 
 | # | Step | Why this order |
 |---|---|---|
-| 0 | `git init` + commit example, docs, backends | zero cost, protects everything already verified |
+| 0 | ~~`git init` + commit example, docs, backends~~ | **DONE 2026-11-12** (baseline `fcbfe3a`) |
 | 1 | ~~Config layering + merge~~ | **DONE 2026-11-11** |
 | 2 | ~~Action/IR contract + reference Lua generator~~ | **DONE 2026-11-11** |
 | 3 | ~~Port schema/validator~~ | **DONE 2026-11-12** (`validate.lua`, `test-validate.lua`; wired into generator + checker) |
 | 4 | ~~Version locking + generation metadata~~ | **DONE 2026-11-12** (`lockfile.lua`, `test-lock.lua`, IR.md contract) |
 | 5 | **Executor design + spike**: consume `actions.json` (IR.md); port `create_generation`/`seed_etc`/`activate_generation`/`chroot_resolve` from `install-apks.py`; decide Go/Nim/Rust then spike chroot+apk-store against a qcow2 VM | the only genuinely new code; the IR gives it a real, tested input contract today |
-| 6 | Schema-gap backlog above (networking first — it is unavoidable for a bootable eszkoz) | fill gaps as real needs, not upfront |
+| 6 | Schema-gap backlog above (networking **done** 2026-11-12; display manager next) | fill gaps as real needs, not upfront |
 | 7 | Drift CI: re-fetch the 3 indexes + re-run all backends per Alpine release / weekly | `clang19→clang20` proved the failure mode is real |
 
 Suggested entry point: **5** — the executor spike now has everything it
 needs as input: schema-validated config → `actions.json` (IR.md) +
 `generation-N.json` (pinned versions). Remaining non-executor work in the
-meantime: step 6 gaps (networking, display manager, secrets) and step 7
-drift CI.
+meantime: step 6 gaps (display manager, mounts, secrets resolver lands
+inside the executor) and step 7 drift CI.

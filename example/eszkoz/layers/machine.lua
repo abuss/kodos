@@ -17,6 +17,14 @@ return {
         audio = { packages = { { repo = "base", name = "pipewire-pulse" } } },
         -- new service introduced by the layer (escape hatch: no backend entry)
         tlp = { enable = true, packages = { { repo = "base", name = "tlp" } } },
+        -- networks are site/machine specific -> layer material
+        networkmanager = {
+            connections = {
+                wired = { type = "ethernet" },
+                home = { type = "wifi", ssid = "homecloud",
+                         psk = { secret = "wifi.home.psk" } },
+            },
+        },
     },
 
     -- appended to the flat package list (htop already in base: dedup demo)

@@ -82,6 +82,23 @@ assert(has("$.services.ssh.deep: service settings values must be scalar"),
 assert(has("$.users.abuss.environment.configg: unknown key (typo?)"),
        "environment typo not caught")
 
+-- 4b. networking connections: wifi needs a psk SECRET REFERENCE, a literal
+--     psk must fail (raw secrets are inexpressible), enum enforced
+has = scratch_layer("_scratch_v5.lua", [[
+return {
+    services = { networkmanager = { connections = {
+        cabin = { type = "wifi", ssid = "cabin" },
+        leak = { type = "wifi", ssid = "x", psk = "hunter2" },
+        bogus = { type = "fiber" },
+    } } },
+}
+]])
+assert(has("connections.cabin: wifi needs psk"), "wifi without psk not caught")
+assert(has("connections.leak.psk: expected dict, got string"),
+       "literal psk not caught")
+assert(has("connections.bogus.type: must be one of: wifi, ethernet"),
+       "connection type enum not caught")
+
 -- 5. valid: layer service overlay without enable (inherited from base) passes
 has = scratch_layer("_scratch_v4.lua", [[
 return { services = { audio = { packages = { { repo = "base", name = "htop" } } } } }
@@ -89,4 +106,4 @@ return { services = { audio = { packages = { { repo = "base", name = "htop" } } 
 local ok, why = has("NO-SUBSTR")
 assert(ok == false, "should have no errors, got: " .. tostring(why))
 
-print("PASS: schema validation (clean configs + 12 seeded errors caught)")
+print("PASS: schema validation (clean configs + 14 seeded errors caught)")

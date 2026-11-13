@@ -21,7 +21,11 @@ Rules:
   `generation-N.json` (see "Version lock" below) — the executor must only
   install versions the metadata pins.
 - Secrets never appear here: `create_user` references them by presence of
-  the field; the executor injects hashes out of band.
+  the field (executor injects hashes out of band), and a connection `psk`
+  travels only as `{secret = "dotted.key"}` — the schema rejects literal
+  values, so raw secrets are inexpressible in config AND in this stream.
+  Executor resolves refs from a secrets store (`--secrets FILE`: JSON map
+  of dotted key → string, mode 0600), never logs values.
 - Distro mechanisms are the executor's per-family mapping (the backend
   registry in `backends/*.lua` is the data model it follows): e.g.
   `enable_service` on Alpine = `rc-update add <unit> <runlevel>`;
@@ -46,12 +50,13 @@ Rules:
 | 13 | `load_kernel_modules` | `modules[]` | `boot.kernel.modules` | Alpine: `/etc/modules` + mkinitfs |
 | 14 | `set_kernel_arguments` | `arguments[]` | `boot.kernel.arguments` | bootloader cmdline |
 | 15 | `configure_service` | `name`, `settings{}`, `settings_file` | service entries with settings (e.g. ssh) | settings = the config keys on the service entry |
-| 16 | `create_user` | `user`, `name`, `group`, `supplementary_groups[]`, `home_directory`, `shell`, `create_home` | `users{}` (key = login; `name` = real-name/gecos) | `hashed_password` injected out of band |
-| 17 | `create_generation` | `packages[]`, `root`, `keep` | `generations` + resolved set + `generation-N.json` metadata | cf. `create_generation`/`seed_etc` in install-apks.py; exact versions per metadata |
-| 18 | `enable_service` | `name`, `unit`, `runlevel` | service plan, `unit` ≠ nil | packages-only entries (backend `service_name = false`) produce no action |
-| 19 | `enable_home_service` | `user`, `name`, `mechanism`, `packages[]`, `settings{}` | `users{}.environment.services` | OpenRC has no user services; backend picks `mechanism` (TODO: user-daemon runner) |
-| 20 | `activate_generation` | `root` | `generations.root` | flip symlink + prune to `keep`; rollback = activate an older number |
-| 21 | `install_bootloader` | `type`, `efi`, `timeout` | `boot.bootloader` | packages already installed at #7 |
+| 16 | `configure_network` | `connections[]`: `{service, name, type, ssid?, psk?={secret}}` | `services.*.connections` (enabled services only) | executor renders NetworkManager keyfiles (same format on all 3 families); `psk` = secret REFERENCE, resolved from the secrets store, written only into the 0600 keyfile |
+| 17 | `create_user` | `user`, `name`, `group`, `supplementary_groups[]`, `home_directory`, `shell`, `create_home` | `users{}` (key = login; `name` = real-name/gecos) | `hashed_password` injected out of band |
+| 18 | `create_generation` | `packages[]`, `root`, `keep` | `generations` + resolved set + `generation-N.json` metadata | cf. `create_generation`/`seed_etc` in install-apks.py; exact versions per metadata |
+| 19 | `enable_service` | `name`, `unit`, `runlevel` | service plan, `unit` ≠ nil | packages-only entries (backend `service_name = false`) produce no action |
+| 20 | `enable_home_service` | `user`, `name`, `mechanism`, `packages[]`, `settings{}` | `users{}.environment.services` | OpenRC has no user services; backend picks `mechanism` (TODO: user-daemon runner) |
+| 21 | `activate_generation` | `root` | `generations.root` | flip symlink + prune to `keep`; rollback = activate an older number |
+| 22 | `install_bootloader` | `type`, `efi`, `timeout` | `boot.bootloader` | packages already installed at #7 |
 
 A variant the backend cannot offer (kernel variant, bootloader type) makes
 the generator **fail, not fall back** — same rule as the checker. Flatpak

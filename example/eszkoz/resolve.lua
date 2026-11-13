@@ -199,7 +199,10 @@ end
 -- service plan: enabled services resolved to units/runlevels/distro packages.
 -- Backend baseline packages are already distro names; config packages are
 -- canonical (additive, mapped through backend.map).
-local SKIP = { enable = true, packages = true, service_name = true }
+-- settings = the remaining keys of the config entry (connections is NOT a
+-- setting: it gets its own configure_network action, see generate.lua)
+local SKIP = { enable = true, packages = true, service_name = true,
+               connections = true }
 function M.service_plan(conf, backend)
     local plan = {}
     for name, srv in pairs(conf.services or {}) do

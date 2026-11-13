@@ -94,10 +94,20 @@ recipe in [IR.md](IR.md)); the executor must install exactly those.
   (Flathub existence = future online CI).
 - **Home services**: neutral record; backend decides mechanism
   (`syncthing@abuss` is a systemd-ism; OpenRC user-daemon mapping TODO).
+- **Networking**: connection profiles live on the service entry —
+  `services.networkmanager.connections = { home = { type = "wifi",
+  ssid = "...", psk = { secret = "wifi.home.psk" } } }`. Profiles are a
+  dict (layers merge by name), wifi REQUIRES a psk secret reference, and
+  a literal psk string is a schema error — raw secrets are inexpressible
+  in config and never reach the IR. Executor renders NetworkManager
+  keyfiles (identical format on all 3 families). Static IPs TODO.
 - **Boot/storage**: grub EFI; ext4 only — generations use the
   generation-apks store model (`/kod/store`, symlinked generations,
   etc/etc_default/etc_store), so no filesystem feature is required.
 - **Locale**: musl limits locale support (backend concern), kept minimal.
-- **Secrets**: no password hashes in config (injected by executor later).
+- **Secrets**: raw values are inexpressible in config. Only references:
+  connection `psk = { secret = "dotted.key" }`, user passwords by field
+  presence. The executor resolves refs from a mode-0600 store
+  (`--secrets FILE`, dotted-key JSON map) — never committed, never in IR.
 - **Not listed** (unavailable on Alpine v3.24): AUR sets, vivaldi, brave,
   megasync, rslsync, ghostty, glow, tldr, duf, ipp-usb.

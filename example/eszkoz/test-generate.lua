@@ -56,6 +56,18 @@ assert(pos(out, '"op": "enable_home_service"')
        and pos(out, '"mechanism": "user-daemon"')
        and pos(out, '"user": "abuss"'))
 
+-- networking (machine layer material): profiles emitted as an ordered,
+-- settings-free action; psk travels ONLY as a secret reference
+assert(pos(out, '"op": "configure_network"') > pos(out, '"op": "install_packages"')
+       and pos(out, '"op": "configure_network"') < pos(out, '"op": "create_generation"'),
+       "configure_network must sit between install and generation")
+assert(pos(out, '"ssid": "homecloud"'))
+assert(pos(out, '"secret": "wifi.home.psk"'), "psk travels as secret reference")
+assert(not out:find('"psk": "', 1, true), "raw psk value is inexpressible")
+local cs_count = 0
+for _ in out:gmatch('"op": "configure_service"') do cs_count = cs_count + 1 end
+assert(cs_count == 1, "only ssh gets configure_service; connections are not settings")
+
 -- canonical ordering (IR.md): storage -> install -> users -> generation
 -- -> services -> activate -> bootloader
 local order = {

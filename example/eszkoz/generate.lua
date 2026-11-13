@@ -130,6 +130,24 @@ for _, s in ipairs(plan) do
     end
 end
 
+-- ====== networking: connection profiles. psk is a SECRET REFERENCE
+-- ({secret="dotted.key"}); raw values can never appear here -- the
+-- executor resolves refs from its out-of-band secrets store ======
+local nets = {}
+for sname, srv in pairs(conf.services or {}) do
+    if srv.enable and srv.connections then
+        for cname, c in pairs(srv.connections) do
+            nets[#nets + 1] = { service = sname, name = cname, type = c.type,
+                                ssid = c.ssid, psk = c.psk }
+        end
+    end
+end
+table.sort(nets, function(a, b)
+    return a.service < b.service
+        or (a.service == b.service and a.name < b.name)
+end)
+if #nets > 0 then act("configure_network", { connections = nets }) end
+
 -- ====== 14. users (dict keyed by username; emit sorted for determinism) ======
 for _, n in ipairs(resolve.user_names(conf)) do
     local u = conf.users[n]
