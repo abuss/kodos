@@ -11,7 +11,10 @@ VMDIR=$(cd "$(dirname "$0")" && pwd)
 REPO=$(dirname "$VMDIR")
 D=/tmp/opencode
 DISK=$VMDIR/vm-disk.qcow2
-MNT=/var/tmp/kodos-vm-root
+# repo-local VM root: NEVER pick a path that may live inside the host's own
+# live storage (e.g. /var/tmp canonicalized into /kod/store on a kodos host)
+MNT=$VMDIR/mnt
+MNT_LEGACY=/var/tmp/kodos-vm-root
 NBD=/dev/nbd0
 
 FRESH=0
@@ -27,8 +30,10 @@ cleanup() {
     # may be a symlink; never assume the host's layout). Disconnects need a
     # qemu-nbd cmdline proof of our disk.
     Mreal=$(readlink -f "$MNT" 2>/dev/null || echo "$MNT")
-    awk -v m="$MNT" -v r="$Mreal" \
-        '$1 ~ /^\/dev\/nbd/ && (index($2, m) == 1 || index($2, r) == 1) {print $2}' \
+    Lreal=$(readlink -f "$MNT_LEGACY" 2>/dev/null || echo "$MNT_LEGACY")
+    awk -v m="$MNT" -v r="$Mreal" -v l="$MNT_LEGACY" -v lr="$Lreal" \
+        '$1 ~ /^\/dev\/nbd/ && (index($2, m) == 1 || index($2, r) == 1 ||
+            index($2, l) == 1 || index($2, lr) == 1) {print $2}' \
         /proc/mounts | while read -r mm; do
         # demote first: never propagate an unmount outward to the host
         mount --make-rprivate "$mm" >/dev/null 2>&1 || true
@@ -52,6 +57,8 @@ cleanup() {
             done
         done
     fi
+    # remove OUR (now-empty) legacy mountpoint from wherever it pointed
+    rmdir "$MNT_LEGACY" 2>/dev/null || true
 }
 
 attach_nbd() {
