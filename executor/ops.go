@@ -885,8 +885,20 @@ func (e *executor) installBootloader(act map[string]any) error {
 		return fmt.Errorf("bootloader: no /boot/vmlinuz-* (kernel post-install did not run?)")
 	}
 	kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
-	if _, err := os.Stat(filepath.Join(e.s.chroot, "boot", "initramfs-"+kver)); err != nil {
+	st, err := os.Stat(filepath.Join(e.s.chroot, "boot", "initramfs-"+kver))
+	if err != nil {
 		return fmt.Errorf("bootloader: no initramfs for kernel %s (mkinitfs failed?)", kver)
+	}
+	// mkinitfs degrades SILENTLY: its file-collection stage runs through
+	// shell pipelines that swallow failures (missing lddtree, empty
+	// features in /etc/mkinitfs/mkinitfs.conf), leaving a KB-sized
+	// skeleton with no busybox//bin/sh: the kernel unpacks an empty
+	// rootfs and panics "No working init found" with zero console
+	// output. Real images carry busybox+libs+modules: always MBs.
+	if st.Size() < 512<<10 {
+		return fmt.Errorf("bootloader: initramfs-%s is only %d bytes: skeleton "+
+			"(mkinitfs degraded: check etc/mkinitfs/mkinitfs.conf features line and lddtree in the generation)",
+			kver, st.Size())
 	}
 	timeout := 5
 	if f, ok := act["timeout"].(float64); ok {
