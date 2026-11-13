@@ -46,10 +46,23 @@ do_install() {
     cleanup
     modprobe nbd max_part=8
     [ -f "$DISK" ] || qemu-img create -f qcow2 "$DISK" 200G
-    if [ ! -s /sys/block/nbd0/pid ] 2>/dev/null; then qemu-nbd -c "$NBD" "$DISK"; fi
-    # dead-server guard: an nbd whose qemu-nbd died serves pure EIO; fail
-    # with instructions instead of letting partition ops chew on it
-    if ! dd if="$NBD" of=/dev/null bs=512 count=34 skip=1 status=none 2>/dev/null; then
+    if [ -e /sys/block/nbd0 ] && [ -s /sys/block/nbd0/pid ] 2>/dev/null; then
+        qemu-nbd -c "$NBD" "$DISK" 2>/dev/null || true
+    fi
+    if [ ! -e "$NBD" ]; then
+        echo "ERROR: $NBD missing: modprobe nbd failed?"
+        echo "Run: sudo modprobe nbd max_part=8   then re-run vm/run.sh"
+        exit 1
+    fi
+    # dead-server guard: an nbd whose qemu-nbd died serves pure EIO. Retry
+    # a few times (nbd attach can take a moment), then fail with
+    # instructions instead of letting partition ops chew on it.
+    ok=0
+    for i in 1 2 3; do
+        if dd if="$NBD" of=/dev/null bs=512 count=34 skip=1 status=none 2>/dev/null; then ok=1; break; fi
+        sleep 1
+    done
+    if [ "$ok" != 1 ]; then
         echo "ERROR: $NBD is attached but dead (stale qemu-nbd died?)."
         echo "Recovery: sudo qemu-nbd -d $NBD; pkill -f qemu-nbd;"
         echo "          sudo modprobe -r nbd && sudo modprobe nbd max_part=8"
