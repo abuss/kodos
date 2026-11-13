@@ -26,6 +26,8 @@ cleanup() {
     # /var/tmp canonicalizes through /kod/store/... and the mount table's
     # path differs from the one we passed to mount. Unmount by device.
     awk '$1 ~ "^/dev/nbd" {print $2}' /proc/mounts | while read -r m; do
+        # demote first: never propagate an unmount outward to the host
+        mount --make-rprivate "$m" >/dev/null 2>&1 || true
         umount -R "$m" >/dev/null 2>&1 || umount -l -R "$m" >/dev/null 2>&1 || true
     done
     awk '$1 ~ "^/dev/nbd" {print $1}' /proc/swaps | while read -r s; do
@@ -92,6 +94,16 @@ do_boot() {
 
 case "$PHASE" in
     install) trap cleanup EXIT; do_install ;;
+    debug)   trap cleanup EXIT; cleanup; modprobe nbd max_part=8
+             qemu-nbd -c "$NBD" "$DISK"; mkdir -p "$MNT"
+             mount /dev/nbd0p2 "$MNT"
+             G=$MNT/kod/generation
+             echo "--- live etc/group chain:"; readlink -v "$MNT/etc/group"
+             echo "--- current -> $(readlink "$G/current")"
+             echo "--- gen0/etc/group -> $(readlink "$G/0/etc/group")"
+             echo "--- etc_store/group: $(ls -l "$G/0/etc_store/group" 2>&1 | tail -1)"
+             echo "--- shell below; exit to detach"
+             exec sudo -u "${SUDO_USER:-abuss}" -s ;;
     boot)    do_boot ;;
     all)     trap cleanup EXIT; do_install; do_boot ;;
     *) echo "usage: vm/run.sh [install|boot|fresh]"; exit 2 ;;
