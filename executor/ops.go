@@ -243,8 +243,24 @@ func (e *executor) partitionDisk(act map[string]any) error {
 		return fmt.Errorf("partition_disk: %s (or a partition of it) is MOUNTED on this host: refusing", device)
 	}
 	if out, err := runOut("sfdisk", "-d", device); err == nil && strings.Contains(out, "label:") {
-		fmt.Printf("%s already has a partition table: leaving alone\n", device)
-		return nil // idempotent re-run
+		// idempotent ONLY when all expected partitions exist; a half-done
+		// table is never auto-repaired (never re-partition a possibly-live disk)
+		specs, err := specsFromAction(act)
+		if err != nil {
+			return err
+		}
+		have := 0
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(line, device+"p") && strings.Contains(line, ":") {
+				have++
+			}
+		}
+		if have >= len(specs) {
+			fmt.Printf("%s already partitioned: leaving alone\n", device)
+			return nil
+		}
+		return fmt.Errorf("%s has a partition table but only %d/%d partitions: refusing to re-partition (wipe it, e.g. dd if=/dev/zero of=%s bs=1M count=10, or delete the VM disk)",
+			device, have, len(specs), device)
 	}
 	if err := run("parted", "-s", device, "mklabel", field(act, "table")); err != nil {
 		return err
@@ -255,9 +271,10 @@ func (e *executor) partitionDisk(act map[string]any) error {
 	}
 	var diskMiB int64
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "Disk "+device+":") {
-			last := strings.Fields(line)[len(strings.Fields(line))-1]
-			f, err := strconv.ParseFloat(strings.TrimSuffix(last, "MiB"), 64)
+		// machine format (-sm): the disk line is "<device>:<size>MiB:..."
+		if rest, ok := strings.CutPrefix(line, device+":"); ok {
+			sizeField := strings.Split(rest, ":")[0]
+			f, err := strconv.ParseFloat(strings.TrimSuffix(sizeField, "MiB"), 64)
 			if err != nil {
 				return fmt.Errorf("cannot parse disk size: %q", line)
 			}
