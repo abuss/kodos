@@ -22,10 +22,15 @@ if [ "$(id -u)" -ne 0 ]; then exec sudo "$0" "$@"; fi
 if [ "$FRESH" = 1 ]; then rm -f "$DISK"; fi
 
 cleanup() {
-    # explicit deepest-first, then recursive, then lazy; and retry the nbd
-    # disconnect because it fails while ANY mount is still holding it
-    for m in run dev sys home boot; do umount -R "$MNT/$m" >/dev/null 2>&1 || true; done
-    umount -R "$MNT" >/dev/null 2>&1 || umount -l -R "$MNT" >/dev/null 2>&1 || true
+    # device-keyed, NOT path-keyed: this host is itself a kodos machine, so
+    # /var/tmp canonicalizes through /kod/store/... and the mount table's
+    # path differs from the one we passed to mount. Unmount by device.
+    awk '$1 ~ "^/dev/nbd" {print $2}' /proc/mounts | while read -r m; do
+        umount -R "$m" >/dev/null 2>&1 || umount -l -R "$m" >/dev/null 2>&1 || true
+    done
+    awk '$1 ~ "^/dev/nbd" {print $1}' /proc/swaps | while read -r s; do
+        swapoff "$s" >/dev/null 2>&1 || true
+    done
     if [ -e /sys/block/nbd0/pid ] && [ -s /sys/block/nbd0/pid ]; then
         for i in 1 2 3 4 5; do
             qemu-nbd -d "$NBD" >/dev/null 2>&1 && break
