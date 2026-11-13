@@ -423,6 +423,10 @@ func (e *executor) chrootSh(script string) error {
 	}
 	cmd := exec.Command("chroot", e.s.chroot, "/bin/sh", "-l", "-c", script)
 	cmd.Dir = e.s.chroot // the inode becomes "/" after chroot(2)
+	// NOT the host's PATH: it lacks /bin,/sbin,/usr/sbin (Arch host) and
+	// points at host-only dirs — chrooted scripts must resolve against the
+	// target's own layout (busybox applets live in /bin,/sbin).
+	cmd.Env = []string{"PATH=/sbin:/bin:/usr/sbin:/usr/bin", "HOME=/", "TERM=dumb"}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }
@@ -475,6 +479,7 @@ func (e *executor) chrootExecScript(relPath string) error {
 	}
 	cmd := exec.Command("chroot", e.s.chroot, relPath)
 	cmd.Dir = e.s.chroot
+	cmd.Env = []string{"PATH=/sbin:/bin:/usr/sbin:/usr/bin", "HOME=/", "TERM=dumb"}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }
@@ -594,7 +599,9 @@ func (e *executor) createUser(act map[string]any) error {
 	if login == "" {
 		return fmt.Errorf("create_user: no user")
 	}
-	b, err := os.ReadFile(filepath.Join(e.s.chroot, "etc/passwd"))
+	b, err := os.ReadFile(e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/passwd")))
+	// ^ chrootResolve: live etc entries are links into /kod/..., which are
+	// dangling from the host side but real inside the target root.
 	if err != nil {
 		return fmt.Errorf("create_user: cannot read target passwd: %w", err)
 	}
