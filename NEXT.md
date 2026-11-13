@@ -1,6 +1,6 @@
 # Alpine Kodos — where we are, what is next
 
-Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
+Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 ~1000 lines of Lua + docs) and the ranked path from here.
 
 ## Where the schema landed (settled decisions)
@@ -67,9 +67,21 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
    Verified: `kodos-exec selftest` (create/switch/prune/rollback/edit-keep)
    + live scratch-root E2E with the REAL pinned `broot-1.54.0-r0` from
    v3.24 (download, unpack, generation, activation, idempotent re-run).
-   NOT implemented yet (honest `not implemented` error): partition/format/
-   mount, users, services enable, locale/keyboard/timezone rendering,
-   bootloader — all need root or per-distro rendering; qcow2 VM E2E pending.
+   **All 22 IR ops now implemented** incl. partition/format/mount, users,
+   services, locale/kbd/tz/modules, bootloader, and the full dependency
+   closure via apk's own solver (90 requested → 864 installed).
+   qcow2 VM E2E (`vm/run.sh`, paste-run): the flow runs cleanly through
+   repos → partition → formats → mounts → 864-pkg store → config rendering
+   → create/activate generation → post-installs; the create_user/services/
+   bootloader leg was last blocked by chroot-rooted etc symlinks dangling
+   against the host (fixed by chrootResolve, `9f9bb96`); boot-to-login not
+   yet demonstrated.
+   Live /etc entries are **hardlinks into `gen-N/etc_store`** (shadow 4.18
+   refuses symlinked /etc/passwd|group|shadow); package etc *symlinks* are
+   recreated verbatim; every host-side etc writer resolves the chroot-rooted
+   chain first (`chrootResolve`) — the host is treated as an **unknown
+   distro** everywhere (rule; `vm/run.sh` ab8561a: free-nbd-index scan means
+   a wedged /dev/nbdX no longer needs a reboot).
 6. ~~Workspace is **still not a git repo**~~ **DONE 2026-11-12**: baseline
    commit `fcbfe3a` (43 files; reference projects stay symlinks, secrets
    gitignored).
@@ -96,6 +108,24 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
   untrusted sources. If ever: a cheap `os.`/`io.` identifier lint beats a
   leaky `_ENV` sandbox.
 
+## Known gaps / TODOs (found during VM E2E, 2026-11-13)
+
+- **Closure locking**: locked config names are pinned exact, but 774 of 864
+  packages arrive as unlocked deps that float (loud WARNING at install).
+  Proper fix: persist the full resolved closure in `lockfile.lua`.
+- **Rollback vs live /etc**: booting an older generation does not flip live
+  /etc until the next activation re-hardlinks it. Real kodos gets this free
+  via whole-root btrfs subvol flips; our fs-agnostic etc model needs an
+  explicit store→live re-link at boot (or generation-pinned fstab).
+- **Guest fstab** bakes host-side nbd device names into the VM's
+  /etc/fstab (wrong at real boot: devices are vdaX). grub `root=UUID=`
+  carries / fine; fix `generate_fstab` to use UUIDs when that op lands.
+- **Package build wiring** (real kodos `build.rs` → generation-apks
+  equivalent): eszkoz binaries ship as prebuilt apks from a local repo dir;
+  not yet wired into repos/install.
+- Static-IP connections, display-manager section, mounts config, arch/deb
+  lock parsers: unchanged backlog below.
+
 ## Ranked next steps
 
 | # | Step | Why this order |
@@ -109,8 +139,9 @@ Snapshot 2026-11-11. Review of the config schema work (`example/eszkoz/`,
 | 6 | Schema-gap backlog above (networking **done** 2026-11-12; display manager next) | fill gaps as real needs, not upfront |
 | 7 | Drift CI: re-fetch the 3 indexes + re-run all backends per Alpine release / weekly | `clang19→clang20` proved the failure mode is real |
 
-Suggested entry point: **finish the executor against a qcow2 VM** —
-implement the root-needing ops (partition/mount/users/services/bootloader)
-and boot a real eszkoz install; the offline half of the contract is
-already proven in Go. Remaining non-executor work: step 6 gaps (display
-manager, mounts) and step 7 drift CI.
+Suggested entry point: **boot the VM to a login prompt** — the install
+flow reaches the last ops; one clean `vm/run.sh` paste round should get
+through create_user → services → bootloader. On boot verify: `uname -r`,
+`ls /kod/generation`, `rc-status`, NM keyfiles, serial login
+`abuss`/`kodos-user-test`. Remaining non-executor work: the gaps above +
+step 6/7.
