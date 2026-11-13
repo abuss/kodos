@@ -1,0 +1,4 @@
+*.swp
+*~
+secrets*.json
+secret*.d/
