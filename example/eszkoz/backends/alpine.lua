@@ -34,7 +34,7 @@ M.kernel_packages = {
     -- built into linux-virt; no firmware blobs needed at all
 }
 M.bootloader_packages = {
-    grub = { "grub", "efibootmgr" },
+    grub = { "grub", "grub-efi", "efibootmgr" },
 }
 
 -- Installed when the config declares repos.flatpak; the app ids themselves

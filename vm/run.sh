@@ -116,6 +116,8 @@ do_install() {
             mkdir -p "$D"
             curl -sf "https://dl-cdn.alpinelinux.org/alpine/v3.24/$r/x86_64/APKINDEX.tar.gz" \
                 | tar -xzO APKINDEX > "$D/$r-324.apkindex"
+            # we run under sudo: leave snapshots writable by the real user
+            [ -n "${SUDO_USER:-}" ] && chown "$SUDO_USER" "$D" "$D/$r-324.apkindex"
         }
     done
     lua lockfile.lua 0 "$D/main-324.apkindex" "$D/community-324.apkindex" -- \
