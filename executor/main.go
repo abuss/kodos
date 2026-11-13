@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
@@ -102,6 +103,9 @@ func main() {
 func fatal(err error) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		if os.Getenv("KODOS_TRACEBACK") != "" { // debug aid
+			debug.PrintStack()
+		}
 		os.Exit(1)
 	}
 }
@@ -417,6 +421,12 @@ func (e *executor) configureNetwork(act map[string]any) error {
 }
 
 func (e *executor) createGeneration(act map[string]any) error {
+	// Live /etc edits made after the last activation (shadow's
+	// groupadd/useradd rename the managed file away) must be captured into
+	// the current store before it is seeded forward into the new generation.
+	if err := e.syncMutatedEtc(); err != nil {
+		return err
+	}
 	names := strList(act, "packages")
 	toInstall := make(map[string]string, len(names))
 	if e.resolved != nil {

@@ -480,11 +480,12 @@ func (e *executor) runPostInstalls(toInstall map[string]string) error {
 			}
 		}
 	}
-	// Post-install hooks (busybox addgroup, openrc, pam...) rewrite files
-	// through the managed /kod links: busybox-style tools REPLACE the symlink
-	// with a real file (rename-over), which then dangles or loops on the next
-	// activation. Copy such mutated files back into the generation's mutable
-	// etc_store and re-link, so /etc stays symlink-managed after hooks.
+	// Post-install hooks (busybox addgroup, openrc, pam...) and machine ops
+	// (shadow groupadd/useradd) rewrite /etc files: rename-over tools detach
+	// the hardlink, leaving a standalone real file whose content would drift
+	// out of the generation's store. Copy such mutated files back into the
+	// generation's mutable etc_store and re-hardlink, so /etc stays
+	// store-backed after hooks.
 	if err := e.syncMutatedEtc(); err != nil {
 		return err
 	}
@@ -506,25 +507,52 @@ func (e *executor) syncMutatedEtc() error {
 		rel, _ := filepath.Rel(genEtc, src)
 		live := filepath.Join(liveEtc, rel)
 		st, err := os.Lstat(live)
-		if err != nil || !st.Mode().IsRegular() {
-			continue // missing or still a managed link: nothing mutated
+		if err != nil {
+			continue
 		}
-		tgt := e.s.chrootResolve(src) // real file inside the generation
+		tgt := e.s.storeEntry(src) // the store entry behind the gen link
+		if ss, err := os.Lstat(tgt); err != nil || ss.Mode()&os.ModeSymlink != 0 {
+			continue // verbatim alias link (e.g. ssl1.1/certs): never mutates
+		}
+		if st.Mode()&os.ModeSymlink != 0 {
+			t, _ := os.Readlink(live)
+			if !strings.HasPrefix(t, "/kod/") {
+				continue // local symlink: not ours to touch
+			}
+			// legacy symlink shape: migrate to a hardlink; shadow 4.18
+			// rejects symlinks under /etc outright.
+			os.Remove(live)
+			if err := e.s.hardlink(tgt, live); err != nil {
+				return err
+			}
+			fmt.Printf("etc re-managed after hooks: %s\n", rel)
+			continue
+		}
+		if !st.Mode().IsRegular() {
+			continue
+		}
+		if sameInode(live, tgt) {
+			continue // still hardlinked: writes landed in the store directly
+		}
 		if sameContent(tgt, live) {
-			continue // identical bytes: leave the file as-is
+			os.Remove(live)
+			if err := e.s.hardlink(tgt, live); err != nil {
+				return fmt.Errorf("etc re-hardlink %s (tgt=%s live=%s): %w", rel, tgt, live, err)
+			}
+			continue
 		}
 		b, err := os.ReadFile(live)
 		if err != nil {
-			return err
+			return fmt.Errorf("etc read %s: %w", rel, err)
 		}
 		if err := os.WriteFile(tgt, b, st.Mode().Perm()); err != nil {
-			return err
+			return fmt.Errorf("etc write store %s: %w", rel, err)
 		}
 		if err := os.Remove(live); err != nil {
-			return err
+			return fmt.Errorf("etc remove %s: %w", rel, err)
 		}
-		if err := symlinkChroot(live, filepath.Join(gen, "current", "etc", rel), e.s.chroot); err != nil {
-			return err
+		if err := e.s.hardlink(tgt, live); err != nil {
+			return fmt.Errorf("etc re-hardlink %s (tgt=%s live=%s): %w", rel, tgt, live, err)
 		}
 		fmt.Printf("etc re-managed after hooks: %s\n", rel)
 	}

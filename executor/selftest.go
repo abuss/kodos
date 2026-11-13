@@ -4,8 +4,9 @@ package main
 // fake store: create -> activate -> edit through the live tree -> recreate
 // with a changed upstream default -> re-activate. It asserts the contract
 // that matters: edits survive, pristine baselines update, conflicts get
-// .apknew files, vanished entries are pruned, and every generated link is
-// chroot-rooted and resolves through `current`. Run: kodos-exec selftest
+// .apknew files, vanished entries are pruned, live etc entries are real
+// hardlinks into the generation store, and top-level links are
+// chroot-rooted and resolve through `current`. Run: kodos-exec selftest
 
 import (
 	"fmt"
@@ -69,10 +70,10 @@ func selftest() {
 	check(s.activateGeneration(g0) == nil, "activate gen0")
 	t, _ = os.Readlink(filepath.Join(chroot, "bin"))
 	check(t == "/kod/generation/current/bin", "top-level links through current, got %q", t)
-	t, _ = os.Readlink(filepath.Join(chroot, "etc", "foo"))
-	check(t == "/kod/generation/current/etc/foo", "live etc entry links through current, got %q", t)
-	check(readOr(s.chrootResolve(filepath.Join(chroot, "etc", "foo"))) == "upstream\n",
-		"chain resolves through current to upstream content")
+	check(sameInode(filepath.Join(chroot, "etc", "foo"), filepath.Join(g0, "etc_store", "foo")),
+		"live etc entry is a hardlink into the generation store")
+	check(readOr(filepath.Join(chroot, "etc", "foo")) == "upstream\n",
+		"live entry carries upstream content")
 	check(readOr(s.chrootResolve(filepath.Join(chroot, "sbin", "s"))) == "S\n",
 		"merged-usr sbin alias resolves through current")
 
@@ -90,7 +91,9 @@ func selftest() {
 	check(!lexists(filepath.Join(g1, "etc", "bar")), "entry not shipped in gen1 not linked")
 
 	check(s.activateGeneration(g1) == nil, "activate gen1")
-	check(readOr(s.chrootResolve(filepath.Join(chroot, "etc", "foo"))) == "edited\n",
+	check(sameInode(filepath.Join(chroot, "etc", "foo"), filepath.Join(g1, "etc_store", "foo")),
+		"switch re-materializes the hardlink from gen1's store")
+	check(readOr(filepath.Join(chroot, "etc", "foo")) == "edited\n",
 		"live config still shows the local edit after switch")
 	check(!lexists(filepath.Join(chroot, "etc", "bar")), "managed entry pruned from live /etc")
 	check(readOr(s.chrootResolve(filepath.Join(chroot, "bin", "a"))) == "A2\n", "bin content follows current")

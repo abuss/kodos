@@ -120,10 +120,10 @@ case "$PHASE" in
              qemu-nbd -c "$NBD" "$DISK"; mkdir -p "$MNT"
              mount /dev/nbd0p2 "$MNT"
              G=$MNT/kod/generation
-             echo "--- live etc/group chain:"; readlink -v "$MNT/etc/group"
-             echo "--- current -> $(readlink "$G/current")"
-             echo "--- gen0/etc/group -> $(readlink "$G/0/etc/group")"
-             echo "--- etc_store/group: $(ls -l "$G/0/etc_store/group" 2>&1 | tail -1)"
+             echo "--- live etc entry types (hardlinks expected):"
+             for f in group passwd; do
+                 echo "$f: $(stat -Lc '%F nlink=%h ino=%i' "$MNT/etc/$f" 2>&1) store_ino=$(stat -Lc %i "$G/0/etc_store/$f" 2>&1)"
+             done
              echo "--- shell below; exit to detach"
              exec sudo -u "${SUDO_USER:-abuss}" -s ;;
     boot)    do_boot ;;

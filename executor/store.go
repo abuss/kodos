@@ -174,17 +174,17 @@ func cowCopy(src, dst string) error {
 	return nil
 }
 
-// copyEtcEntry seeds one entry as real content under etc_default/etc_store,
-// following chroot-rooted links; nothing real to copy: recreate the link.
+// copyEtcEntry seeds one entry under etc_default/etc_store. Symlinks are
+// recreated verbatim (absolute targets are machine/chroot-rooted, relative
+// targets resolve in-place at live time); real files are copied.
 func (s *system) copyEtcEntry(src, dst string) error {
 	os.Remove(dst)
+	if t, err := os.Readlink(src); err == nil {
+		return os.Symlink(t, dst)
+	}
 	real := s.chrootResolve(src)
 	if st, err := os.Lstat(real); err == nil && st.Mode().IsRegular() {
 		return cowCopy(real, dst)
-	}
-	if _, err := os.Readlink(src); err == nil {
-		t, _ := os.Readlink(src)
-		return os.Symlink(t, dst)
 	}
 	return nil // dir: content copied through its children
 }
@@ -336,27 +336,86 @@ func (s *system) seedEtc(generation string, toInstall map[string]string, prevGen
 	return nil
 }
 
-// etcManaged: a link into kod/ means machine-owned; a real file was created
-// or edited locally and must never be replaced silently (NixOS/Guix rule).
-func (s *system) etcManaged(p string) bool {
-	t, err := os.Readlink(p)
-	return err == nil && strings.HasPrefix(t, "/kod/")
+// sameInode reports whether both paths are the same underlying file.
+func sameInode(a, b string) bool {
+	as, err := os.Lstat(a)
+	if err != nil {
+		return false
+	}
+	bs, err := os.Lstat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(as, bs)
 }
 
-// installEtc activates one etc entry; the link is written through the
-// current alias so repointing current flips /etc without re-activating.
-func (s *system) installEtc(src, dst, linkSrc string) {
-	if !lexists(dst) {
-		symlinkChroot(dst, linkSrc, s.chroot)
+// etcLinked: a live etc entry materialized from a generation's store: an
+// old-style symlink into /kod, or a hardlink sharing an inode with some
+// generation's etc_store copy. Anything else was created or edited locally
+// and must never be replaced silently (NixOS/Guix rule).
+func (s *system) etcLinked(dst, rel string) bool {
+	if t, err := os.Readlink(dst); err == nil {
+		return strings.HasPrefix(t, "/kod/") // legacy symlink shape
+	}
+	// ponytail: scans every kept generation's store; few generations, tiny
+	// fan-out, fine. A per-generation manifest would be the upgrade.
+	ms, _ := filepath.Glob(filepath.Join(s.root(), "generation", "*", "etc_store", rel))
+	for _, m := range ms {
+		if sameInode(dst, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// hardlink materializes target at dst sharing its inode: a plain real file
+// to every distro tool, while staying pinned to the generation's copy.
+func (s *system) hardlink(target, dst string) error {
+	if err := os.Link(target, dst); err != nil {
+		return cowCopy(target, dst) // cross-device store: fall back to a copy
+	}
+	return nil
+}
+
+// storeEntry: the store path behind a generation/etc link, without chasing
+// the entry's own final target: hardlinking THAT inode (a real file, or a
+// verbatim package symlink like ssl1.1/certs -> /etc/ssl/certs) is what
+// materializes the entry in live /etc.
+func (s *system) storeEntry(src string) string {
+	if t, err := os.Readlink(src); err == nil && strings.HasPrefix(t, "/") {
+		return filepath.Join(s.chroot, strings.TrimPrefix(t, "/"))
+	}
+	return s.chrootResolve(src)
+}
+
+// installEtc activates one etc entry as a hardlink into the generation's
+// store copy. Live /etc entries must be real files: shadow 4.18 opens
+// /etc/passwd & friends via openat2(RESOLVE_NO_SYMLINKS) and refuses to
+// even follow a symlink chain there (ELOOP "Symbolic link loop"), while
+// the real kodos machine (and every package post-install) treats /etc as
+// plain mutable files inside the generation's rootfs snapshot. Hardlinks
+// keep that behavior while preserving the shared-inode rollback bookkeeping.
+func (s *system) installEtc(src, dst, rel string) {
+	newP := s.storeEntry(src) // the store entry (real file or verbatim link)
+	ls, lerr := os.Lstat(dst)
+	if lerr != nil {
+		s.hardlink(newP, dst) // fresh entry
 		return
 	}
-	if dstIsLink, _ := os.Readlink(dst); dstIsLink != "" {
-		symlinkChroot(dst, linkSrc, s.chroot)
+	if ls.Mode()&os.ModeSymlink != 0 {
+		os.Remove(dst) // old-style managed symlink: migrate to hardlink
+		s.hardlink(newP, dst)
 		return
 	}
-	newP := s.chrootResolve(src)
+	if !ls.Mode().IsRegular() {
+		return // dir/fifo/socket: not ours to replace
+	}
+	if sameInode(dst, newP) {
+		return // already hardlinked to this generation
+	}
 	if sameContent(newP, dst) {
-		symlinkChroot(dst, src, s.chroot) // byte-identical: hand it back to the generations
+		os.Remove(dst)
+		s.hardlink(newP, dst) // byte-identical: hand it back to the generations
 		return
 	}
 	base := filepath.Base(dst)
@@ -374,7 +433,7 @@ func (s *system) installEtc(src, dst, linkSrc string) {
 		strings.TrimPrefix(dst, s.chroot+"/"), strings.TrimPrefix(conflict, s.chroot+"/"))
 }
 
-func (s *system) activateEtc(generationEtc, etc, linkBase string) error {
+func (s *system) activateEtc(generationEtc, etc string) error {
 	paths, err := walkTree(generationEtc)
 	if err != nil {
 		return err
@@ -382,14 +441,15 @@ func (s *system) activateEtc(generationEtc, etc, linkBase string) error {
 	for _, src := range paths {
 		rel, _ := filepath.Rel(generationEtc, src)
 		dst := filepath.Join(etc, rel)
-		if isRealDir(src) {
-			if s.etcManaged(dst) {
-				os.Remove(dst) // managed file link, now ships as a dir
+		// gen/etc leaves are links into the store; dirs are real dirs
+		if st, err := os.Lstat(src); err == nil && st.IsDir() {
+			if s.etcLinked(dst, rel) {
+				os.Remove(dst) // managed file entry, now ships as a dir
 			}
 			os.MkdirAll(dst, 0o755)
 		} else {
 			os.MkdirAll(filepath.Dir(dst), 0o755)
-			s.installEtc(src, dst, filepath.Join(linkBase, rel))
+			s.installEtc(src, dst, rel)
 		}
 	}
 
@@ -408,7 +468,7 @@ func (s *system) activateEtc(generationEtc, etc, linkBase string) error {
 	})
 	for _, item := range live {
 		rel, _ := filepath.Rel(etc, item)
-		if s.etcManaged(item) && !lexists(filepath.Join(generationEtc, rel)) {
+		if s.etcLinked(item, rel) && !lexists(filepath.Join(generationEtc, rel)) {
 			os.Remove(item)
 			fmt.Printf("removed %s (no longer in the generation)\n", strings.TrimPrefix(item, s.chroot+"/"))
 			emptied[filepath.Dir(item)] = true
@@ -476,7 +536,7 @@ func (s *system) activateGeneration(generation string) error {
 				continue
 			}
 			if e.Name() == "etc" {
-				if err := s.activateEtc(item, dst, filepath.Join(current, "etc")); err != nil {
+				if err := s.activateEtc(item, dst); err != nil {
 					return err
 				}
 			} else if err := symlinkTree(item, dst, s.chroot); err != nil {
