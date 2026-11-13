@@ -101,9 +101,10 @@ type partSpec struct {
 type partRange struct {
 	Index   int
 	Name    string
-	Start   int64 // MiB
-	End     int64 // MiB, inclusive
-	PartedF string
+	Start   int64  // MiB
+	End     int64  // MiB, inclusive
+	PartedF string // semantic type (esp|linux|linux-swap)
+	Hint    string // parted fs-type token for mkpart (type-GUID hint)
 }
 
 func sizeMiB(size string) (int64, bool) {
@@ -164,7 +165,16 @@ func planPartitions(diskMiB int64, specs []partSpec) ([]partRange, error) {
 		if pfs == "" {
 			pfs = "linux"
 		}
-		out = append(out, partRange{Index: sp.Index, Name: sp.Name, Start: start, End: end, PartedF: pfs})
+		// NOTE: these are semantic types; parted's mkpart wants an actual
+		// fs-type as the type-GUID hint (esp=fat32+flag, linux=ext4-ish
+		// data, linux-swap is itself a parted token). Real filesystems are
+		// made by the format ops; the hint only sets the right GPT type.
+		hint := map[string]string{"esp": "fat32", "linux": "ext4",
+			"linux-swap": "linux-swap"}[pfs]
+		if hint == "" {
+			hint = "ext4"
+		}
+		out = append(out, partRange{Index: sp.Index, Name: sp.Name, Start: start, End: end, PartedF: pfs, Hint: hint})
 		start = end + 1
 	}
 	return out, nil
@@ -293,12 +303,7 @@ func (e *executor) partitionDisk(act map[string]any) error {
 		return err
 	}
 	for _, r := range ranges {
-		// parted has no "esp" fs-type: ESP = fat32 + esp flag (GPT type uuid)
-		fs := r.PartedF
-		if fs == "esp" {
-			fs = "fat32"
-		}
-		if err := run("parted", "-s", device, "mkpart", r.Name, fs,
+		if err := run("parted", "-s", device, "mkpart", r.Name, r.Hint,
 			fmt.Sprintf("%dMiB", r.Start), fmt.Sprintf("%dMiB", r.End)); err != nil {
 			return err
 		}
