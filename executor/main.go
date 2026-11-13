@@ -36,6 +36,11 @@ type executor struct {
 	arch     string
 	mirror   string // captured from configure_repos (#1 always precedes #7)
 	branches []string
+
+	rootPart      string            // captured from mount / (bootloader needs UUID)
+	chrootMounted bool              // pseudo-fs mounted once
+	kernelArgs    []string          // stashed by set_kernel_arguments for grub.cfg
+	lastGen       map[string]string // pkg->version of the last create_generation
 }
 
 func main() {
@@ -82,8 +87,12 @@ func main() {
 			continue
 		}
 		fmt.Printf("== %s\n", op)
-		fatal(e.run(act))
+		if err := e.run(act); err != nil {
+			e.umountChroot() // leave no half-mounted pseudo-fs behind
+			fatal(err)
+		}
 	}
+	e.umountChroot()
 }
 
 func fatal(err error) {
@@ -98,18 +107,54 @@ func (e *executor) run(act map[string]any) error {
 	switch op {
 	case "configure_repos":
 		return e.configureRepos(act)
+	case "partition_disk":
+		return e.partitionDisk(act)
+	case "format":
+		return e.formatPartition(act)
+	case "create_swap":
+		return e.createSwap(act)
+	case "mount":
+		return e.mount(act)
 	case "write_file":
 		return e.writeFile(act)
 	case "install_packages":
 		return e.installPackages(act)
+	case "configure_locale":
+		return e.configureLocale(act)
+	case "configure_keyboard":
+		return e.configureKeyboard(act)
+	case "configure_timezone":
+		return e.configureTimezone(act)
+	case "load_kernel_modules":
+		return e.loadKernelModules(act)
+	case "set_kernel_arguments":
+		e.kernelArgs = strList(act, "arguments")
+		return nil
+	case "configure_service":
+		return e.configureService(act)
 	case "configure_network":
 		return e.configureNetwork(act)
 	case "create_generation":
 		return e.createGeneration(act)
 	case "activate_generation":
-		return e.s.activateGeneration(e.s.genDir(e.meta.Generation))
+		if err := e.s.activateGeneration(e.s.genDir(e.meta.Generation)); err != nil {
+			return err
+		}
+		// post-install hooks belong to the activated tree (kernel hook =
+		// mkinitfs); running them is part of making the generation real
+		return e.runPostInstalls(e.lastGen)
+	case "create_user":
+		return e.createUser(act)
+	case "enable_service":
+		return e.enableService(act)
+	case "enable_home_service":
+		return e.enableHomeService(act)
+	case "install_bootloader":
+		return e.installBootloader(act)
+	case "configure_flatpak_remote", "install_flatpak":
+		return fmt.Errorf("op %q: not implemented yet (flatpak lands after the VM boots)", op)
 	default:
-		return fmt.Errorf("op %q: not implemented in the spike yet (needs root/real target or per-distro rendering)", op)
+		return fmt.Errorf("unknown op %q", op)
 	}
 }
 
@@ -317,6 +362,7 @@ func (e *executor) createGeneration(act map[string]any) error {
 	if cand := e.s.genDir(idx - 1); idx > 0 && isRealDir(cand) {
 		prev = cand
 	}
+	e.lastGen = toInstall
 	_, err := e.s.createGeneration(toInstall, idx, prev)
 	if err == nil {
 		fmt.Printf("generation %d created (%d packages)\n", idx, len(toInstall))

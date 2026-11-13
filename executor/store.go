@@ -456,6 +456,14 @@ func (s *system) activateGeneration(generation string) error {
 		item := filepath.Join(generation, e.Name())
 		dst := filepath.Join(s.chroot, e.Name())
 		if isRealDir(dst) {
+			if isMountpoint(dst) {
+				// a mountpoint belongs to the storage ops, not to the
+				// generation: never symlink-merge into vfat (/boot ESP) or
+				// re-root a live /home. Content reaches it via post-install
+				// hooks (kernel -> /boot/vmlinuz+initramfs) and user tools.
+				fmt.Printf("note: /%s is a mountpoint: generation does not merge into it\n", e.Name())
+				continue
+			}
 			if e.Name() == "etc" {
 				if err := s.activateEtc(item, dst, filepath.Join(current, "etc")); err != nil {
 					return err

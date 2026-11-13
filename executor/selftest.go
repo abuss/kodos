@@ -88,4 +88,62 @@ func selftest() {
 	check(readOr(s.chrootResolve(filepath.Join(chroot, "bin", "a"))) == "A1\n", "bin back at gen0")
 
 	fmt.Println("PASS: executor selftest (create/activate/seed/switch/prune/rollback)")
+	selftestPure()
+}
+
+func selftestPure() {
+	// size parsing: binary rounding (MB==MiB, GB==GiB)
+	m, ok := sizeMiB("64GB")
+	check(ok && m == 65536, "sizeMiB 64GB = 65536, got %d %v", m, ok)
+	m, ok = sizeMiB("512MB")
+	check(ok && m == 512, "sizeMiB 512MB, got %d", m)
+
+	// the latent eszkoz layout: home "100%" BEFORE swap 34GB must still
+	// leave swap room (100% = rest minus later explicit sizes)
+	specs := []partSpec{
+		{1, "boot", "512MB", "esp"}, {2, "root", "64GB", "linux"},
+		{3, "home", "100%", "linux"}, {4, "swap", "34GB", "linux-swap"},
+	}
+	rs, err := planPartitions(204800, specs) // 200GiB
+	check(err == nil, "planPartitions: %v", err)
+	check(rs[0].Start == 1 && rs[0].PartedF == "esp", "esp first, 1MiB aligned")
+	check(rs[3].End == 204799, "swap reaches disk end, got %d", rs[3].End)
+	check(rs[2].End < rs[3].Start && rs[2].End > rs[1].End, "100%% partition shrinks for later sizes")
+	if _, err := planPartitions(65000, specs); err == nil {
+		check(false, "tiny disk must be a hard error, not an overwrite")
+	}
+
+	// grub.cfg: ESP-relative kernel, UUID root, serial console for -nographic
+	cfg := renderGrubCfg(5, "UUID-X", "6.18.63-r0", []string{"quiet"}, 0)
+	check(strings.Contains(cfg, "linux /vmlinuz-6.18.63-r0 root=UUID=UUID-X ro quiet"),
+		"grub cmdline, got:\n%s", cfg)
+	check(strings.Contains(cfg, "terminal_output serial") &&
+		strings.Contains(cfg, "search.fs_uuid UUID-X root"), "grub serial+search")
+
+	// sshd-style setting keys
+	check(settingsKey("permit_root_login") == "PermitRootLogin", "CamelCase key")
+
+	// diskBusy must refuse host-active disks (the config carries real names)
+	if busy := diskBusy("/dev/" + hostRootDisk()); busy {
+		// expected on any normal machine
+	} else {
+		check(false, "diskBusy failed to flag the host root disk")
+	}
+	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard)")
+}
+
+// hostRootDisk: device of the host's / partition, e.g. /dev/nvme0n1p2 -> nvme0n1
+func hostRootDisk() string {
+	b, err := os.ReadFile("/proc/mounts")
+	check(err == nil, "read /proc/mounts: %v", err)
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[1] == "/" && strings.HasPrefix(f[0], "/dev/") {
+			name := filepath.Base(f[0])
+			name = strings.TrimRight(name, "0123456789")
+			return strings.TrimRight(name, "p")
+		}
+	}
+	check(false, "host / not on a /dev/ device")
+	return ""
 }
