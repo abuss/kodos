@@ -46,8 +46,8 @@ do_install() {
     cleanup
     modprobe nbd max_part=8
     [ -f "$DISK" ] || qemu-img create -f qcow2 "$DISK" 200G
-    if [ -e /sys/block/nbd0 ] && [ -s /sys/block/nbd0/pid ] 2>/dev/null; then
-        qemu-nbd -c "$NBD" "$DISK" 2>/dev/null || true
+    if [ -e /sys/block/nbd0 ] && [ ! -s /sys/block/nbd0/pid ] 2>/dev/null; then
+        qemu-nbd -c "$NBD" "$DISK" || exit 1
     fi
     if [ ! -e "$NBD" ]; then
         echo "ERROR: $NBD missing: modprobe nbd failed?"
