@@ -492,6 +492,13 @@ func (s *system) createGeneration(toInstall map[string]string, idx int, prevGene
 		names = append(names, p)
 	}
 	slices.Sort(names)
+	// merged-usr (Alpine 3.24): alpine-baselayout ships top-level bin/sbin/
+	// lib as RELATIVE symlinks into its own usr/. Linking those verbatim
+	// would resolve them inside the baselayout package (/bin/sh -> the
+	// baselayout's usr/bin: ENOENT). They must instead alias the
+	// GENERATION's merged tree. Collected here, applied after real dirs.
+	type dirAlias struct{ name, target string }
+	var aliases []dirAlias
 	for _, pkg := range names {
 		src := filepath.Join(s.store(), pkg, toInstall[pkg])
 		if !isRealDir(src) {
@@ -505,9 +512,27 @@ func (s *system) createGeneration(toInstall map[string]string, idx int, prevGene
 			if strings.HasPrefix(e.Name(), ".") || e.Name() == "etc" {
 				continue // apk metadata / private etc trees
 			}
-			if err := symlinkTree(filepath.Join(src, e.Name()), filepath.Join(generation, e.Name()), s.chroot); err != nil {
+			path := filepath.Join(src, e.Name())
+			if st, err := os.Lstat(path); err == nil && st.Mode()&os.ModeSymlink != 0 {
+				if ln, err := os.Readlink(path); err == nil && !strings.HasPrefix(ln, "/") {
+					aliases = append(aliases, dirAlias{e.Name(), ln})
+					continue
+				}
+			}
+			if err := symlinkTree(path, filepath.Join(generation, e.Name()), s.chroot); err != nil {
 				return "", err
 			}
+		}
+	}
+	for _, a := range aliases {
+		dst := filepath.Join(generation, a.name)
+		if lexists(dst) {
+			continue // some package ships a real dir there: it wins
+		}
+		// resolved through `current` so every generation's alias follows its
+		// own merged tree, before and after rollback
+		if err := os.Symlink("/kod/generation/current/"+strings.TrimPrefix(a.target, "./"), dst); err != nil {
+			return "", err
 		}
 	}
 	if err := s.seedEtc(generation, toInstall, prevGeneration); err != nil {

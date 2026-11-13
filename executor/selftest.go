@@ -40,7 +40,13 @@ func selftest() {
 		check(os.WriteFile(p, []byte(content), 0o644) == nil, "write %s", p)
 	}
 
-	// fake store: pkgA@1.0 and pkgB@2.0
+	// fake store: pkgA@1.0 and pkgB@2.0, plus 00base@1.0 mirroring Alpine
+	// 3.24 merged-usr: top-level bin/sbin are RELATIVE symlinks into its
+	// own usr/ (this exact shape caused the /bin/sh ENOENT install bug)
+	write(filepath.Join(s.store(), "00base", "1.0", "usr", "bin", "b"), "B0\n")
+	write(filepath.Join(s.store(), "00base", "1.0", "usr", "sbin", "s"), "S\n")
+	check(os.Symlink("usr/bin", filepath.Join(s.store(), "00base", "1.0", "bin")) == nil, "fake bin symlink")
+	check(os.Symlink("usr/sbin", filepath.Join(s.store(), "00base", "1.0", "sbin")) == nil, "fake sbin symlink")
 	write(filepath.Join(s.store(), "pkgA", "1.0", "bin", "a"), "A1\n")
 	write(filepath.Join(s.store(), "pkgA", "1.0", "etc", "foo"), "upstream\n")
 	write(filepath.Join(s.store(), "pkgB", "2.0", "bin", "b"), "B\n")
@@ -48,9 +54,14 @@ func selftest() {
 	check(os.MkdirAll(filepath.Join(chroot, "etc"), 0o755) == nil, "live etc")
 
 	// gen 0
-	g0, err := s.createGeneration(map[string]string{"pkgA": "1.0", "pkgB": "2.0"}, 0, "")
+	g0, err := s.createGeneration(map[string]string{"pkgA": "1.0", "pkgB": "2.0", "00base": "1.0"}, 0, "")
 	check(err == nil, "create gen0: %v", err)
-	t, _ := os.Readlink(filepath.Join(g0, "bin", "a"))
+	// merged-usr: the relative bin/sbin symlinks must alias the generation's
+	// own tree; a real dir (pkgA/bin) always wins over a later alias
+	t, _ := os.Readlink(filepath.Join(g0, "sbin"))
+	check(t == "/kod/generation/current/usr/sbin", "sbin aliases current/usr/sbin, got %q", t)
+	check(isRealDir(filepath.Join(g0, "bin")), "real bin dir wins over alias")
+	t, _ = os.Readlink(filepath.Join(g0, "bin", "a"))
 	check(t == "/kod/store/pkgA/1.0/bin/a", "store link chroot-rooted, got %q", t)
 	t, _ = os.Readlink(filepath.Join(g0, "etc", "foo"))
 	check(strings.HasPrefix(t, "/kod/generation/0/etc_store/"), "etc link into etc_store, got %q", t)
@@ -62,6 +73,8 @@ func selftest() {
 	check(t == "/kod/generation/current/etc/foo", "live etc entry links through current, got %q", t)
 	check(readOr(s.chrootResolve(filepath.Join(chroot, "etc", "foo"))) == "upstream\n",
 		"chain resolves through current to upstream content")
+	check(readOr(s.chrootResolve(filepath.Join(chroot, "sbin", "s"))) == "S\n",
+		"merged-usr sbin alias resolves through current")
 
 	// local edit written through the live tree (lands in etc_store)
 	check(os.WriteFile(s.chrootResolve(filepath.Join(chroot, "etc", "foo")), []byte("edited\n"), 0o644) == nil, "edit")
