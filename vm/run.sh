@@ -21,9 +21,22 @@ PHASE=${1:-all}; [ "$PHASE" = fresh ] && PHASE=all
 if [ "$(id -u)" -ne 0 ]; then exec sudo "$0" "$@"; fi
 if [ "$FRESH" = 1 ]; then rm -f "$DISK"; fi
 
-cleanup() { umount -R "$MNT" 2>/dev/null || true; [ -e /sys/block/nbd0/pid ] && qemu-nbd -d "$NBD" >/dev/null 2>&1 || true; }
+cleanup() {
+    # explicit deepest-first, then recursive, then lazy; and retry the nbd
+    # disconnect because it fails while ANY mount is still holding it
+    for m in run dev sys home boot; do umount -R "$MNT/$m" >/dev/null 2>&1 || true; done
+    umount -R "$MNT" >/dev/null 2>&1 || umount -l -R "$MNT" >/dev/null 2>&1 || true
+    if [ -e /sys/block/nbd0/pid ] && [ -s /sys/block/nbd0/pid ]; then
+        for i in 1 2 3 4 5; do
+            qemu-nbd -d "$NBD" >/dev/null 2>&1 && break
+            sleep 1
+        done
+    fi
+}
 
 do_install() {
+    # recover cleanly from a previous crashed run (stale mounts/nbd)
+    cleanup
     modprobe nbd max_part=8
     [ -f "$DISK" ] || qemu-img create -f qcow2 "$DISK" 200G
     if [ ! -s /sys/block/nbd0/pid ] 2>/dev/null; then qemu-nbd -c "$NBD" "$DISK"; fi
