@@ -293,9 +293,19 @@ func (e *executor) partitionDisk(act map[string]any) error {
 		return err
 	}
 	for _, r := range ranges {
-		if err := run("parted", "-s", device, "mkpart", r.Name, r.PartedF,
+		// parted has no "esp" fs-type: ESP = fat32 + esp flag (GPT type uuid)
+		fs := r.PartedF
+		if fs == "esp" {
+			fs = "fat32"
+		}
+		if err := run("parted", "-s", device, "mkpart", r.Name, fs,
 			fmt.Sprintf("%dMiB", r.Start), fmt.Sprintf("%dMiB", r.End)); err != nil {
 			return err
+		}
+		if r.PartedF == "esp" {
+			if err := run("parted", "-s", device, "set", strconv.Itoa(r.Index), "esp", "on"); err != nil {
+				return err
+			}
 		}
 		fmt.Printf("%s: %s %s %dMiB-%dMiB\n", device, r.Name, r.PartedF, r.Start, r.End)
 	}
