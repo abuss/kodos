@@ -850,9 +850,10 @@ func (e *executor) installBootloader(act map[string]any) error {
 			if !strings.HasPrefix(suffix, "-") {
 				suffix = "-" + suffix
 			}
-			if lexists(filepath.Join(e.s.chroot, "boot", "initramfs"+suffix)) {
-				continue // already built (idempotent re-run)
-			}
+			// NO skip-if-exists guard: a file left damaged by an earlier
+			// fs/IO incident (truncated by fsck) then silently boots a
+			// skeleton initramfs into "No working init" panics. Rebuilding
+			// costs seconds; activation is rare.
 			if err := e.chrootSh("depmod " + shellQuote(abi)); err != nil {
 				return fmt.Errorf("bootloader depmod %s: %w", abi, err)
 			}
