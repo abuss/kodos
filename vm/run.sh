@@ -47,6 +47,15 @@ do_install() {
     modprobe nbd max_part=8
     [ -f "$DISK" ] || qemu-img create -f qcow2 "$DISK" 200G
     if [ ! -s /sys/block/nbd0/pid ] 2>/dev/null; then qemu-nbd -c "$NBD" "$DISK"; fi
+    # dead-server guard: an nbd whose qemu-nbd died serves pure EIO; fail
+    # with instructions instead of letting partition ops chew on it
+    if ! dd if="$NBD" of=/dev/null bs=512 count=34 skip=1 status=none 2>/dev/null; then
+        echo "ERROR: $NBD is attached but dead (stale qemu-nbd died?)."
+        echo "Recovery: sudo qemu-nbd -d $NBD; pkill -f qemu-nbd;"
+        echo "          sudo modprobe -r nbd && sudo modprobe nbd max_part=8"
+        echo "Then re-run vm/run.sh."
+        exit 1
+    fi
 
     # test-only secrets (vm is a throwaway box; never reuse these patterns)
     if [ ! -f "$VMDIR/secrets.json" ]; then
