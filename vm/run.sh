@@ -41,34 +41,40 @@ cleanup() {
     fi
 }
 
-do_install() {
-    # recover cleanly from a previous crashed run (stale mounts/nbd)
-    cleanup
-    modprobe nbd max_part=8
-    [ -f "$DISK" ] || qemu-img create -f qcow2 "$DISK" 200G
-    if [ -e /sys/block/nbd0 ] && [ ! -s /sys/block/nbd0/pid ] 2>/dev/null; then
-        qemu-nbd -c "$NBD" "$DISK" || exit 1
-    fi
-    if [ ! -e "$NBD" ]; then
-        echo "ERROR: $NBD missing: modprobe nbd failed?"
-        echo "Run: sudo modprobe nbd max_part=8   then re-run vm/run.sh"
+attach_nbd() {
+    modprobe nbd max_part=8 || { echo "ERROR: modprobe nbd failed"; exit 1; }
+    # Always start from a clean slate. Skipping the attach because "nbd0 is
+    # already connected" reuses whatever state it has — including a dead
+    # server whose stale pid file still says "connected" (EIO forever).
+    qemu-nbd -d "$NBD" >/dev/null 2>&1 || true
+    i=0
+    while [ -e /sys/block/nbd0/pid ] && [ $i -lt 5 ]; do sleep 1; i=$((i+1)); done
+    if ! qemu-nbd -c "$NBD" "$DISK"; then
+        echo "ERROR: cannot attach $NBD: wedged dead connection held by the kernel."
+        echo "Recovery: sudo pkill -f qemu-nbd; sudo modprobe -r nbd && sudo modprobe nbd max_part=8"
+        echo "If 'Module nbd is in use': the wedge survives until reboot — reboot."
         exit 1
     fi
-    # dead-server guard: an nbd whose qemu-nbd died serves pure EIO. Retry
-    # a few times (nbd attach can take a moment), then fail with
-    # instructions instead of letting partition ops chew on it.
+    # readable probe: an nbd whose server died serves pure EIO; the fresh
+    # attach above normally cures it, retries cover slow settling.
     ok=0
     for i in 1 2 3; do
         if dd if="$NBD" of=/dev/null bs=512 count=34 skip=1 status=none 2>/dev/null; then ok=1; break; fi
         sleep 1
     done
     if [ "$ok" != 1 ]; then
-        echo "ERROR: $NBD is attached but dead (stale qemu-nbd died?)."
-        echo "Recovery: sudo qemu-nbd -d $NBD; pkill -f qemu-nbd;"
-        echo "          sudo modprobe -r nbd && sudo modprobe nbd max_part=8"
-        echo "Then re-run vm/run.sh."
+        echo "ERROR: $NBD attached but not readable (dead kernel state)."
+        echo "Recovery: sudo pkill -f qemu-nbd; sudo modprobe -r nbd && sudo modprobe nbd max_part=8"
+        echo "If 'Module nbd is in use': the wedge survives until reboot — reboot."
         exit 1
     fi
+}
+
+do_install() {
+    # recover cleanly from a previous crashed run (stale mounts/nbd)
+    cleanup
+    [ -f "$DISK" ] || qemu-img create -f qcow2 "$DISK" 200G
+    attach_nbd
 
     # test-only secrets (vm is a throwaway box; never reuse these patterns)
     if [ ! -f "$VMDIR/secrets.json" ]; then
@@ -116,8 +122,7 @@ do_boot() {
 
 case "$PHASE" in
     install) trap cleanup EXIT; do_install ;;
-    debug)   trap cleanup EXIT; cleanup; modprobe nbd max_part=8
-             qemu-nbd -c "$NBD" "$DISK"; mkdir -p "$MNT"
+    debug)   trap cleanup EXIT; cleanup; attach_nbd; mkdir -p "$MNT"
              mount /dev/nbd0p2 "$MNT"
              G=$MNT/kod/generation
              echo "--- live etc entry types (hardlinks expected):"
