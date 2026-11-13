@@ -3,6 +3,13 @@
 -- work: identity, kernel variant and disk are all that differ.
 return {
     system = { host_name = "kodos-vm" },
-    boot = { kernel = { variant = "virt" } }, -- smaller + firmware-none
+    boot = {
+        kernel = {
+            variant = "virt", -- smaller + firmware-none
+            -- qemu -nographic: the log has to arrive on the serial console
+            -- (arrays append on merge: base arguments + this one)
+            arguments = { "console=ttyS0" },
+        },
+    },
     storage = { devices = { disk0 = { device = "/dev/nbd0" } } },
 }

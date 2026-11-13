@@ -14,10 +14,12 @@ DISK=$VMDIR/vm-disk.qcow2
 MNT=/var/tmp/kodos-vm-root
 NBD=/dev/nbd0
 
-if [ "${1:-}" = fresh ]; then rm -f "$DISK"; fi
+FRESH=0
+if [ "${1:-}" = fresh ]; then FRESH=1; fi
 PHASE=${1:-all}; [ "$PHASE" = fresh ] && PHASE=all
 
 if [ "$(id -u)" -ne 0 ]; then exec sudo "$0" "$PHASE"; fi
+if [ "$FRESH" = 1 ]; then rm -f "$DISK"; fi
 
 cleanup() { umount -R "$MNT" 2>/dev/null || true; [ -e /sys/block/nbd0/pid ] && qemu-nbd -d "$NBD" >/dev/null 2>&1 || true; }
 

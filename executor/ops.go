@@ -200,7 +200,7 @@ func renderGrubCfg(timeout int, uuid, kver string, args []string, gen int) strin
 	return fmt.Sprintf(`set default=0
 set timeout=%d
 serial --unit=0 --speed=115200
-terminal_input serial console
+terminal_input serial
 terminal_output serial console
 menuentry 'Kodos generation %d' {
 	search.fs_uuid %s root
@@ -510,6 +510,23 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// groupNameValid: standard POSIX group name shape (also makes the grep
+// pattern injection-safe)
+func groupNameValid(g string) bool {
+	if g == "" {
+		return false
+	}
+	for i, r := range g {
+		ok := r == '_' || r == '-' || r == '$' ||
+			(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(i > 0 && r >= '0' && r <= '9')
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (e *executor) createUser(act map[string]any) error {
 	login := field(act, "user")
 	if login == "" {
@@ -531,15 +548,19 @@ func (e *executor) createUser(act map[string]any) error {
 			flags = "-m "
 		}
 		// supplementary groups (docker, kvm...) belong to packages the user
-		// may install LATER: create any that don't exist yet, like NixOS does
+		// may install LATER: create any that don't exist yet. grep on
+		// /etc/group, NOT getent: the busybox getent applet is not
+		// guaranteed on a fresh Alpine.
 		var mkgroups strings.Builder
-		for _, g := range strList(act, "supplementary_groups") {
-			fmt.Fprintf(&mkgroups, "getent group %s >/dev/null || groupadd %s; ",
-				shellQuote(g), shellQuote(g))
+		for _, g := range append(strList(act, "supplementary_groups"), field(act, "group")) {
+			if !groupNameValid(g) {
+				return fmt.Errorf("create_user %s: suspicious group name %q", login, g)
+			}
+			fmt.Fprintf(&mkgroups, "grep -q '^%s:' /etc/group || groupadd %s; ", g, g)
 		}
 		script := fmt.Sprintf(
-			"%sgetent group %s >/dev/null || groupadd %s; useradd %s-d %s -s %s -g %s -G %s -c %s %s",
-			mkgroups.String(), shellQuote(field(act, "group")), shellQuote(field(act, "group")),
+			"%suseradd %s-d %s -s %s -g %s -G %s -c %s %s",
+			mkgroups.String(),
 			flags, shellQuote(field(act, "home_directory")), shellQuote(field(act, "shell")),
 			shellQuote(field(act, "group")), shellQuote(strings.Join(strList(act, "supplementary_groups"), ",")),
 			shellQuote(field(act, "name")), shellQuote(login))
