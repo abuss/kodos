@@ -139,21 +139,36 @@ do_install() {
 
 do_boot() {
     [ -f "$DISK" ] || { echo "no $DISK: run 'vm/run.sh install' first"; exit 1; }
-    # OVMF paths differ across distros: treat the host as unknown
-    OVMF=""
-    for c in /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd \
-             /usr/share/OVMF/OVMF_CODE_4M.fd \
-             /usr/share/edk2/ovmf/OVMF_CODE.4m.fd \
-             /usr/share/OVMF/OVMF_CODE.fd; do
-        [ -r "$c" ] && { OVMF=$c; break; }
+    # Firmware handling is distro- AND qemu-version-sensitive: recent qemu
+    # refuses -bios with CODE-only OVMF images (needs pflash unit=0/1), and
+    # some distros only ship split CODE/VARS, others combined OVMF.fd.
+    # Treat the host as unknown: probe the known layouts.
+    QARGS=""
+    for pair in \
+        "/usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd /usr/share/edk2-ovmf/x64/OVMF_VARS.4m.fd" \
+        "/usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_VARS_4M.fd" \
+        "/usr/share/edk2/ovmf/OVMF_CODE.4m.fd /usr/share/edk2/ovmf/OVMF_VARS.4m.fd"; do
+        CODE=${pair% *}; VARS=${pair#* }
+        [ -r "$CODE" ] && [ -r "$VARS" ] || continue
+        [ -f "$VMDIR/vm-vars.4m.fd" ] || cp "$VARS" "$VMDIR/vm-vars.4m.fd"
+        QARGS="-machine q35 -drive if=pflash,format=raw,readonly=on,file=$CODE -drive if=pflash,format=raw,file=$VMDIR/vm-vars.4m.fd"
+        break
     done
-    [ -n "$OVMF" ] || { echo "ERROR: no OVMF firmware found (install edk2-ovmf/ovmf)"; exit 1; }
+    if [ -z "$QARGS" ]; then
+        BIOS=""
+        for c in /usr/share/edk2-ovmf/x64/OVMF.4m.fd /usr/share/OVMF/OVMF.fd \
+                 /usr/share/edk2/ovmf/OVMF.fd; do
+            [ -r "$c" ] && { BIOS=$c; break; }
+        done
+        [ -n "$BIOS" ] || { echo "ERROR: no OVMF firmware found (install edk2-ovmf/ovmf)"; exit 1; }
+        QARGS="-bios $BIOS"
+    fi
     echo "booting (quit: Ctrl-a x; login: abuss / kodos-user-test, then 'su -')"
     exec qemu-system-x86_64 -m 4096 -smp 2 \
         -drive file="$DISK",if=virtio,format=qcow2 \
         -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 \
         -device virtio-net-pci \
-        -bios "$OVMF" \
+        $QARGS \
         -nographic
 }
 

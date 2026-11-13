@@ -1,5 +1,6 @@
 vm/apk-tools-static
 vm-disk.qcow2
+vm-vars.4m.fd
 *.swp
 *~
 secrets*.json
