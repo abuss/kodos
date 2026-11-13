@@ -53,6 +53,14 @@ func symlinkChroot(dst, target, chroot string) error {
 
 func symlinkTree(src, dst, chroot string) error {
 	if isRealDir(src) {
+		if lexists(dst) && !isRealDir(dst) {
+			// merge conflict: a real dir beats a package-shipped symlink
+			// (e.g. var/run as symlink in baselayout vs files under
+			// var/run/ in other packages — apk itself merges through it)
+			if err := os.Remove(dst); err != nil {
+				return err
+			}
+		}
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return err
 		}
@@ -66,6 +74,9 @@ func symlinkTree(src, dst, chroot string) error {
 			}
 		}
 		return nil
+	}
+	if isRealDir(dst) {
+		return nil // merged real dir wins over this package's symlink
 	}
 	return symlinkChroot(dst, src, chroot)
 }
