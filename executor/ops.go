@@ -214,12 +214,10 @@ serial --unit=0 --speed=115200
 terminal_input serial
 terminal_output serial console
 menuentry 'Kodos generation %d' {
-	search.fs_uuid %s root
-	set root=($root)
 	linux /vmlinuz-%s %s
 	initrd /initramfs-%s
 }
-`, timeout, gen, uuid, kver, cmdline, kver)
+`, timeout, gen, kver, cmdline, kver)
 }
 
 // settingsKey: neutral snake_case -> sshd-style CamelCase keys (pure,

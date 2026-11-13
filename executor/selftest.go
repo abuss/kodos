@@ -134,7 +134,8 @@ func selftestPure() {
 	check(strings.Contains(cfg, "linux /vmlinuz-6.18.63-r0 root=UUID=UUID-X ro quiet"),
 		"grub cmdline, got:\n%s", cfg)
 	check(strings.Contains(cfg, "terminal_output serial") &&
-		strings.Contains(cfg, "search.fs_uuid UUID-X root"), "grub serial+search")
+		!strings.Contains(cfg, "search.fs_uuid"),
+		"grub serial, no search: kernel loads from ESP where grub.cfg lives")
 
 	// sshd-style setting keys
 	check(settingsKey("permit_root_login") == "PermitRootLogin", "CamelCase key")
