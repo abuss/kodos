@@ -12,7 +12,7 @@ M.repo_types = { deb = true }
 M.init = "systemd" -- systemctl enable <unit>
 
 -- Debian has no "base" meta; the bootstrap set is composed here.
-M.base_packages = { "apt", "systemd" }
+M.base_packages = { "apt", "systemd", "tzdata" }
 -- Kernel variants: trixie's default series (6.12) already IS the LTS
 -- kernel and has no separate alias, so lts maps to the default; rt/cloud
 -- have stable aliases. firmware-linux lives in non-free-firmware (needs

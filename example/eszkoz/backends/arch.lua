@@ -10,7 +10,7 @@ M.name = "arch"
 M.repo_types = { arch = true }
 M.init = "systemd" -- enable mechanism: systemctl enable <unit>
 
-M.base_packages = { "base" } -- includes systemd
+M.base_packages = { "base", "tzdata" } -- base meta includes systemd
 -- Kernel variants (boot.kernel.variant): Arch has the richest menu.
 M.kernel_packages = {
     default = { "linux", "linux-firmware" },

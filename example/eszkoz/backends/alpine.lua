@@ -12,7 +12,12 @@ M.repo_types = { apk = true } -- repos.base.type picks this backend
 M.init = "openrc" -- enable mechanism: rc-update add <unit> <runlevel>
 
 -- Packages the base system always needs, never listed in user config.
-M.base_packages = { "alpine-base", "openrc", "dbus" }
+M.base_packages = { "alpine-base", "openrc", "dbus",
+    -- bootability facts the executor relies on: mkinitfs runs from the
+    -- kernel's .post-install hook (initramfs is required: Alpine kernels
+    -- build virtio/ext4 as modules), and tzdata provides the zoneinfo
+    -- tree that configure_timezone links into /etc/localtime.
+    "mkinitfs", "tzdata" }
 
 -- Kernel: keyed by NEUTRAL variant (boot.kernel.variant selects; absent =
 -- "default"). Alpine flavors verified on v3.24 x86_64: lts (main, the
@@ -25,7 +30,8 @@ M.kernel_packages = {
     default = { "linux-lts", "linux-firmware" },
     lts = { "linux-lts", "linux-firmware" },
     stable = { "linux-stable", "linux-firmware" },
-    virt = { "linux-virt", "linux-firmware" },
+    virt = { "linux-virt", "linux-firmware-none" }, -- VM guests: virtio is
+    -- built into linux-virt; no firmware blobs needed at all
 }
 M.bootloader_packages = {
     grub = { "grub", "efibootmgr" },
