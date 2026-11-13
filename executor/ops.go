@@ -10,6 +10,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -427,26 +428,55 @@ func (e *executor) chrootSh(script string) error {
 }
 
 // runPostInstalls executes package .post-install scripts INSIDE the
-// activated generation (Alpine's kernel hook = mkinitfs, dbus adds users,
-// ...). Deterministic: store order by package name.
+// activated generation. Alpine 3.24 busybox creates /bin/sh etc only via
+// its own hook (`#!/bin/busybox sh; /bin/busybox --install -s`), so:
+// busybox runs FIRST and scripts are exec'd through their SHEBANG, not
+// wrapped in /bin/sh (which may not exist yet). Deterministic order.
 func (e *executor) runPostInstalls(toInstall map[string]string) error {
 	names := make([]string, 0, len(toInstall))
 	for p := range toInstall {
 		names = append(names, p)
 	}
 	slices.Sort(names)
+	if i := slices.Index(names, "busybox"); i > 0 { // provides /bin/sh for the rest
+		names = append([]string{"busybox"}, append(names[:i:i], names[i+1:]...)...)
+	}
 	for _, p := range names {
 		script := filepath.Join(e.s.store(), p, toInstall[p], ".post-install")
 		if !lexists(script) {
 			continue
 		}
-		rel, _ := filepath.Rel(e.s.chroot, script)
+		rel := "/" + mustRel(e.s.chroot, script)
 		fmt.Printf("post-install: %s\n", p)
-		if err := e.chrootSh("/" + rel); err != nil {
-			return fmt.Errorf("post-install %s: %w", p, err)
+		err := e.chrootExecScript(rel)
+		if err != nil {
+			// shebang-less or non-exec script: plain sh fallback (/bin/sh
+			// exists by now if busybox ran)
+			err2 := e.chrootSh(rel)
+			if err2 != nil {
+				return fmt.Errorf("post-install %s: %w", p, err)
+			}
 		}
 	}
 	return nil
+}
+
+func mustRel(base, target string) string {
+	r, err := filepath.Rel(base, target)
+	if err != nil {
+		return strings.TrimPrefix(target, base+"/")
+	}
+	return r
+}
+
+func (e *executor) chrootExecScript(relPath string) error {
+	if err := e.ensureChrootMounts(); err != nil {
+		return err
+	}
+	cmd := exec.Command("chroot", e.s.chroot, relPath)
+	cmd.Dir = e.s.chroot
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	return cmd.Run()
 }
 
 // ---- per-distro file rendering (Alpine/OpenRC facts; the Go mirror of
@@ -632,6 +662,53 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if e.rootPart == "" {
 		return fmt.Errorf("install_bootloader: root partition unknown (no mount / action?)")
 	}
+	gen := e.s.genDir(e.meta.Generation)
+
+	// The kernel package ships /boot/vmlinuz-<flavor> directly, but /boot
+	// is a vfat ESP mountpoint so generation links never merge into it:
+	// copy the dereferenced content instead (vmlinuz+config+System.map).
+	if bootGen := filepath.Join(gen, "boot"); isRealDir(bootGen) {
+		filepath.WalkDir(bootGen, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			rel, _ := filepath.Rel(bootGen, p)
+			src := e.s.chrootResolve(p)
+			b, err := os.ReadFile(src)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(e.s.chroot, "boot", rel), b, 0o644)
+		})
+	}
+
+	// Alpine makes initramfs via apk TRIGGERS (which we bypass): for each
+	// /lib/modules/<abi>, depmod + mkinitfs -o /boot/initramfs<suffix>
+	// (suffix from kernel-suffix, matching the vmlinuz-<flavor> name).
+	// ponytail: initramfs-suffix bookkeeping (uninstall cleanup) skipped;
+	// add when generation GC starts removing kernels.
+	modsGen := filepath.Join(gen, "lib", "modules")
+	if dirs, _ := filepath.Glob(filepath.Join(modsGen, "*")); len(dirs) > 0 {
+		for _, md := range dirs {
+			abi := filepath.Base(md)
+			sufB, err := os.ReadFile(filepath.Join(md, "kernel-suffix"))
+			if err != nil {
+				continue // not a kernel modules dir
+			}
+			suffix := "-" + strings.TrimSpace(string(sufB))
+			if lexists(filepath.Join(e.s.chroot, "boot", "initramfs"+suffix)) {
+				continue // already built (idempotent re-run)
+			}
+			if err := e.chrootSh("depmod " + shellQuote(abi)); err != nil {
+				return fmt.Errorf("bootloader depmod %s: %w", abi, err)
+			}
+			if err := e.chrootSh("mkinitfs -o /boot/initramfs" + suffix + " " + shellQuote(abi)); err != nil {
+				return fmt.Errorf("bootloader mkinitfs %s: %w", abi, err)
+			}
+			fmt.Printf("initramfs built: initramfs%s (kernel %s)\n", suffix, abi)
+		}
+	}
+
 	if err := e.chrootSh("grub-install --removable --target=x86_64-efi " +
 		"--efi-directory=/boot --boot-directory=/boot"); err != nil {
 		return err
@@ -652,13 +729,13 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if f, ok := act["timeout"].(float64); ok {
 		timeout = int(f)
 	}
-	gen := e.meta.Generation
-	cfg := renderGrubCfg(timeout, uuid, kver, e.kernelArgs, gen)
+	genIdx := e.meta.Generation
+	cfg := renderGrubCfg(timeout, uuid, kver, e.kernelArgs, genIdx)
 	// ESP is mounted at <chroot>/boot: grub reads its config there
 	if err := os.WriteFile(filepath.Join(e.s.chroot, "boot/grub/grub.cfg"),
 		[]byte(cfg), 0o444); err != nil {
 		return err
 	}
-	fmt.Printf("bootloader: grub EFI (removable path) + grub.cfg for generation %d, kernel %s\n", gen, kver)
+	fmt.Printf("bootloader: grub EFI (removable path) + grub.cfg for generation %d, kernel %s\n", genIdx, kver)
 	return nil
 }

@@ -64,7 +64,8 @@ do_install() {
     mkdir -p "$MNT"
     "$REPO/executor/kodos-exec" -actions "$VMDIR/actions.json" \
         -metadata "$VMDIR/generation-0.json" -root "$MNT" \
-        -secrets "$VMDIR/secrets.json"
+        -secrets "$VMDIR/secrets.json" \
+        -apk /home/abuss/Work/devel/kodos-musl/experiments/apk-usage/apk
     sync
     cleanup
 }

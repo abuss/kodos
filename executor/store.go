@@ -492,11 +492,12 @@ func (s *system) createGeneration(toInstall map[string]string, idx int, prevGene
 		names = append(names, p)
 	}
 	slices.Sort(names)
-	// merged-usr (Alpine 3.24): alpine-baselayout ships top-level bin/sbin/
-	// lib as RELATIVE symlinks into its own usr/. Linking those verbatim
-	// would resolve them inside the baselayout package (/bin/sh -> the
-	// baselayout's usr/bin: ENOENT). They must instead alias the
-	// GENERATION's merged tree. Collected here, applied after real dirs.
+	// Guard for packages shipping top-level dirs as RELATIVE symlinks
+	// (merged-usr style): linking them verbatim would resolve them inside
+	// the package instead of the generation's merged tree. (Alpine 3.24
+	// does NOT do this — the /bin/sh ENOENT that motivated this was
+	// busybox creating applet links in its post-install hook — but the
+	// shape is legal for packages, so the guard stays.)
 	type dirAlias struct{ name, target string }
 	var aliases []dirAlias
 	for _, pkg := range names {

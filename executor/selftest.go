@@ -40,9 +40,9 @@ func selftest() {
 		check(os.WriteFile(p, []byte(content), 0o644) == nil, "write %s", p)
 	}
 
-	// fake store: pkgA@1.0 and pkgB@2.0, plus 00base@1.0 mirroring Alpine
-	// 3.24 merged-usr: top-level bin/sbin are RELATIVE symlinks into its
-	// own usr/ (this exact shape caused the /bin/sh ENOENT install bug)
+	// relative top-level symlinks (merged-usr shape) must alias the
+	// generation tree, not the package (guard; Alpine 3.24 does not use
+	// this shape — busybox ships real dirs and creates links post-install)
 	write(filepath.Join(s.store(), "00base", "1.0", "usr", "bin", "b"), "B0\n")
 	write(filepath.Join(s.store(), "00base", "1.0", "usr", "sbin", "s"), "S\n")
 	check(os.Symlink("usr/bin", filepath.Join(s.store(), "00base", "1.0", "bin")) == nil, "fake bin symlink")

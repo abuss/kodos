@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -41,6 +42,8 @@ type executor struct {
 	chrootMounted bool              // pseudo-fs mounted once
 	kernelArgs    []string          // stashed by set_kernel_arguments for grub.cfg
 	lastGen       map[string]string // pkg->version of the last create_generation
+	apk           string            // apk binary for dependency closure resolution
+	resolved      map[string]string // pkg->version full closure from apk simulate
 }
 
 func main() {
@@ -49,6 +52,7 @@ func main() {
 	root := flag.String("root", "", "target root filesystem directory")
 	secrets := flag.String("secrets", "", "secrets store JSON (dotted key -> value, mode 0600)")
 	arch := flag.String("arch", "x86_64", "package arch for download URLs")
+	apkBin := flag.String("apk", "apk", "apk-tools binary used to resolve the dependency closure")
 	dryRun := flag.Bool("dry-run", false, "validate + print the plan, change nothing")
 	flag.Parse()
 
@@ -72,7 +76,7 @@ func main() {
 		fatal(fmt.Errorf("actions and metadata disagree (distro/generation)"))
 	}
 
-	e := &executor{s: &system{chroot: *root}, meta: meta, arch: *arch}
+	e := &executor{s: &system{chroot: *root}, meta: meta, arch: *arch, apk: *apkBin}
 	if *secrets != "" {
 		fatal(loadJSON(*secrets, &e.secrets))
 	}
@@ -198,27 +202,92 @@ func (e *executor) writeFileTo(path, content string, mode os.FileMode) error {
 	return os.WriteFile(p, []byte(content), mode)
 }
 
-// installPackages fetches each pinned <pkg>-<version>.apk (first branch that
-// has it wins) and unpacks it into the store; idempotent: an existing store
-// entry with content is kept (build-once-into-store contract).
+// installPackages resolves the FULL dependency closure with apk's own
+// solver (add --simulate; the config's names are requests, not a closure:
+// busybox/musl/baselayout arrive only via depends), then fetches each .apk
+// into the store. Locked names are pinned to their exact locked version
+// (lock drift = hard error); dep versions come from apk and are reported
+// loudly (closure locking in lockfile.lua = future work, see NEXT.md).
 func (e *executor) installPackages(act map[string]any) error {
 	if e.mirror == "" {
 		return fmt.Errorf("install_packages before configure_repos: no repos captured")
 	}
-	for _, name := range strList(act, "names") {
-		pin, ok := e.meta.Packages[name]
-		if !ok {
-			return fmt.Errorf("%s: not pinned in metadata (lock first)", name)
-		}
-		dst := filepath.Join(e.s.store(), name, pin.Version)
-		if isRealDir(dst) {
-			continue // already in the store: no re-download, no rebuild
-		}
-		if err := e.fetchUnpack(name, pin.Version); err != nil {
-			return err
+	names := strList(act, "names")
+	addArgs := []string{}
+	for _, n := range names {
+		if pin, ok := e.meta.Packages[n]; ok {
+			addArgs = append(addArgs, n+"="+pin.Version)
+		} else {
+			addArgs = append(addArgs, n)
 		}
 	}
+	resolved, err := e.apkSimulate(addArgs)
+	if err != nil {
+		return err
+	}
+	var unpinned []string
+	for name, ver := range resolved {
+		if pin, ok := e.meta.Packages[name]; ok {
+			if pin.Version != ver {
+				return fmt.Errorf("lock drift: %s resolves to %s but metadata pins %s",
+					name, ver, pin.Version)
+			}
+		} else {
+			unpinned = append(unpinned, name+"-"+ver)
+		}
+		if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
+			if err := e.fetchUnpack(name, ver); err != nil {
+				return err
+			}
+		}
+	}
+	slices.Sort(unpinned)
+	if len(unpinned) > 0 {
+		fmt.Printf("WARNING: %d deps unpinned in metadata (resolved live by apk; closure lock is TODO): %s\n",
+			len(unpinned), strings.Join(unpinned, " "))
+	}
+	e.resolved = resolved
+	fmt.Printf("install_packages: %d requested -> %d resolved (full closure)\n", len(names), len(resolved))
 	return nil
+}
+
+// apkSimulate: scratch apk db under <chroot>/.kodos-apkdb keeps the solver
+// out of the generation/activation model entirely.
+func (e *executor) apkSimulate(addArgs []string) (map[string]string, error) {
+	db := filepath.Join(e.s.chroot, ".kodos-apkdb")
+	os.MkdirAll(filepath.Join(db, "lib/apk/db"), 0o755)
+	os.MkdirAll(filepath.Join(db, "etc/apk"), 0o755)
+	if !lexists(filepath.Join(db, "lib/apk/db/installed")) {
+		os.WriteFile(filepath.Join(db, "lib/apk/db/installed"), nil, 0o644)
+	}
+	if !lexists(filepath.Join(db, "etc/apk/world")) {
+		os.WriteFile(filepath.Join(db, "etc/apk/world"), nil, 0o644)
+	}
+	args := []string{"--root", db, "--no-cache", "--allow-untrusted"}
+	for _, b := range e.branches {
+		args = append(args, "-X", e.mirror+"/"+b)
+	}
+	args = append(args, "add", "--simulate")
+	args = append(args, addArgs...)
+	out, err := runOut(e.apk, args...)
+	if err != nil {
+		return nil, fmt.Errorf("apk dependency resolve: %w", err)
+	}
+	resolved := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		if i := strings.Index(line, ") Installing "); i >= 0 {
+			rest := line[i+len(") Installing "):]
+			name, ver, ok := strings.Cut(rest, " (")
+			if !ok {
+				continue
+			}
+			resolved[name] = strings.TrimSuffix(ver, ")")
+		}
+	}
+	if len(resolved) == 0 {
+		return nil, fmt.Errorf("apk resolved nothing: %s", out)
+	}
+	return resolved, nil
 }
 
 func (e *executor) fetchUnpack(name, version string) error {
@@ -350,12 +419,26 @@ func (e *executor) configureNetwork(act map[string]any) error {
 func (e *executor) createGeneration(act map[string]any) error {
 	names := strList(act, "packages")
 	toInstall := make(map[string]string, len(names))
-	for _, n := range names {
-		pin, ok := e.meta.Packages[n]
-		if !ok {
-			return fmt.Errorf("create_generation: %s not pinned in metadata", n)
+	if e.resolved != nil {
+		// install_packages already closed the set with apk's solver:
+		// the generation carries the FULL closure (musl, busybox, ...)
+		for n, v := range e.resolved {
+			toInstall[n] = v
 		}
-		toInstall[n] = pin.Version
+		for _, n := range names {
+			if _, ok := toInstall[n]; !ok {
+				return fmt.Errorf("create_generation: %s missing from resolved closure", n)
+			}
+		}
+	} else {
+		// no apk run this process (dry-run/selftest): fall back to pins
+		for _, n := range names {
+			pin, ok := e.meta.Packages[n]
+			if !ok {
+				return fmt.Errorf("create_generation: %s not pinned in metadata", n)
+			}
+			toInstall[n] = pin.Version
+		}
 	}
 	idx := e.meta.Generation
 	prev := ""
