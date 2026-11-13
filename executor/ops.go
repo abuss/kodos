@@ -620,7 +620,9 @@ func (e *executor) configureTimezone(act map[string]any) error {
 
 func (e *executor) loadKernelModules(act map[string]any) error {
 	mods := strList(act, "modules")
-	p := filepath.Join(e.s.chroot, "etc/modules")
+	// chrootResolve: live /etc/modules may be a chroot-rooted managed link;
+	// its target only resolves rooted at the chroot (see writeFileTo).
+	p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules"))
 	b, _ := os.ReadFile(p) // idempotent: skip modules already listed
 	existing := string(b)
 	var add []string

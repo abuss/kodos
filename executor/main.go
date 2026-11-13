@@ -199,7 +199,10 @@ func (e *executor) writeFile(act map[string]any) error {
 }
 
 func (e *executor) writeFileTo(path, content string, mode os.FileMode) error {
-	p := filepath.Join(e.s.chroot, path)
+	// resolve chroot-rooted managed links first: the live etc entry may be a
+	// symlink into /kod, whose target only makes sense rooted at the chroot
+	// (the HOST is itself a kodos machine with a different /kod layout).
+	p := e.s.chrootResolve(filepath.Join(e.s.chroot, path))
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
