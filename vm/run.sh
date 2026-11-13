@@ -18,56 +18,73 @@ FRESH=0
 if [ "${1:-}" = fresh ]; then FRESH=1; fi
 PHASE=${1:-all}; [ "$PHASE" = fresh ] && PHASE=all
 
-if [ "$(id -u)" -ne 0 ]; then exec sudo "$0" "$@"; fi
+if [ "$(id -u)" -ne 0 ]; then exec sudo env APK_BIN="${APK_BIN:-}" "$0" "$@"; fi
 if [ "$FRESH" = 1 ]; then rm -f "$DISK"; fi
 
 cleanup() {
-    # device-keyed, NOT path-keyed: this host is itself a kodos machine, so
-    # /var/tmp canonicalizes through /kod/store/... and the mount table's
-    # path differs from the one we passed to mount. Unmount by device.
-    awk '$1 ~ "^/dev/nbd" {print $2}' /proc/mounts | while read -r m; do
+    # Only touch OURS on an unknown host: an nbd mount is ours if its target
+    # is under the VM root (match also realpath — hosts vary, e.g. /var/tmp
+    # may be a symlink; never assume the host's layout). Disconnects need a
+    # qemu-nbd cmdline proof of our disk.
+    Mreal=$(readlink -f "$MNT" 2>/dev/null || echo "$MNT")
+    awk -v m="$MNT" -v r="$Mreal" \
+        '$1 ~ /^\/dev\/nbd/ && (index($2, m) == 1 || index($2, r) == 1) {print $2}' \
+        /proc/mounts | while read -r mm; do
         # demote first: never propagate an unmount outward to the host
-        mount --make-rprivate "$m" >/dev/null 2>&1 || true
-        umount -R "$m" >/dev/null 2>&1 || umount -l -R "$m" >/dev/null 2>&1 || true
+        mount --make-rprivate "$mm" >/dev/null 2>&1 || true
+        umount -R "$mm" >/dev/null 2>&1 || umount -l -R "$mm" >/dev/null 2>&1 || true
     done
-    awk '$1 ~ "^/dev/nbd" {print $1}' /proc/swaps | while read -r s; do
-        swapoff "$s" >/dev/null 2>&1 || true
+    proven=""
+    for i in 0 1 2 3 4 5 6 7; do
+        [ -e "/sys/block/nbd$i/pid" ] || continue
+        p=$(cat "/sys/block/nbd$i/pid" 2>/dev/null) || continue
+        grep -qa "vm-disk" "/proc/$p/cmdline" 2>/dev/null || continue
+        proven="$proven $i"
     done
-    if [ -e /sys/block/nbd0/pid ] && [ -s /sys/block/nbd0/pid ]; then
-        for i in 1 2 3 4 5; do
-            qemu-nbd -d "$NBD" >/dev/null 2>&1 && break
-            sleep 1
+    if [ -n "$proven" ]; then
+        alt=$(echo $proven | tr ' ' '|')
+        awk -v re="^/dev/nbd(${alt})p?[0-9]*$" '$1 ~ re {print $1}' /proc/swaps |
+            while read -r s; do swapoff "$s" >/dev/null 2>&1 || true; done
+        for i in $proven; do
+            for t in 1 2 3 4 5; do
+                qemu-nbd -d "/dev/nbd$i" >/dev/null 2>&1 && break
+                sleep 1
+            done
         done
     fi
 }
 
 attach_nbd() {
+    # The host may run anything: NEVER disconnect an nbd we cannot prove is
+    # ours, and do not assume nbd0 is free — a wedged dead connection (only
+    # reboot clears it) just burns one index; use the next free device.
     modprobe nbd max_part=8 || { echo "ERROR: modprobe nbd failed"; exit 1; }
-    # Always start from a clean slate. Skipping the attach because "nbd0 is
-    # already connected" reuses whatever state it has — including a dead
-    # server whose stale pid file still says "connected" (EIO forever).
-    qemu-nbd -d "$NBD" >/dev/null 2>&1 || true
-    i=0
-    while [ -e /sys/block/nbd0/pid ] && [ $i -lt 5 ]; do sleep 1; i=$((i+1)); done
-    if ! qemu-nbd -c "$NBD" "$DISK"; then
-        echo "ERROR: cannot attach $NBD: wedged dead connection held by the kernel."
-        echo "Recovery: sudo pkill -f qemu-nbd; sudo modprobe -r nbd && sudo modprobe nbd max_part=8"
-        echo "If 'Module nbd is in use': the wedge survives until reboot — reboot."
-        exit 1
+    # a host that preloaded nbd without max_part gets no nbdXpY partition
+    # nodes at all: try to take over the module, else fail loudly.
+    if [ "$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || echo 0)" -lt 8 ]; then
+        modprobe -r nbd >/dev/null 2>&1 || true
+        modprobe nbd max_part=8 2>/dev/null || true
+        mp=$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || echo 0)
+        [ "$mp" -ge 8 ] || { echo "ERROR: nbd loaded with max_part=$mp (someone else's module state): partition nodes will not exist"; exit 1; }
     fi
-    # readable probe: an nbd whose server died serves pure EIO; the fresh
-    # attach above normally cures it, retries cover slow settling.
-    ok=0
-    for i in 1 2 3; do
-        if dd if="$NBD" of=/dev/null bs=512 count=34 skip=1 status=none 2>/dev/null; then ok=1; break; fi
-        sleep 1
+    [ -e /dev/nbd0 ] || sleep 1   # udev may be slow to create the nodes
+    for i in 0 1 2 3 4 5 6 7; do
+        d=/dev/nbd$i
+        [ -e "$d" ] || continue
+        # in use (live or wedged): leave it alone entirely
+        [ -e "/sys/block/nbd$i/pid" ] && continue
+        qemu-nbd -c "$d" "$DISK" >/dev/null 2>&1 || continue
+        ok=0
+        for t in 1 2 3; do
+            if dd if="$d" of=/dev/null bs=512 count=34 skip=1 status=none 2>/dev/null; then ok=1; break; fi
+            sleep 1
+        done
+        if [ "$ok" = 1 ]; then NBD=$d; return 0; fi
+        qemu-nbd -d "$d" >/dev/null 2>&1 || true
     done
-    if [ "$ok" != 1 ]; then
-        echo "ERROR: $NBD attached but not readable (dead kernel state)."
-        echo "Recovery: sudo pkill -f qemu-nbd; sudo modprobe -r nbd && sudo modprobe nbd max_part=8"
-        echo "If 'Module nbd is in use': the wedge survives until reboot — reboot."
-        exit 1
-    fi
+    echo "ERROR: no free+readable /dev/nbd0-7 (foreign or wedged ones are left alone)."
+    echo "Ours die with the script; if a wedge burned every index, reboot clears them."
+    exit 1
 }
 
 do_install() {
@@ -87,6 +104,11 @@ do_install() {
     cd "$REPO/example/eszkoz"
     lua generate.lua system.lua ../../vm/vm-layer.lua layers/machine.lua \
         layers/user.lua > "$VMDIR/actions.json"
+    # actions carry the config's nbd0 device names; swap in the index we
+    # actually attached (foreign/wedged nbd0 may have forced us higher)
+    if [ "${NBD#/dev/nbd}" != 0 ]; then
+        sed -i "s|nbd0|nbd${NBD#/dev/nbd}|g" "$VMDIR/actions.json"
+    fi
     # /tmp/opencode snapshots can vanish (tmp cleanup): refetch like drift.sh
     for r in main community; do
         [ -s "$D/$r-324.apkindex" ] || {
@@ -101,36 +123,49 @@ do_install() {
         > "$VMDIR/generation-0.json"
 
     mkdir -p "$MNT"
+    # static apk-tools: repo-local copy (vm/apk-tools-static) or APK_BIN;
+    # never rely on a host-path guess for an unknown distro
+    APK=${APK_BIN:-$VMDIR/apk-tools-static}
+    [ -x "$APK" ] || { echo "ERROR: no static apk-tools at $APK (APK_BIN=/path vm/run.sh)"; exit 1; }
     "$REPO/executor/kodos-exec" -actions "$VMDIR/actions.json" \
         -metadata "$VMDIR/generation-0.json" -root "$MNT" \
         -secrets "$VMDIR/secrets.json" \
-        -apk /home/abuss/Work/devel/kodos-musl/experiments/apk-usage/apk
+        -apk "$APK"
     sync
     cleanup
 }
 
 do_boot() {
     [ -f "$DISK" ] || { echo "no $DISK: run 'vm/run.sh install' first"; exit 1; }
+    # OVMF paths differ across distros: treat the host as unknown
+    OVMF=""
+    for c in /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd \
+             /usr/share/OVMF/OVMF_CODE_4M.fd \
+             /usr/share/edk2/ovmf/OVMF_CODE.4m.fd \
+             /usr/share/OVMF/OVMF_CODE.fd; do
+        [ -r "$c" ] && { OVMF=$c; break; }
+    done
+    [ -n "$OVMF" ] || { echo "ERROR: no OVMF firmware found (install edk2-ovmf/ovmf)"; exit 1; }
     echo "booting (quit: Ctrl-a x; login: abuss / kodos-user-test, then 'su -')"
     exec qemu-system-x86_64 -m 4096 -smp 2 \
         -drive file="$DISK",if=virtio,format=qcow2 \
         -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 \
         -device virtio-net-pci \
-        -bios /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd \
+        -bios "$OVMF" \
         -nographic
 }
 
 case "$PHASE" in
     install) trap cleanup EXIT; do_install ;;
     debug)   trap cleanup EXIT; cleanup; attach_nbd; mkdir -p "$MNT"
-             mount /dev/nbd0p2 "$MNT"
+             mount "${NBD}p2" "$MNT"
              G=$MNT/kod/generation
              echo "--- live etc entry types (hardlinks expected):"
              for f in group passwd; do
                  echo "$f: $(stat -Lc '%F nlink=%h ino=%i' "$MNT/etc/$f" 2>&1) store_ino=$(stat -Lc %i "$G/0/etc_store/$f" 2>&1)"
              done
              echo "--- shell below; exit to detach"
-             exec sudo -u "${SUDO_USER:-abuss}" -s ;;
+             exec su -s /bin/sh "${SUDO_USER:-root}" ;;
     boot)    do_boot ;;
     all)     trap cleanup EXIT; do_install; do_boot ;;
     *) echo "usage: vm/run.sh [install|boot|fresh]"; exit 2 ;;
