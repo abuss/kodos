@@ -51,6 +51,11 @@ assert(not out:find('"unit": "pipewire', 1, true),
 assert(pos(out, '"pipewire-jack"') and pos(out, '"wireplumber"'),
        "backend baseline + additive config packages both installed")
 
+-- storage plan must carry sizes: the executor cannot partition from names alone
+assert(pos(out, '"size": "512MB"') and pos(out, '"type": "esp"')
+       and pos(out, '"size": "100%"'),
+       "partition_disk must carry index/name/size/type per partition")
+
 -- home layer
 assert(pos(out, '"op": "enable_home_service"')
        and pos(out, '"mechanism": "user-daemon"')

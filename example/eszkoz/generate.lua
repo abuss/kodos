@@ -38,7 +38,12 @@ table.sort(dnames)
 local mounts, swaps = {}, {}
 for _, dn in ipairs(dnames) do
     local d = conf.storage.devices[dn]
-    act("partition_disk", { device = d.device, table = d.type, efi = d.efi })
+    local parts = {}
+    for i, p in ipairs(d.partitions) do
+        parts[i] = { index = i, name = p.name, size = p.size, type = p.type }
+    end
+    act("partition_disk", { device = d.device, table = d.type, efi = d.efi,
+                            partitions = parts })
     for i, p in ipairs(d.partitions) do
         -- nvme/mmcblk style disks number partitions with a 'p' separator
         local part = d.device .. (d.device:match("%d$") and "p" or "") .. i

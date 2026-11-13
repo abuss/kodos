@@ -36,7 +36,7 @@ Rules:
 | # | op | fields | fed by | notes |
 |---|----|--------|--------|-------|
 | 1 | `configure_repos` | `type`, `mirror`, `branches[]` | `repos.base` | executor renders per-family file format |
-| 2 | `partition_disk` | `device`, `table`, `efi` | `storage.devices` | skip if table already present |
+| 2 | `partition_disk` | `device`, `table`, `efi`, `partitions[]`: `{index, name, size, type}` | `storage.devices` | skip if table already present; executor parses sizes ("512MB"/"64GB"/"100%"; "100%" = remainder minus later explicit sizes when not last) |
 | 3 | `format` | `partition`, `filesystem` | partitions | skip if a filesystem exists |
 | 4 | `create_swap` | `partition` | swap partitions | `mkswap` |
 | 5 | `mount` | `partition`, `point`, `options` | partitions with `mountpoint` | emitted deepest-path-last so `/` mounts first |
