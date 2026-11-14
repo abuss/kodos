@@ -52,9 +52,9 @@
 **Interfaces:**
 - Produces: binary `executor/kodos`; `cmdExec(args []string) error` (today's main body), `cmdSelftest()` (today's `selftest()` entry). Unknown/missing subcommand → usage to stderr, exit 2.
 
-- [ ] **Step 1:** Reorganize `main.go`: `main()` switches on `os.Args[1]` → `exec` → `cmdExec(os.Args[2:])` (existing flag parsing moves verbatim), `selftest` → existing path. Build, run `./kodos selftest` — expect the two PASS lines exactly as today.
-- [ ] **Step 2:** Update `vm/run.sh` executor invocation to `kodos exec`; re-run the scratch E2E command (README/NEXT.md recipe with `./executor/kodos exec`): same behavior incl. the expected fake grub failure.
-- [ ] **Step 3:** Commit `refactor(executor): kodos binary with exec subcommand`.
+- [x] **Step 1:** Reorganize `main.go`: `main()` switches on `os.Args[1]` → `exec` → `cmdExec(os.Args[2:])` (existing flag parsing moves verbatim), `selftest` → existing path. Build, run `./kodos selftest` — expect the two PASS lines exactly as today.
+- [x] **Step 2:** Update `vm/run.sh` executor invocation to `kodos exec`; re-run the scratch E2E command (README/NEXT.md recipe with `./executor/kodos exec`): same behavior incl. the expected fake grub failure.
+- [x] **Step 3:** Commit `refactor(executor): kodos binary with exec subcommand`.
 
 ### Task 2: Embed the Lua toolchain; `kodos lua` runner
 
@@ -68,11 +68,11 @@
 - Produces: `runLuaScript(name string, args []string, searchDir string) (string, error)` in `luaembed.go` — loads embedded `name` (and preloads every embedded `.lua` under its path so `require("resolve")` etc. work); `searchDir` (may be `""`) additionally puts that ON-disk directory on the module path (Task 11 passes the config dir; Task 2 passes `""`), exposes `arg` (1-based after script name, Lua-5.1 style), returns captured stdout. `add gopher-lua` to go.mod. Open gopher-lua base/os/io libraries; **if** gopher-lua lacks `io.popen` or `os.execute`, register Go shims (`io.popen` → `os/exec` pipe to a temp file Lua can `io.open`; that's the whole shim).
 - Produces: `cmdLua(args)` = `kodos lua <script.lua> [args…]` → streams the script's stdout to stdout, exit = script status.
 
-- [ ] **Step 1:** Probe gopher-lua `io.popen`/`os.execute` availability (30-line Go test `luaembed_probe_test.go`, throwaway): decide shims now.
-- [ ] **Step 2:** Do the `git mv` (toolchain into `executor/lua/`, example configs stay in `example/eszkoz/`); fix host-suite run dirs + `vm/run.sh` paths. Verify: host-`lua` suites green from their new home.
-- [ ] **Step 3:** Implement `luaembed.go` (embed.FS `lua/*`, preload map, `arg`, shims per probe).
-- [ ] **Step 4:** Failing check → implement → pass: `./kodos lua test-merge.lua` exits 0 and prints its PASS line (run via gopher-lua, not host lua).
-- [ ] **Step 5:** Commit `feat(executor): embed Lua toolchain + kodos lua runner (gopher-lua)`.
+- [x] **Step 1:** Probe gopher-lua `io.popen`/`os.execute` availability (30-line Go test `luaembed_probe_test.go`, throwaway): decide shims now.
+- [x] **Step 2:** Do the `git mv` (toolchain into `executor/lua/`, example configs stay in `example/eszkoz/`); fix host-suite run dirs + `vm/run.sh` paths. Verify: host-`lua` suites green from their new home.
+- [x] **Step 3:** Implement `luaembed.go` (embed.FS `lua/*`, preload map, `arg`, shims per probe).
+- [x] **Step 4:** Failing check → implement → pass: `./kodos lua test-merge.lua` exits 0 and prints its PASS line (run via gopher-lua, not host lua).
+- [x] **Step 5:** Commit `feat(executor): embed Lua toolchain + kodos lua runner (gopher-lua)`.
 
 ### Task 3: Full Lua suite compatibility gate — `kodos suitetest`
 
