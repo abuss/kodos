@@ -1009,15 +1009,16 @@ func (e *executor) installBootloader(act map[string]any) error {
 			if err := e.genChrootSh("mkinitfs -o /boot/initramfs" + suffix + " " + shellQuote(abi)); err != nil {
 				return fmt.Errorf("bootloader mkinitfs %s: %w", abi, err)
 			}
-			// mkinitfs chrooted into the gen tree follows our etc symlinks
-			// into /kod/generation/N/etc_store and copies those store
-			// paths verbatim; strip them (and verify /init while parsing).
-			removed, err := cleanInitramfs(filepath.Join(gen, "boot", "initramfs"+suffix))
+			// mkinitfs chrooted into the gen tree copies our etc symlinks
+			// (-> /kod/generation/N/etc_store/...) plus their store
+			// targets; dereference the links into real files, drop the
+			// store copies, and require /init (hollow-image guard).
+			removed, derefed, err := cleanInitramfs(filepath.Join(gen, "boot", "initramfs"+suffix))
 			if err != nil {
 				return fmt.Errorf("bootloader initramfs %s: %w", suffix, err)
 			}
-			fmt.Printf("initramfs built: initramfs%s (kernel %s, %d store entries stripped)\n",
-				suffix, abi, removed)
+			fmt.Printf("initramfs built: initramfs%s (kernel %s, %d store entries stripped, %d etc links dereferenced)\n",
+				suffix, abi, removed, derefed)
 		}
 	}
 
@@ -1142,112 +1143,163 @@ func initramfsSane(path string) error {
 	return nil
 }
 
-// cleanInitramfs rewrites a gzipped newc cpio in place, dropping every
-// top-level "kod" entry: mkinitfs chrooted into the gen tree follows our
-// etc symlinks into /kod/generation/N/etc_store and copies those STORE
-// paths verbatim — pure duplicates of the real files already carried at
-// their proper paths (e.g. etc/modprobe.d/*.conf). While parsing it also
-// requires an "init" entry: the hollow-image incident (NEXT.md) shipped a
-// 79-entry cpio that booted to a panic; a corrupt/empty cpio fails HERE,
-// before the ESP copy, not at boot. Returns the number of dropped entries.
-func cleanInitramfs(path string) (int, error) {
+// cleanInitramfs rewrites a gzipped newc cpio in place: drops every
+// top-level "kod" entry and dereferences the etc symlinks that pointed
+// into it. mkinitfs chrooted into the gen tree copies our etc symlinks
+// verbatim (e.g. etc/modprobe.d/aliases.conf -> /kod/generation/N/
+// etc_store/modprobe.d/...) AND their store targets, so a naive drop
+// dangles them (libkmod "Cannot stat directory entry" in the guest).
+// While parsing it also requires an "init" entry: the hollow-image
+// incident (NEXT.md) shipped a 79-entry cpio that booted to a panic;
+// a corrupt/empty cpio fails HERE, before the ESP copy, not at boot.
+func cleanInitramfs(path string) (removed, derefed int, err error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return 0, fmt.Errorf("read %s: %w", path, err)
+		return 0, 0, fmt.Errorf("read %s: %w", path, err)
 	}
 	zr, err := gzip.NewReader(bytes.NewReader(b))
 	if err != nil {
-		return 0, fmt.Errorf("%s is not gzip: %w", path, err)
+		return 0, 0, fmt.Errorf("%s is not gzip: %w", path, err)
 	}
 	data, err := io.ReadAll(zr)
 	zr.Close()
 	if err != nil {
-		return 0, fmt.Errorf("gunzip %s: %w", path, err)
+		return 0, 0, fmt.Errorf("gunzip %s: %w", path, err)
 	}
-	out, hasInit, removed, err := stripCpio(data, "kod")
+	out, hasInit, removed, derefed, err := stripCpio(data, "kod")
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", path, err)
+		return 0, 0, fmt.Errorf("%s: %w", path, err)
 	}
 	if !hasInit {
-		return removed, fmt.Errorf("%s: cpio has no /init entry (hollow image)", path)
+		return removed, derefed, fmt.Errorf("%s: cpio has no /init entry (hollow image)", path)
 	}
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
 	if _, err := zw.Write(out); err != nil {
-		return removed, err
+		return removed, derefed, err
 	}
 	if err := zw.Close(); err != nil {
-		return removed, err
+		return removed, derefed, err
 	}
 	fi, err := os.Stat(path)
 	if err != nil {
-		return removed, err
+		return removed, derefed, err
 	}
-	return removed, os.WriteFile(path, buf.Bytes(), fi.Mode().Perm())
+	return removed, derefed, os.WriteFile(path, buf.Bytes(), fi.Mode().Perm())
 }
 
-// stripCpio filters newc cpio records: entries named drop or under drop/
-// are removed; everything else is copied byte-for-byte (headers carry
-// inode/mode/times — never reconstruct, only drop whole records).
-func stripCpio(data []byte, drop string) (out []byte, hasInit bool, removed int, err error) {
-	var buf bytes.Buffer
-	for off := 0; off+6 <= len(data) && string(data[off:off+6]) == "070701"; {
-		if off+110 > len(data) {
-			return nil, false, 0, fmt.Errorf("truncated header at %d", off)
-		}
+// stripCpio rewrites a newc cpio stream: store-path records (drop and
+// everything under it) are dropped; symlinks pointing at a dropped file
+// are rebuilt as regular files carrying the dropped record's CONTENT, so
+// nothing dangles. Unrelated records are copied byte-for-byte (headers
+// carry inode/mode/times — only the two fields we must change on a
+// rebuilt record get rewritten).
+func stripCpio(data []byte, drop string) (out []byte, hasInit bool, removed, derefed int, err error) {
+	type rec struct {
+		start, end, ds, nsize int
+		name, target          string
+		mode                  uint32
+		fsize                 int
+	}
+	var recs []rec
+	for off := 0; off+110 <= len(data) && string(data[off:off+6]) == "070701"; {
 		hdr := data[off : off+110]
-		fsize, perr := strconv.ParseUint(string(hdr[54:62]), 16, 64)
+		mode, perr := strconv.ParseUint(string(hdr[14:22]), 16, 32)
 		if perr != nil {
-			return nil, false, 0, fmt.Errorf("bad filesize field at %d", off)
+			return nil, false, 0, 0, fmt.Errorf("bad mode field at %d", off)
 		}
-		nsize, perr := strconv.ParseUint(string(hdr[94:102]), 16, 64)
+		fsize, perr := strconv.ParseUint(string(hdr[54:62]), 16, 32)
+		if perr != nil {
+			return nil, false, 0, 0, fmt.Errorf("bad filesize field at %d", off)
+		}
+		nsize, perr := strconv.ParseUint(string(hdr[94:102]), 16, 32)
 		if perr != nil || nsize == 0 {
-			return nil, false, 0, fmt.Errorf("bad namesize field at %d", off)
+			return nil, false, 0, 0, fmt.Errorf("bad namesize field at %d", off)
 		}
-		nameEnd := off + 110 + int(nsize)
-		if nameEnd > len(data) || data[nameEnd-1] != 0 {
-			return nil, false, 0, fmt.Errorf("truncated name at %d", off)
+		named := off + 110 + int(nsize)
+		if named > len(data) || data[named-1] != 0 {
+			return nil, false, 0, 0, fmt.Errorf("truncated name at %d", off)
 		}
-		name := string(data[off+110 : nameEnd-1])
 		// cpio writers (mkinitfs included) store "./"-prefixed names;
-		// normalize for matching only — the copied bytes stay verbatim.
-		name = strings.TrimPrefix(name, "./")
+		// normalize for matching only — copied bytes stay verbatim.
+		name := strings.TrimPrefix(string(data[off+110:named-1]), "./")
 		if name == "TRAILER!!!" {
-			buf.Write(data[off:]) // trailer + archive-tail padding, verbatim
+			recs = append(recs, rec{start: off, end: len(data), name: name})
 			break
 		}
-		// Writer padding quirks: GNU newc aligns fields to 2 bytes,
-		// busybox (mkinitfs' cpio) to 4. Compute both candidate record
-		// ends and take whichever position actually carries the next
-		// magic; pad bytes are NUL so a false hit inside the <=2-byte
-		// window needs binary data starting "0707.." — and would fail
-		// loudly on the next header parse, never silently.
-		named := off + 110 + int(nsize)
-		c2 := ((named+1)&^1 + int(fsize) + 1) &^ 1 // 2-aligned writer
-		c4 := ((named+3)&^3 + int(fsize) + 3) &^ 3 // 4-aligned writer
-		recEnd := 0
-		for _, cand := range []int{c2, c4} {
-			if cand+6 <= len(data) && string(data[cand:cand+6]) == "070701" {
-				recEnd = cand
-				break
-			}
+		// Writer padding quirks: GNU newc aligns to 2 bytes, busybox
+		// (mkinitfs' cpio) to 4; whichever candidate end actually
+		// carries the next magic decides both ends and data start.
+		// Pads are NUL, so a false hit needs binary data starting
+		// "0707.." and would fail loudly, never silently.
+		var r rec
+		r = rec{start: off, nsize: int(nsize), name: name, mode: uint32(mode), fsize: int(fsize)}
+		c2d, c4d := (named+1)&^1, (named+3)&^3
+		c2e, c4e := (c2d+int(fsize)+1)&^1, (c4d+int(fsize)+3)&^3
+		switch {
+		case c2e+6 <= len(data) && string(data[c2e:c2e+6]) == "070701":
+			r.end, r.ds = c2e, c2d
+		case c4e+6 <= len(data) && string(data[c4e:c4e+6]) == "070701":
+			r.end, r.ds = c4e, c4d
+		default:
+			return nil, false, 0, 0, fmt.Errorf("no header after %q at %d", name, named)
 		}
-		if recEnd == 0 {
-			return nil, false, 0, fmt.Errorf("no header after %q at %d", name, named)
+		if r.mode&0o170000 == 0o120000 {
+			r.target = strings.TrimPrefix(strings.TrimPrefix(string(data[r.ds:r.ds+r.fsize]), "./"), "/")
 		}
-		if name == "init" {
-			hasInit = true
+		recs = append(recs, r)
+		off = r.end
+	}
+	if len(recs) == 0 || recs[len(recs)-1].name != "TRAILER!!!" {
+		return nil, false, 0, 0, fmt.Errorf("cpio stream has no TRAILER record")
+	}
+	// content of the store records we are about to drop: they are the
+	// targets of the etc symlinks copied in front of them
+	inDrop := func(name string) bool {
+		return name == drop || strings.HasPrefix(name, drop+"/")
+	}
+	content := map[string][]byte{}
+	for _, r := range recs {
+		if inDrop(r.name) && r.mode&0o170000 == 0o100000 {
+			content[r.name] = data[r.ds : r.ds+r.fsize]
 		}
-		if name == drop || strings.HasPrefix(name, drop+"/") {
+	}
+	var buf bytes.Buffer
+	for _, r := range recs {
+		switch {
+		case r.name == "TRAILER!!!":
+			buf.Write(data[r.start:]) // trailer + tail padding verbatim
+		case inDrop(r.name):
 			removed++
-		} else {
-			buf.Write(data[off:recEnd])
+		case r.mode&0o170000 == 0o120000 && inDrop(r.target):
+			c, ok := content[r.target]
+			if !ok {
+				return nil, false, removed, derefed,
+					fmt.Errorf("%s: symlink target %s missing from cpio", r.name, r.target)
+			}
+			hdr := append([]byte(nil), data[r.start:r.start+110]...)
+			copy(hdr[14:22], fmt.Sprintf("%08X", r.mode&0o7777|0o100000))
+			copy(hdr[54:62], fmt.Sprintf("%08X", len(c)))
+			hdr = append(hdr, data[r.start+110:r.start+110+r.nsize]...) // name bytes
+			for len(hdr)&3 != 0 {
+				hdr = append(hdr, 0)
+			}
+			hdr = append(hdr, c...)
+			for len(hdr)&3 != 0 {
+				hdr = append(hdr, 0)
+			}
+			buf.Write(hdr)
+			derefed++
+		default:
+			if r.name == "init" {
+				hasInit = true
+			}
+			buf.Write(data[r.start:r.end])
 		}
-		off = recEnd
 	}
 	out = buf.Bytes()
 	if pad := len(out) % 512; pad != 0 { // cpio pads the archive to a block
 		out = append(out, make([]byte, 512-pad)...)
 	}
-	return out, hasInit, removed, nil
+	return out, hasInit, removed, derefed, nil
 }

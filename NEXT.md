@@ -177,21 +177,28 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 - **check-packages.lua fails pre-existing** (assert at line 19, unrelated
   to config changes; investigate when package-set work resumes).
 
-- **Initramfs store debris** — FIXED (2026-11-14): mkinitfs chrooted into
-  the gen tree follows our etc symlinks into /kod/generation/N/etc_store
-  and copied those store paths (8 entries: modprobe.d confs) VERBATIM
-  into the image — pure duplicates of the real files it also carries at
-  proper paths. install_bootloader now rewrites the gzipped newc cpio
-  (cleanInitramfs/stripCpio, Go stdlib only) dropping every top-level
-  "kod" entry, and while parsing requires a top-level `init` record —
-  a hollow/corrupt cpio fails the install before the ESP copy, not at
-  boot. Parser quirk notes: names are "./"-prefixed; busybox (mkinitfs)
-  aligns cpio fields to 4 bytes while GNU newc uses 2 — the walker
-  tries both candidate record ends and trusts the next magic. Kept
-  records copied byte-for-byte (inode/mode/padding untouched), so the
-  kernel's unpacker sees vanilla bytes. Scratch proof: 330 -> 322
-  entries, kod/ gone, init+busybox+etc intact, cpio -t reads it.
-  Selftest builds 4-aligned records and covers drop/keep/hollow/no-init.
+- **Initramfs store debris** — FIXED (2026-11-14, 2nd attempt): mkinitfs
+  chrooted into the gen tree copies our etc symlinks (etc/modprobe.d/
+  *.conf -> /kod/generation/N/etc_store/modprobe.d/...) AND their store
+  targets (8 records). The 1st fix stripped the "duplicate" store
+  records only -> links dangled in the guest initramfs (libkmod
+  "Cannot stat directory entry" x3 per modprobe run). Correct fix:
+  cleanInitramfs/stripCpio (Go stdlib) now DEREFS such symlinks — the
+  rebuilt record is a regular file carrying the store record's content
+  (only mode+filesize header fields rewritten) — then drops the store
+  records; a symlink to a missing store file fails the build loudly.
+  The parse also requires a top-level init record (hollow-image guard
+  from the NEXT.md incident) BEFORE the ESP copy. Parser quirks: names
+  "./"-prefixed (cpio -t hides it); busybox (mkinitfs) cpio aligns
+  fields to 4 bytes, GNU newc to 2 — the walker tries both candidate
+  record ends and trusts the next magic. Kept records copied
+  byte-for-byte. Scratch proof: 330 -> 322 entries, etc/modprobe.d
+  REG with real content, 0 symlink entries (cpio -tv), no kod,
+  usr/sbin/modprobe -> ../bin/kmod untouched. Selftest: deref to REG,
+  dangling-target abort, idempotent re-parse, hollow-image, truncated
+  input. NOTE: a guest that booted the 1st-attempt image carries
+  those dangling links in RAM only; next install round rewrites the
+  ESP image clean.
 
 - **Closure locking** — FIXED (2026-11-14): lockfile.lua now locks the
   FULL apk closure (VM profile: 97 requests -> 867 pinned). It serves

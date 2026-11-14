@@ -229,48 +229,61 @@ func selftestPure() {
 		check(e4 == nil, "no-service stream swept an entry it must not touch")
 		os.RemoveAll(dir)
 	}
-	// initramfs cpio sanitize: drop duplicated store entries, keep the
-	// rest byte-for-byte, report a missing /init (hollow image guard).
+	// initramfs cpio sanitize: drop store-duplicate records, DEREFERENCE
+	// etc symlinks that pointed into them, keep the rest byte-for-byte,
+	// require /init (hollow-image guard), stay re-parseable (idempotent).
 	{
 		var cpio bytes.Buffer
-		for _, r := range []struct{ n, b string }{
-			{".", ""},
-			{"./init", "#!/bin/sh"},
-			{"./kod", ""},
-			{"./kod/generation/0/etc_store/m.conf", "conf"},
-			{"./etc/modprobe.d/a.conf", "a"},
-			{"TRAILER!!!", ""},
+		for _, r := range []struct {
+			n, b string
+			mode int
+		}{
+			{".", "", 0o040755},
+			{"./init", "#!/bin/sh", 0o100755},
+			{"./etc/modprobe.d/a.conf", "/kod/generation/0/x.conf", 0o120777},
+			{"./etc/keep", "k", 0o100644},
+			{"./kod", "", 0o040755},
+			{"./kod/generation/0/x.conf", "REALCONF", 0o100644},
+			{"TRAILER!!!", "", 0},
 		} {
-			cpio.Write(cpioRec(r.n, r.b))
+			cpio.Write(cpioRec(r.mode, r.n, r.b))
 		}
-		out, hasInit, removed, err := stripCpio(cpio.Bytes(), "kod")
-		check(err == nil && hasInit && removed == 2,
-			"stripCpio: err=%v init=%v removed=%d", err, hasInit, removed)
-		check(bytes.Contains(out, []byte("init\x00")) &&
-			bytes.Contains(out, []byte("etc/modprobe.d/a.conf\x00")),
-			"stripCpio dropped entries it must keep")
-		check(!bytes.Contains(out, []byte("kod")), "stripCpio kept store entries")
+		out, hasInit, removed, derefed, err := stripCpio(cpio.Bytes(), "kod")
+		check(err == nil && hasInit && removed == 2 && derefed == 1,
+			"stripCpio: err=%v init=%v removed=%d derefed=%d", err, hasInit, removed, derefed)
+		check(bytes.Contains(out, []byte("REALCONF")) &&
+			bytes.Contains(out, []byte("etc/modprobe.d/a.conf\x00")) &&
+			bytes.Contains(out, []byte("etc/keep\x00")),
+			"stripCpio lost content or kept entries")
+		check(!bytes.Contains(out, []byte("/kod/")), "stripCpio left dangling /kod/ target")
+		_, _, r2, d2, err2 := stripCpio(out, "kod") // rewrite must parse & be a no-op
+		check(err2 == nil && r2 == 0 && d2 == 0, "stripCpio output invalid/idempotent: %v r=%d d=%d", err2, r2, d2)
 		var c2 bytes.Buffer
-		c2.Write(cpioRec("bin/busybox", "x")) // no init: hollow image
-		c2.Write(cpioRec("TRAILER!!!", ""))
-		_, hasInit2, _, err2 := stripCpio(c2.Bytes(), "kod")
-		check(err2 == nil && !hasInit2, "stripCpio must report missing /init")
+		c2.Write(cpioRec(0o100644, "bin/busybox", "x")) // no init: hollow image
+		c2.Write(cpioRec(0, "TRAILER!!!", ""))
+		_, hasInit2, _, _, err3 := stripCpio(c2.Bytes(), "kod")
+		check(err3 == nil && !hasInit2, "stripCpio must report missing /init")
+		var c3 bytes.Buffer
+		c3.Write(cpioRec(0o120777, "./etc/x", "/kod/nope.conf"))
+		c3.Write(cpioRec(0, "TRAILER!!!", ""))
+		_, _, _, _, err4 := stripCpio(c3.Bytes(), "kod")
+		check(err4 != nil, "stripCpio must fail on symlink to missing store file")
 		var bad bytes.Buffer
-		bad.Write(cpioRec("init", "x"))
+		bad.Write(cpioRec(0o100644, "init", "x"))
 		bad.Write([]byte("070701garbage-not-a-header"))
-		_, _, _, err3 := stripCpio(bad.Bytes(), "kod")
-		check(err3 != nil, "stripCpio must reject truncated records")
+		_, _, _, _, err5 := stripCpio(bad.Bytes(), "kod")
+		check(err5 != nil, "stripCpio must reject truncated records")
 	}
 	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard/keyfile-uuid/runlevels/initramfs-cpio)")
 }
 
-// cpioRec builds one newc record (header hex + NUL-terminated name,
-// then data, each padded to 4 bytes — the mkinitfs/busybox writer's
-// alignment) for the stripCpio checks above.
-func cpioRec(name, body string) []byte {
+// cpioRec builds one newc record (header hex + NUL-terminated name, then
+// data, each padded to 4 bytes — the mkinitfs/busybox writer's alignment)
+// for the stripCpio checks above.
+func cpioRec(mode int, name, body string) []byte {
 	var rec bytes.Buffer
 	fmt.Fprintf(&rec, "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
-		1, 0o100644, 0, 0, 1, 0, len(body), 0, 0, 0, 0, len(name)+1, 0)
+		1, mode, 0, 0, 1, 0, len(body), 0, 0, 0, 0, len(name)+1, 0)
 	rec.WriteString(name)
 	rec.WriteByte(0)
 	for rec.Len()%4 != 0 {
