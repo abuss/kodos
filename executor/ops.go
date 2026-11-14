@@ -868,38 +868,11 @@ func (e *executor) installBootloader(act map[string]any) error {
 	}
 	gen := e.s.genDir(e.meta.Generation)
 
-	// The kernel package ships /boot/vmlinuz-<flavor> directly, but /boot
-	// is a vfat ESP mountpoint so generation links never merge into it:
-	// copy the dereferenced content instead (vmlinuz+config+System.map).
-	if bootGen := filepath.Join(gen, "boot"); isRealDir(bootGen) {
-		if err := filepath.WalkDir(bootGen, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return nil
-			}
-			rel, _ := filepath.Rel(bootGen, p)
-			src := e.s.chrootResolve(p)
-			b, err := os.ReadFile(src)
-			if err != nil {
-				return err
-			}
-			// chrootResolve the DESTINATION too: when /boot is not a real
-			// mountpoint (scratch roots) it is a chroot-rooted link whose
-			// raw host path dangles.
-			bootDst := e.s.chrootResolve(filepath.Join(e.s.chroot, "boot"))
-			if err := os.MkdirAll(bootDst, 0o755); err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(bootDst, rel), b, 0o644)
-		}); err != nil {
-			return fmt.Errorf("bootloader boot copy: %w", err)
-		}
-	}
-
 	// Alpine makes initramfs via apk TRIGGERS (which we bypass): for each
 	// /lib/modules/<abi>, depmod + mkinitfs -o /boot/initramfs<suffix>
 	// (suffix from kernel-suffix, matching the vmlinuz-<flavor> name).
-	// ponytail: initramfs-suffix bookkeeping (uninstall cleanup) skipped;
-	// add when generation GC starts removing kernels.
+	// mkinitfs runs chrooted into the generation tree, so its output
+	// lands in <gen>/boot; the ESP copy below runs AFTER the build.
 	modsGen := filepath.Join(gen, "lib", "modules")
 	if dirs, _ := filepath.Glob(filepath.Join(modsGen, "*")); len(dirs) > 0 {
 		for _, md := range dirs {
@@ -929,6 +902,34 @@ func (e *executor) installBootloader(act map[string]any) error {
 		}
 	}
 
+	// Copy the generation's whole /boot content (kernel package files +
+	// the just-built initramfs) onto the ESP mount: /boot in the live
+	// root is a vfat ESP mountpoint, so generation hardlinks never
+	// merge into it; copy dereferenced content instead.
+	if bootGen := filepath.Join(gen, "boot"); isRealDir(bootGen) {
+		if err := filepath.WalkDir(bootGen, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			rel, _ := filepath.Rel(bootGen, p)
+			src := e.s.chrootResolve(p)
+			b, err := os.ReadFile(src)
+			if err != nil {
+				return err
+			}
+			// chrootResolve the DESTINATION too: when /boot is not a real
+			// mountpoint (scratch roots) it is a chroot-rooted link whose
+			// raw host path dangles.
+			bootDst := e.s.chrootResolve(filepath.Join(e.s.chroot, "boot"))
+			if err := os.MkdirAll(bootDst, 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(bootDst, rel), b, 0o644)
+		}); err != nil {
+			return fmt.Errorf("bootloader boot copy: %w", err)
+		}
+	}
+
 	// clear stale bootloader trees first: grub-install otherwise tries to
 	// backup-rename existing module files, which EIOs on an ESP with any
 	// directory damage, and a clean slate makes the rerun cheap anyway
@@ -945,12 +946,15 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("bootloader: UUID of %s: %w", e.rootPart, err)
 	}
-	matches, _ := filepath.Glob(filepath.Join(e.s.chroot, "boot", "vmlinuz-*"))
+	// kver + guard against the GENERATION's boot tree (what was just
+	// built), not <chroot>/boot: that is the ESP mount and would let a
+	// stale image from an earlier run pass the check silently.
+	matches, _ := filepath.Glob(filepath.Join(gen, "boot", "vmlinuz-*"))
 	if len(matches) == 0 {
-		return fmt.Errorf("bootloader: no /boot/vmlinuz-* (kernel post-install did not run?)")
+		return fmt.Errorf("bootloader: no %s/boot/vmlinuz-* (kernel package missing?)", gen)
 	}
 	kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
-	if _, err := os.Stat(filepath.Join(e.s.chroot, "boot", "initramfs-"+kver)); err != nil {
+	if _, err := os.Stat(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
 		return fmt.Errorf("bootloader: no initramfs for kernel %s (mkinitfs failed?)", kver)
 	}
 	// mkinitfs degrades SILENTLY: its file-collection stage runs through
@@ -960,7 +964,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 	// panics "No working init found" with zero console output. We saw a
 	// 3.5MB hollow image pass a size guard, so check CONTENTS: a real
 	// image always carries busybox in the cpio stream.
-	if err := initramfsSane(filepath.Join(e.s.chroot, "boot", "initramfs-"+kver)); err != nil {
+	if err := initramfsSane(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
 		return fmt.Errorf("bootloader: initramfs-%s is skeleton (%v): "+
 			"mkinitfs degraded: check etc/mkinitfs/mkinitfs.conf features line and features.d/*.files",
 			kver, err)
