@@ -134,6 +134,7 @@ return {
     -- A layer disables with enable = false.
     services = {
         networkmanager = { enable = true },
+        mdev = { enable = true }, -- cold-plug of =m modules (see modules/services.lua)
         ssh = {
             enable = true,
             permit_root_login = false,

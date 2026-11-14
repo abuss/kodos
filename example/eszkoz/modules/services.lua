@@ -6,6 +6,11 @@ local base = require("kodos").base
 
 local services = {
     networkmanager = { enable = true },
+    -- cold-plug: load =m kernel modules (NIC/storage drivers) from
+    -- modalias uevents at boot. Alpine kernels build virtio/ext4 etc as
+    -- modules and its installer enables mdev for exactly this; without
+    -- it a VM guest has NO network device at all.
+    mdev = { enable = true },
     ssh = {
         enable = true,
         permit_root_login = false,

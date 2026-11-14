@@ -113,6 +113,11 @@ M.services = {
         packages = { "networkmanager", "networkmanager-openrc", "ethtool", "iw" },
         service_name = "networkmanager", runlevel = "boot",
     },
+    -- busybox's mdev coldplugs =m modules via modalias (installer default:
+    -- rc-update add mdev boot). boot runlevel: alphabetically BEFORE
+    -- networkmanager, so devices exist when NM starts.
+    mdev = { packages = { "busybox-mdev-openrc" },
+        service_name = "mdev", runlevel = "boot" },
     ssh = {
         packages = { "openssh", "openssh-server-common-openrc" },
         service_name = "sshd", runlevel = "default",

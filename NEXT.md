@@ -116,6 +116,13 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   read the serial line. New config knob `system.serial_console = true`
   (vm-layer sets it); backend-owned full managed `/etc/inittab` emitted
   as a `write_file` action; backends without `M.inittab` hard-error.
+- **No network in guest (ssh dead)** — FIXED (2026-11-14): linux-virt
+  builds virtio_net as `=m`; nothing coldplugged modalias modules because
+  the device manager is enabled by Alpine's *installer*, not by any
+  package. Added neutral `mdev` service (base config) + alpine backend
+  entry (busybox-mdev-openrc, runlevel boot, alphabetically before
+  networkmanager); arch/deb backends mark it `service_name = false`
+  (systemd-udevd coldplugs unconditionally).
 - **check-packages.lua fails pre-existing** (assert at line 19, unrelated
   to config changes; investigate when package-set work resumes).
 

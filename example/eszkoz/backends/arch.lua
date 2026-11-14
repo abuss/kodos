@@ -49,6 +49,8 @@ M.services = {
         packages = { "networkmanager" },
         service_name = "NetworkManager",
     },
+    -- systemd-udevd coldplugs =m modules unconditionally: nothing to do.
+    mdev = { service_name = false },
     ssh = {
         packages = { "openssh" },
         service_name = "sshd",
