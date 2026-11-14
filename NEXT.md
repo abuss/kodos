@@ -177,6 +177,22 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 - **check-packages.lua fails pre-existing** (assert at line 19, unrelated
   to config changes; investigate when package-set work resumes).
 
+- **Initramfs store debris** — FIXED (2026-11-14): mkinitfs chrooted into
+  the gen tree follows our etc symlinks into /kod/generation/N/etc_store
+  and copied those store paths (8 entries: modprobe.d confs) VERBATIM
+  into the image — pure duplicates of the real files it also carries at
+  proper paths. install_bootloader now rewrites the gzipped newc cpio
+  (cleanInitramfs/stripCpio, Go stdlib only) dropping every top-level
+  "kod" entry, and while parsing requires a top-level `init` record —
+  a hollow/corrupt cpio fails the install before the ESP copy, not at
+  boot. Parser quirk notes: names are "./"-prefixed; busybox (mkinitfs)
+  aligns cpio fields to 4 bytes while GNU newc uses 2 — the walker
+  tries both candidate record ends and trusts the next magic. Kept
+  records copied byte-for-byte (inode/mode/padding untouched), so the
+  kernel's unpacker sees vanilla bytes. Scratch proof: 330 -> 322
+  entries, kod/ gone, init+busybox+etc intact, cpio -t reads it.
+  Selftest builds 4-aligned records and covers drop/keep/hollow/no-init.
+
 - **Closure locking** — FIXED (2026-11-14): lockfile.lua now locks the
   FULL apk closure (VM profile: 97 requests -> 867 pinned). It serves
   the given index snapshots as `file://` repos (layout apk really
@@ -228,6 +244,8 @@ them into every later etc_store, so mkinitfs silently built hollow 79-entry
 initramfs images forever. Fix: clean disk (`vm/run.sh fresh`) — do not heal
 scarred disks by hand. Hardening idea: guard install_bootloader on
 initramfs *contents* (must contain /init provider), not just size.
+(DONE: busybox-content grep + the cpio walk in cleanInitramfs requires a
+top-level init entry before the ESP copy.)
 
 ## Ranked next steps
 

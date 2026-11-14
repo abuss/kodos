@@ -1009,7 +1009,15 @@ func (e *executor) installBootloader(act map[string]any) error {
 			if err := e.genChrootSh("mkinitfs -o /boot/initramfs" + suffix + " " + shellQuote(abi)); err != nil {
 				return fmt.Errorf("bootloader mkinitfs %s: %w", abi, err)
 			}
-			fmt.Printf("initramfs built: initramfs%s (kernel %s)\n", suffix, abi)
+			// mkinitfs chrooted into the gen tree follows our etc symlinks
+			// into /kod/generation/N/etc_store and copies those store
+			// paths verbatim; strip them (and verify /init while parsing).
+			removed, err := cleanInitramfs(filepath.Join(gen, "boot", "initramfs"+suffix))
+			if err != nil {
+				return fmt.Errorf("bootloader initramfs %s: %w", suffix, err)
+			}
+			fmt.Printf("initramfs built: initramfs%s (kernel %s, %d store entries stripped)\n",
+				suffix, abi, removed)
 		}
 	}
 
@@ -1132,4 +1140,114 @@ func initramfsSane(path string) error {
 		return fmt.Errorf("cpio stream has no busybox (%d bytes unpacked)", len(blob))
 	}
 	return nil
+}
+
+// cleanInitramfs rewrites a gzipped newc cpio in place, dropping every
+// top-level "kod" entry: mkinitfs chrooted into the gen tree follows our
+// etc symlinks into /kod/generation/N/etc_store and copies those STORE
+// paths verbatim — pure duplicates of the real files already carried at
+// their proper paths (e.g. etc/modprobe.d/*.conf). While parsing it also
+// requires an "init" entry: the hollow-image incident (NEXT.md) shipped a
+// 79-entry cpio that booted to a panic; a corrupt/empty cpio fails HERE,
+// before the ESP copy, not at boot. Returns the number of dropped entries.
+func cleanInitramfs(path string) (int, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("read %s: %w", path, err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return 0, fmt.Errorf("%s is not gzip: %w", path, err)
+	}
+	data, err := io.ReadAll(zr)
+	zr.Close()
+	if err != nil {
+		return 0, fmt.Errorf("gunzip %s: %w", path, err)
+	}
+	out, hasInit, removed, err := stripCpio(data, "kod")
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", path, err)
+	}
+	if !hasInit {
+		return removed, fmt.Errorf("%s: cpio has no /init entry (hollow image)", path)
+	}
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(out); err != nil {
+		return removed, err
+	}
+	if err := zw.Close(); err != nil {
+		return removed, err
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return removed, err
+	}
+	return removed, os.WriteFile(path, buf.Bytes(), fi.Mode().Perm())
+}
+
+// stripCpio filters newc cpio records: entries named drop or under drop/
+// are removed; everything else is copied byte-for-byte (headers carry
+// inode/mode/times — never reconstruct, only drop whole records).
+func stripCpio(data []byte, drop string) (out []byte, hasInit bool, removed int, err error) {
+	var buf bytes.Buffer
+	for off := 0; off+6 <= len(data) && string(data[off:off+6]) == "070701"; {
+		if off+110 > len(data) {
+			return nil, false, 0, fmt.Errorf("truncated header at %d", off)
+		}
+		hdr := data[off : off+110]
+		fsize, perr := strconv.ParseUint(string(hdr[54:62]), 16, 64)
+		if perr != nil {
+			return nil, false, 0, fmt.Errorf("bad filesize field at %d", off)
+		}
+		nsize, perr := strconv.ParseUint(string(hdr[94:102]), 16, 64)
+		if perr != nil || nsize == 0 {
+			return nil, false, 0, fmt.Errorf("bad namesize field at %d", off)
+		}
+		nameEnd := off + 110 + int(nsize)
+		if nameEnd > len(data) || data[nameEnd-1] != 0 {
+			return nil, false, 0, fmt.Errorf("truncated name at %d", off)
+		}
+		name := string(data[off+110 : nameEnd-1])
+		// cpio writers (mkinitfs included) store "./"-prefixed names;
+		// normalize for matching only — the copied bytes stay verbatim.
+		name = strings.TrimPrefix(name, "./")
+		if name == "TRAILER!!!" {
+			buf.Write(data[off:]) // trailer + archive-tail padding, verbatim
+			break
+		}
+		// Writer padding quirks: GNU newc aligns fields to 2 bytes,
+		// busybox (mkinitfs' cpio) to 4. Compute both candidate record
+		// ends and take whichever position actually carries the next
+		// magic; pad bytes are NUL so a false hit inside the <=2-byte
+		// window needs binary data starting "0707.." — and would fail
+		// loudly on the next header parse, never silently.
+		named := off + 110 + int(nsize)
+		c2 := ((named+1)&^1 + int(fsize) + 1) &^ 1 // 2-aligned writer
+		c4 := ((named+3)&^3 + int(fsize) + 3) &^ 3 // 4-aligned writer
+		recEnd := 0
+		for _, cand := range []int{c2, c4} {
+			if cand+6 <= len(data) && string(data[cand:cand+6]) == "070701" {
+				recEnd = cand
+				break
+			}
+		}
+		if recEnd == 0 {
+			return nil, false, 0, fmt.Errorf("no header after %q at %d", name, named)
+		}
+		if name == "init" {
+			hasInit = true
+		}
+		if name == drop || strings.HasPrefix(name, drop+"/") {
+			removed++
+		} else {
+			buf.Write(data[off:recEnd])
+		}
+		off = recEnd
+	}
+	out = buf.Bytes()
+	if pad := len(out) % 512; pad != 0 { // cpio pads the archive to a block
+		out = append(out, make([]byte, 512-pad)...)
+	}
+	return out, hasInit, removed, nil
 }

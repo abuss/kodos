@@ -229,7 +229,58 @@ func selftestPure() {
 		check(e4 == nil, "no-service stream swept an entry it must not touch")
 		os.RemoveAll(dir)
 	}
-	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard/keyfile-uuid/runlevels)")
+	// initramfs cpio sanitize: drop duplicated store entries, keep the
+	// rest byte-for-byte, report a missing /init (hollow image guard).
+	{
+		var cpio bytes.Buffer
+		for _, r := range []struct{ n, b string }{
+			{".", ""},
+			{"./init", "#!/bin/sh"},
+			{"./kod", ""},
+			{"./kod/generation/0/etc_store/m.conf", "conf"},
+			{"./etc/modprobe.d/a.conf", "a"},
+			{"TRAILER!!!", ""},
+		} {
+			cpio.Write(cpioRec(r.n, r.b))
+		}
+		out, hasInit, removed, err := stripCpio(cpio.Bytes(), "kod")
+		check(err == nil && hasInit && removed == 2,
+			"stripCpio: err=%v init=%v removed=%d", err, hasInit, removed)
+		check(bytes.Contains(out, []byte("init\x00")) &&
+			bytes.Contains(out, []byte("etc/modprobe.d/a.conf\x00")),
+			"stripCpio dropped entries it must keep")
+		check(!bytes.Contains(out, []byte("kod")), "stripCpio kept store entries")
+		var c2 bytes.Buffer
+		c2.Write(cpioRec("bin/busybox", "x")) // no init: hollow image
+		c2.Write(cpioRec("TRAILER!!!", ""))
+		_, hasInit2, _, err2 := stripCpio(c2.Bytes(), "kod")
+		check(err2 == nil && !hasInit2, "stripCpio must report missing /init")
+		var bad bytes.Buffer
+		bad.Write(cpioRec("init", "x"))
+		bad.Write([]byte("070701garbage-not-a-header"))
+		_, _, _, err3 := stripCpio(bad.Bytes(), "kod")
+		check(err3 != nil, "stripCpio must reject truncated records")
+	}
+	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard/keyfile-uuid/runlevels/initramfs-cpio)")
+}
+
+// cpioRec builds one newc record (header hex + NUL-terminated name,
+// then data, each padded to 4 bytes — the mkinitfs/busybox writer's
+// alignment) for the stripCpio checks above.
+func cpioRec(name, body string) []byte {
+	var rec bytes.Buffer
+	fmt.Fprintf(&rec, "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
+		1, 0o100644, 0, 0, 1, 0, len(body), 0, 0, 0, 0, len(name)+1, 0)
+	rec.WriteString(name)
+	rec.WriteByte(0)
+	for rec.Len()%4 != 0 {
+		rec.WriteByte(0)
+	}
+	rec.WriteString(body)
+	for rec.Len()%4 != 0 {
+		rec.WriteByte(0)
+	}
+	return rec.Bytes()
 }
 
 // hostRootDisk: device of the host's / partition, e.g. /dev/nvme0n1p2 -> nvme0n1
