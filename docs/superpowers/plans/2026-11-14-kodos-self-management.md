@@ -170,10 +170,10 @@
 **Interfaces:**
 - Consumes: Tasks 7+8 machinery. Produces: `vm/repo/kodos-<ver>-r0.apk`; version string from `git describe --always`.
 
-- [ ] **Step 1:** Write `build/mkapk.sh`; run; `vm/apk-tools-static`-index lists `kodos`.
-- [ ] **Step 2:** vm-layer edits; regenerate lock (`lockfile.lua` now pins `kodos` from the local index — assert its version appears in `vm/generation-0.json`).
-- [ ] **Step 3:** PASTE ROUND: install+boot; verify in-guest `kodos selftest`/`suitetest`. Fix fallout in follow-up commits.
-- [ ] **Step 4:** Commit `build: kodos.apk in local repo; vm config installs kodos itself`.
+- [x] **Step 1:** Write `build/mkapk.sh`; run; `vm/apk-tools-static`-index lists `kodos`.
+- [x] **Step 2:** vm-layer edits; regenerate lock (`lockfile.lua` now pins `kodos` from the local index — assert its version appears in `vm/generation-0.json`).
+- [x] **Step 3:** PASTE ROUND: install+boot; verify in-guest `kodos selftest`/`suitetest`. Fix fallout in follow-up commits.
+- [x] **Step 4:** Commit `build: kodos.apk in local repo; vm config installs kodos itself`.
 
 ### Task 10: `boot.generations_keep` — declared prune cap
 
