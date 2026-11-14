@@ -72,6 +72,11 @@ func main() {
 			}
 			os.Exit(1)
 		}
+	case "apply":
+		if err := cmdApply(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			os.Exit(1)
+		}
 	case "selftest":
 		cmdSelftest()
 	case "suitetest":
