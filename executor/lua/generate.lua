@@ -21,6 +21,7 @@ arg = filtered_args
 local repo_src_provenance = {} -- name -> absolute src path
 do
     -- capture cwd once; layer paths relative to it or to their own dir
+    -- ponytail: dofile re-executes each layer; layers assumed pure data (return table only); revisit if layers ever acquire side effects
     local cwd_h = io.popen("pwd")
     local cwd = cwd_h:read("*l")
     cwd_h:close()

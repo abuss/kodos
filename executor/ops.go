@@ -304,11 +304,16 @@ func settingsKey(k string) string {
 func (e *executor) copyTree(act map[string]any) error {
 	src := field(act, "src")
 	dst := field(act, "dst")
+	name := field(act, "name")
 	if src == "" || dst == "" {
 		return fmt.Errorf("copy_tree: missing src or dst")
 	}
 	// map dst (target-rooted) into the actual host path under chroot
 	hostDst := filepath.Join(e.s.chroot, dst)
+	if filepath.Clean(src) == filepath.Clean(hostDst) {
+		fmt.Printf("copy_tree %s: src and dst are the same directory, skipping\n", name)
+		return nil
+	}
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -323,7 +328,9 @@ func (e *executor) copyTree(act map[string]any) error {
 			if err != nil {
 				return err
 			}
-			os.Remove(target)
+			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("replace symlink %s: %w", target, err)
+			}
 			return os.Symlink(link, target)
 		default:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
