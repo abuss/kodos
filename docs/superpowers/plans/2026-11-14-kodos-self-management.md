@@ -213,9 +213,9 @@
   - `status(chroot string) error`: prints `current → kod/generation/<N>` (broken link handled: says so), generation table (N, timestamp, config_hash, package count from `generation.json`), boot-default line from `boot/grub/grub.cfg` entry title.
   - `rollback(chroot string, N *int) error`: "previous" = highest gen < current (spec-pinned); target gen dir or its `generation.json` missing/corrupt → error listing readable gen list (Review Focus 3); builds synthesized action stream `[mount entries from live /etc/fstab (Task 6 skip-if-mounted makes these no-ops), set_kernel_arguments (kernel_args from generation.json), create_generation? NO — generation already exists: stream is {mount…, activate_generation(N), install_bootloader}]` and executes via the same executor path with `-metadata kod/generation/<N>/generation.json`; flips `current` via existing activate machinery; prints "reboot to boot generation N" when bootloader ran.
 
-- [ ] **Step 1:** Failing `manage_test.go`: `rollbackTarget(current int, N *int, gens []int)` pure fn (previous-selection + missing-target error), `status` rendering on a temp kod tree with a corrupt gen dir → lists usable ones, names the corrupt one.
-- [ ] **Step 2:** Implement both verbs through the executor path; scratch E2E: apply (Task 11) → rollback → `status` shows old gen current → rollback to explicit N works.
-- [ ] **Step 3:** Commit `feat(executor): kodos status and rollback (with corrupt-generation diagnostics)`.
+- [x] **Step 1:** Failing `manage_test.go`: `rollbackTarget(current int, N *int, gens []int)` pure fn (previous-selection + missing-target error), `status` rendering on a temp kod tree with a corrupt gen dir → lists usable ones, names the corrupt one.
+- [x] **Step 2:** Implement both verbs through the executor path; scratch E2E: apply (Task 11) → rollback → `status` shows old gen current → rollback to explicit N works.
+- [x] **Step 3:** Commit `feat(executor): kodos status and rollback (with corrupt-generation diagnostics)`.
 
 ### Task 13: VM end-to-end — the definition of done (paste-run)
 
