@@ -659,8 +659,7 @@ func (s *system) pruneGenerations(keep int, protect []int) error {
 		if e.Name() == "current" || e.Name() == "etc" {
 			continue
 		}
-		var n int
-		if _, err := fmt.Sscanf(e.Name(), "%d", &n); err == nil {
+		if n, err := strconv.Atoi(e.Name()); err == nil { // strict: "3xyz" is not generation 3
 			existingGens = append(existingGens, n)
 		}
 	}

@@ -142,6 +142,14 @@ func TestRollbackRefusesUnusableTargets(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "kod", "generation", "0", "boot", "vmlinuz-virt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// gen 6: kernel present but the initramfs named after that kver is missing
+	writeManifest(t, root, 6, &metadata{SchemaVersion: 1, Generation: 6, Distro: "alpine"}, "")
+	if err := os.MkdirAll(filepath.Join(root, "kod", "generation", "6", "boot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "kod", "generation", "6", "boot", "vmlinuz-virt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, tc := range []struct {
 		n    int
@@ -149,6 +157,7 @@ func TestRollbackRefusesUnusableTargets(t *testing.T) {
 	}{
 		{3, "declares generation 4"},
 		{5, "no boot/vmlinuz"},
+		{6, "no boot/initramfs-virt"},
 	} {
 		n := tc.n
 		if err := rollback(root, &n, "apk"); err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -158,6 +167,124 @@ func TestRollbackRefusesUnusableTargets(t *testing.T) {
 	// nothing was activated in any error path
 	if s, _ := os.Readlink(filepath.Join(root, "kod", "generation", "current")); s != "/kod/generation/0" {
 		t.Errorf("error paths must not move current, got %q", s)
+	}
+}
+
+func TestBootTimeoutSurvivesRollback(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "boot", "grub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "set default=0\nset timeout=3\nmenuentry 'Kodos generation 4' {\n\tlinux /vmlinuz-virt root=UUID=x\n}\n"
+	if err := os.WriteFile(filepath.Join(root, "boot", "grub", "grub.cfg"), []byte(cfg), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	title, timeout, has, err := grubCfg(&system{chroot: root})
+	if err != nil || title != "Kodos generation 4" || timeout != 3 || !has {
+		t.Fatalf("grubCfg: title=%q timeout=%d has=%v err=%v", title, timeout, has, err)
+	}
+	act := bootloaderAction(timeout, has)
+	if act["op"] != "install_bootloader" || act["timeout"] != 3 {
+		t.Errorf("synthesized bootloader action must carry the machine's timeout: %v", act)
+	}
+	if len(act) != 2 {
+		t.Errorf("only op+timeout belong in the action (no inert type/efi): %v", act)
+	}
+
+	// no grub.cfg (first run, or a bootloader leg that never finished): the op's
+	// own default applies, so the field is omitted rather than defaulted here.
+	_, timeout, has, err = grubCfg(&system{chroot: t.TempDir()})
+	if err == nil || has || timeout != 0 {
+		t.Errorf("absent grub.cfg must give timeout 0/false: %d %v %v", timeout, has, err)
+	}
+	if act := bootloaderAction(timeout, has); len(act) != 1 {
+		t.Errorf("absent timeout must not add a field: %v", act)
+	}
+
+	// unparseable timeout: same (op default), title still read
+	bad := filepath.Join(t.TempDir(), "boot", "grub")
+	if err := os.MkdirAll(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bad, "grub.cfg"), []byte("set timeout=fast\nmenuentry \"Kodos gen 7\" {\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	title, _, has, _ = grubCfg(&system{chroot: filepath.Dir(filepath.Dir(bad))})
+	if has || title != "Kodos gen 7" {
+		t.Errorf("junk timeout must fall back to the op default, title still parsed (double-quoted title): has=%v title=%q", has, title)
+	}
+}
+
+func TestFstabMounts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const fstab = `# kodos guest fstab — bogus UUIDs on purpose: no host device
+# resolves them, so each spec must pass through verbatim (hermetic test)
+UUID=00000000-1111-4222-8333-444444444444	/	ext4	noatime	0	1
+UUID=11111111-2222-4333-8444-555555555555	/boot	vfat	defaults	0	0
+UUID=22222222-3333-4444-8555-666666666666	/home	ext4	noauto	0	2
+UUID=33333333-4444-4555-8666-777777777777	none	swap	sw	0	0
+/dev/sr0	/media/cdrom	auto	ro,noauto	0	0
+LABEL=kodos-no-such-volume	/data	ext4	defaults	0	2
+
+`
+	fstabPath := filepath.Join(root, "etc", "fstab")
+	if err := os.WriteFile(fstabPath, []byte(fstab), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mounts, err := fstabMounts(&system{chroot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][2]string{ // point -> {partition, options}
+		"/":     {"UUID=00000000-1111-4222-8333-444444444444", "noatime"},
+		"/boot": {"UUID=11111111-2222-4333-8444-555555555555", "defaults"},
+		"/data": {"LABEL=kodos-no-such-volume", "defaults"},
+	}
+	if len(mounts) != len(want) {
+		t.Fatalf("comment/swap/none/noauto lines must be skipped, got %d actions: %v", len(mounts), mounts)
+	}
+	for _, a := range mounts {
+		point := field(a, "point")
+		w, ok := want[point]
+		if !ok {
+			t.Errorf("unexpected mount action for %q: %v", point, a)
+			continue
+		}
+		if got := field(a, "partition"); got != w[0] {
+			t.Errorf("point %s: partition %q, want %q (unresolvable specs pass through verbatim)", point, got, w[0])
+		}
+		if got := field(a, "options"); got != w[1] {
+			t.Errorf("point %s: options %q, want %q", point, got, w[1])
+		}
+		if field(a, "op") != "mount" {
+			t.Errorf("op must be mount: %v", a)
+		}
+	}
+
+	// a plain device spec needs no UUID resolution at all
+	if dev := fstabDevice("/dev/nbd0p2"); dev != "/dev/nbd0p2" {
+		t.Errorf("device spec must stay verbatim: %q", dev)
+	}
+
+	// fstab without a / entry: no root device means no rollback (fail closed)
+	if err := os.WriteFile(fstabPath, []byte("/dev/sda1 /data ext4 defaults 0 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fstabMounts(&system{chroot: root}); err == nil ||
+		!strings.Contains(err.Error(), " / ") || !strings.Contains(err.Error(), fstabPath) {
+		t.Errorf("missing root entry must error naming the fstab path: %v", err)
+	}
+
+	// no live fstab at all: same class
+	if err := os.Remove(fstabPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fstabMounts(&system{chroot: root}); err == nil ||
+		!strings.Contains(err.Error(), "fstab") {
+		t.Errorf("absent fstab must error, got %v", err)
 	}
 }
 
@@ -267,10 +394,18 @@ func TestStatusBootDefaultAndBrokenCurrent(t *testing.T) {
 	err := statusTo(&buf, root)
 	out = buf.String()
 	if err == nil {
-		t.Errorf("broken current alias must be an error, out:\n%s", out)
+		t.Fatalf("broken current alias must be an error, out:\n%s", out)
 	}
-	if !strings.Contains(out, "BROKEN") || !strings.Contains(out, "9") {
-		t.Errorf("broken alias line must say BROKEN and name the target:\n%s", out)
+	// single source: the BROKEN text lives in the returned error (main prints
+	// it once as "ERROR: …"), never duplicated onto stdout
+	if !strings.Contains(err.Error(), "BROKEN") || !strings.Contains(err.Error(), "9") {
+		t.Errorf("broken alias error must say BROKEN and name the target: %v", err)
+	}
+	if strings.Contains(out, "BROKEN") {
+		t.Errorf("broken text must not also go to stdout:\n%s", out)
+	}
+	if !strings.Contains(out, "GENERATION") || !strings.Contains(out, "boot default: Kodos generation 0") {
+		t.Errorf("table + boot line must still render under a broken alias:\n%s", out)
 	}
 
 	// unparseable alias target (human hand-edit): same treatment
@@ -281,10 +416,21 @@ func TestStatusBootDefaultAndBrokenCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf.Reset()
-	if err := statusTo(&buf, root); err == nil {
-		t.Error("unparseable current alias must be an error")
+	if err := statusTo(&buf, root); err == nil || !strings.Contains(err.Error(), "BROKEN") {
+		t.Errorf("unparseable current alias must be a BROKEN error, got %v", err)
 	}
-	if !strings.Contains(buf.String(), "BROKEN") {
-		t.Errorf("unparseable alias must say BROKEN:\n%s", buf.String())
+
+	// "2abc" must NOT be believed as generation 2: strict Atoi, not a %d scan
+	// (the dir does not exist either, so only a strict parse says so)
+	if err := os.Remove(filepath.Join(root, "kod", "generation", "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/kod/generation/2abc", filepath.Join(root, "kod", "generation", "current")); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	err = statusTo(&buf, root)
+	if err == nil || !strings.Contains(err.Error(), "not a generation number") {
+		t.Errorf("alias target %q must not parse as generation 2, got %v", "2abc", err)
 	}
 }

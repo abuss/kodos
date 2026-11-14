@@ -29,6 +29,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -639,10 +640,12 @@ func (e *executor) createGeneration(act map[string]any) error {
 	protect := []int{e.meta.Generation}
 	currentLink := filepath.Join(e.s.root(), "generation", "current")
 	if target, err := os.Readlink(currentLink); err == nil {
-		var liveCurrent int
-		if _, scanErr := fmt.Sscanf(filepath.Base(target), "%d", &liveCurrent); scanErr != nil {
-			// Fail closed: a present-but-unparseable current (human hand-edit)
-			// must not silently drop the boot-critical gen from protection.
+		liveCurrent, convErr := strconv.Atoi(filepath.Base(target))
+		if convErr != nil {
+			// Fail closed, and strictly (Atoi, never a %d prefix scan): a
+			// present-but-unparseable current (human hand-edit, "2abc") must
+			// neither drop the boot-critical gen from protection nor be
+			// believed as a number it is not.
 			return fmt.Errorf("cannot prune: current alias target %q is not a generation number", target)
 		}
 		if liveCurrent != e.meta.Generation {

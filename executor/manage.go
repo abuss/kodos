@@ -18,7 +18,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -40,9 +39,9 @@ func currentGeneration(chroot string) (n int, why string) {
 	if err != nil {
 		return -1, "" // absent: nothing has been activated yet
 	}
-	base := filepath.Base(target)
-	var got int
-	if _, scanErr := fmt.Sscanf(base, "%d", &got); scanErr != nil {
+	// strict: Atoi, so "2abc" is BROKEN rather than silently generation 2
+	got, convErr := strconv.Atoi(filepath.Base(target))
+	if convErr != nil {
 		return -1, fmt.Sprintf("BROKEN: current alias target %q is not a generation number", target)
 	}
 	if !isRealDir(filepath.Join(chroot, strings.TrimPrefix(target, "/"))) {
@@ -143,7 +142,9 @@ func statusTo(w io.Writer, chroot string) error {
 	cur, why := currentGeneration(rootAbs)
 	switch {
 	case why != "":
-		fmt.Fprintf(w, "current: %s\n", why)
+		// Deliberately not echoed here: the error returned below is the single
+		// source of that text (main prints it as "ERROR: …"). The table and the
+		// boot-default line still print, so the report stays useful.
 	case cur >= 0:
 		fmt.Fprintf(w, "current → kod/generation/%d\n", cur)
 	default:
@@ -173,36 +174,52 @@ func statusTo(w io.Writer, chroot string) error {
 	}
 	fmt.Fprintf(w, "boot default: %s\n", bootDefault(s))
 	if why != "" {
-		return errors.New(why)
+		return fmt.Errorf("current: %s", why)
 	}
 	return nil
 }
 
-// bootDefault reads the boot-default menu entry title out of the grub.cfg the
-// bootloader op renders (<root>/boot/grub/grub.cfg, mode 0444, written only
-// after a successful grub-install). chrootResolve because a non-mounted /boot
-// is a chroot-rooted link whose raw host path dangles.
-func bootDefault(s *system) string {
+// grubCfg reads the live ESP grub.cfg that install_bootloader rendered: the
+// first menu-entry title (status's boot-default line) and the timeout the
+// machine currently boots with. The timeout matters for rollback: without it
+// the op falls back to its own default (5) and silently rewrites the
+// machine's declared `set timeout=3|10`.
+func grubCfg(s *system) (title string, timeout int, hasTimeout bool, err error) {
 	b, err := os.ReadFile(s.chrootResolve(filepath.Join(s.chroot, "boot", "grub", "grub.cfg")))
+	if err != nil {
+		return "", 0, false, err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if title == "" {
+			if rest, ok := strings.CutPrefix(line, "menuentry "); ok {
+				title = strings.TrimPrefix(strings.TrimSpace(rest), "'")
+				title = strings.TrimPrefix(title, `"`) // grub allows either quote style
+				if i := strings.IndexAny(title, `"'`); i > 0 {
+					title = title[:i]
+				}
+			}
+		}
+		if !hasTimeout {
+			if rest, ok := strings.CutPrefix(line, "set timeout="); ok {
+				if n, convErr := strconv.Atoi(rest); convErr == nil {
+					timeout, hasTimeout = n, true
+				}
+			}
+		}
+	}
+	return title, timeout, hasTimeout, nil
+}
+
+func bootDefault(s *system) string {
+	title, _, _, err := grubCfg(s)
 	if err != nil {
 		return "no grub.cfg"
 	}
-	for _, line := range strings.Split(string(b), "\n") {
-		rest, ok := strings.CutPrefix(line, "menuentry ")
-		if !ok {
-			continue
-		}
-		title := strings.TrimSpace(rest)
-		title = strings.TrimPrefix(title, "'")
-		title = strings.TrimPrefix(title, `"`)
-		if i := strings.IndexAny(title, `"'`); i > 0 {
-			title = title[:i]
-		}
-		if title != "" {
-			return title
-		}
+	if title == "" {
+		return "no menu entry in grub.cfg"
 	}
-	return "no menu entry in grub.cfg"
+	return title
 }
 
 // ---- rollback ----
@@ -219,17 +236,9 @@ func rollback(chroot string, n *int, apkBin string) error {
 		return fmt.Errorf("no generations under %s", filepath.Join(rootAbs, "kod", "generation"))
 	}
 	cur, why := currentGeneration(rootAbs)
-	if why != "" {
-		fmt.Printf("note: current alias is unusable (%s)\n", why)
-	}
 	target, err := rollbackTarget(cur, n, gens)
 	if err != nil {
 		return err
-	}
-	if cur >= 0 {
-		fmt.Printf("rollback: current generation %d → %d\n", cur, target)
-	} else {
-		fmt.Printf("rollback: generation %d (no usable current alias)\n", target)
 	}
 
 	// Everything the stream needs is read BEFORE anything can be activated:
@@ -247,24 +256,41 @@ func rollback(chroot string, n *int, apkBin string) error {
 	if meta.Distro != "alpine" {
 		return fmt.Errorf("cannot roll back to generation %d: distro %q (this build runs the alpine/apk family only)", target, meta.Distro)
 	}
-	// The bootloader op reads the kernel/initramfs out of the target tree.
-	// activate_generation (IR rank 18) runs BEFORE install_bootloader (22), so
-	// a half-populated generation would already be current when the bootloader
-	// leg fails: check its kernel is there before touching anything.
-	if matches, _ := filepath.Glob(filepath.Join(s.genDir(target), "boot", "vmlinuz-*")); len(matches) == 0 {
-		return fmt.Errorf("cannot roll back to generation %d: no boot/vmlinuz-* in %s (kernel package missing?): refusing to activate it", target, s.genDir(target))
+	// activate_generation (IR rank 18) runs BEFORE install_bootloader (22), so a
+	// generation the bootloader would fail on must never become current on the
+	// way there. Same convention the op itself enforces: <gen>/boot/vmlinuz-<kver>
+	// and the initramfs named after that exact kver.
+	gen := s.genDir(target)
+	matches, _ := filepath.Glob(filepath.Join(gen, "boot", "vmlinuz-*"))
+	if len(matches) == 0 {
+		return fmt.Errorf("cannot roll back to generation %d: no boot/vmlinuz-* in %s (kernel package missing?): refusing to activate it", target, gen)
+	}
+	kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
+	if !lexists(filepath.Join(gen, "boot", "initramfs-"+kver)) {
+		return fmt.Errorf("cannot roll back to generation %d: no boot/initramfs-%s in %s (mkinitfs never ran?): refusing to activate it", target, kver, gen)
 	}
 	mounts, err := fstabMounts(s)
 	if err != nil {
 		return err
 	}
+	// Only now that every input validated does the banner state a fact rather
+	// than an intent (it used to print before the checks failed).
+	if why != "" {
+		fmt.Printf("note: current alias is unusable (%s)\n", why)
+	}
+	if cur >= 0 {
+		fmt.Printf("rollback: current generation %d → %d\n", cur, target)
+	} else {
+		fmt.Printf("rollback: generation %d (no usable current alias)\n", target)
+	}
 
+	_, timeout, hasTimeout, _ := grubCfg(s) // the machine's own grub timeout
 	acts := make([]map[string]any, 0, len(mounts)+3)
 	acts = append(acts, mounts...)
 	acts = append(acts,
 		map[string]any{"op": "set_kernel_arguments", "arguments": meta.KernelArgs},
 		map[string]any{"op": "activate_generation", "root": "/kod"},
-		map[string]any{"op": "install_bootloader", "type": "grub", "efi": true},
+		bootloaderAction(timeout, hasTimeout),
 	)
 	stream, err := json.Marshal(actionsFile{SchemaVersion: 1, Distro: meta.Distro, Actions: acts})
 	if err != nil {
@@ -292,6 +318,18 @@ func rollback(chroot string, n *int, apkBin string) error {
 	return nil
 }
 
+// bootloaderAction builds the synthesized install_bootloader action with only
+// the fields the op actually reads: timeout comes from the live grub.cfg so a
+// rollback keeps the machine's declared grub timeout instead of the op's
+// default (5). Absent/unparseable -> field omitted, op default applies.
+func bootloaderAction(timeout int, hasTimeout bool) map[string]any {
+	act := map[string]any{"op": "install_bootloader"}
+	if hasTimeout {
+		act["timeout"] = timeout
+	}
+	return act
+}
+
 // fstabMounts turns the LIVE /etc/fstab into mount actions for the rollback
 // stream. Those devices are already mounted (the machine is running from
 // them), so the executor's skip-if-mounted guard turns each into a no-op —
@@ -313,6 +351,9 @@ func fstabMounts(s *system) ([]map[string]any, error) {
 		spec, point, fstype, options := f[0], f[1], f[2], f[3]
 		if fstype == "swap" || point == "none" {
 			continue // swap has no mountpoint for the executor to key off
+		}
+		if strings.Contains(options, "noauto") {
+			continue // declared NOT to mount at boot: `mount -o noauto` would just fail
 		}
 		if point == "/" {
 			hasRoot = true
@@ -350,7 +391,6 @@ func fstabDevice(spec string) string {
 
 func cmdStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	fs.Usage = func() { fmt.Fprintln(fs.Output(), "usage: kodos status [-root DIR]") }
 	root := fs.String("root", "/", "target root filesystem")
 	if err := fs.Parse(args); err != nil {
@@ -367,7 +407,6 @@ func cmdStatus(args []string) error {
 // first and any leftover positional is a hard error (never silently dropped).
 func parseRollbackArgs(args []string) (n *int, root, apkBin string, err error) {
 	fs := flag.NewFlagSet("rollback", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	fs.Usage = func() { fmt.Fprintln(fs.Output(), "usage: kodos rollback [N] [-root DIR] [-apk PATH]") }
 	fs.StringVar(&root, "root", "/", "target root filesystem")
 	fs.StringVar(&apkBin, "apk", "apk", "apk binary for dependency resolution (executor passthrough)")

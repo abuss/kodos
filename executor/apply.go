@@ -188,7 +188,6 @@ func isBoolValue(v flag.Value) bool {
 // hazard meant a mutating apply against /.
 func parseApplyArgs(args []string) (arg string, dryRun bool, root, apkBin string, err error) {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	fs.Usage = func() { fmt.Fprintln(fs.Output(), "usage: kodos apply [DIR|FILE.lua] [--dry-run]") }
 	fs.BoolVar(&dryRun, "dry-run", false, "run generate+lock, print the plan, change nothing")
 	fs.StringVar(&root, "root", "/", "target root filesystem (test passthrough, mirrors exec)")
@@ -362,8 +361,7 @@ func printPlan(actionsOut, lockOut string, gen int, root string) {
 	// added/removed vs the current generation's manifest, if readable
 	var curNames map[string]bool
 	if target, err := os.Readlink(filepath.Join(root, "kod", "generation", "current")); err == nil {
-		var curGen int
-		if _, scanErr := fmt.Sscanf(filepath.Base(target), "%d", &curGen); scanErr == nil {
+		if _, convErr := strconv.Atoi(filepath.Base(target)); convErr == nil { // strict: "2abc" is not gen 2
 			var cur metadata
 			p := filepath.Join(root, "kod", "generation", filepath.Base(target), "generation.json")
 			if err := json.Unmarshal(mustRead(p), &cur); err == nil {
