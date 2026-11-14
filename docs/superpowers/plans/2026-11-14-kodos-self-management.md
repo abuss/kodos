@@ -100,9 +100,9 @@
 **Interfaces:**
 - Produces: `kod/generation/<N>/generation.json` on disk, loadable as `metadata` struct + `{timestamp, config_hash, kernel_args}` extras; Tasks 10/12 read it.
 
-- [ ] **Step 1:** Extend selftest with the failing assertion (file absent).
-- [ ] **Step 2:** Implement the stamp write (marshal from the same maps the executor already holds); selftest PASS.
-- [ ] **Step 3:** Commit `feat(executor): persist per-generation metadata (generation.json)`.
+- [x] **Step 1:** Extend selftest with the failing assertion (file absent).
+- [x] **Step 2:** Implement the stamp write (marshal from the same maps the executor already holds); selftest PASS.
+- [x] **Step 3:** Commit `feat(executor): persist per-generation metadata (generation.json)`.
 
 ### Task 5: `generate.lua` in-place mode
 
