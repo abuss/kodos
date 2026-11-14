@@ -494,6 +494,61 @@ func (e *executor) chrootShOut(script string) (string, error) {
 	return string(out), err
 }
 
+// genChrootSh runs a script chrooted into the ACTIVE generation tree.
+// The live root is a bag of top-level symlinks (/usr -> current/usr),
+// which breaks realpath-following tools: mkinitfs' lddtree staged the
+// hardlinked real files under /kod/... and left relative SONAME links
+// (/usr/lib/libblkid.so.1 -> libblkid.so.1.1.0) DANGLING inside the
+// initramfs -> "Error loading shared library" panic path. Inside the
+// generation tree every dir is real and files are hardlinks, so paths
+// resolve like a vanilla root. Its /etc entries symlink into
+// /kod/generation/N/etc_store, so bind the kod tree in to resolve them.
+func (e *executor) genChrootSh(script string) error {
+	// NOT ".../current": that symlink targets /kod/generation/N which is
+	// chroot-rooted and would resolve against the HOST from out here.
+	gen := filepath.Join(e.s.chroot, "kod/generation", strconv.Itoa(e.meta.Generation))
+	if !dirExists(gen) {
+		return fmt.Errorf("genChrootSh: no activated generation at %s", gen)
+	}
+	if err := e.ensureChrootMounts(); err != nil { // live-root mounts to mirror in
+		return err
+	}
+	var binds []string
+	bind := func(name string) error {
+		src := filepath.Join(e.s.chroot, name)
+		dst := filepath.Join(gen, name)
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			return err
+		}
+		if err := run("mount", "--rbind", src, dst); err != nil {
+			return err
+		}
+		run("mount", "--make-rprivate", dst) // never propagate umounts outward
+		binds = append(binds, dst)
+		return nil
+	}
+	for _, n := range []string{"kod", "proc", "sys", "dev", "run"} {
+		if err := bind(n); err != nil {
+			for _, b := range binds {
+				run("mount", "--make-rprivate", b)
+				exec.Command("umount", "-R", b).Run()
+			}
+			return err
+		}
+	}
+	defer func() {
+		for _, b := range binds {
+			run("mount", "--make-rprivate", b)
+			exec.Command("umount", "-R", b).Run() // best-effort
+		}
+	}()
+	cmd := exec.Command("chroot", gen, "/bin/sh", "-l", "-c", script)
+	cmd.Dir = gen
+	cmd.Env = []string{"PATH=/sbin:/bin:/usr/sbin:/usr/bin", "HOME=/", "TERM=dumb"}
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
 // runPostInstalls executes package .post-install scripts INSIDE the
 // activated generation. Alpine 3.24 busybox creates /bin/sh etc only via
 // its own hook (`#!/bin/busybox sh; /bin/busybox --install -s`), so:
@@ -867,7 +922,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 			if err := e.chrootSh("depmod " + shellQuote(abi)); err != nil {
 				return fmt.Errorf("bootloader depmod %s: %w", abi, err)
 			}
-			if err := e.chrootSh("mkinitfs -o /boot/initramfs" + suffix + " " + shellQuote(abi)); err != nil {
+			if err := e.genChrootSh("mkinitfs -o /boot/initramfs" + suffix + " " + shellQuote(abi)); err != nil {
 				return fmt.Errorf("bootloader mkinitfs %s: %w", abi, err)
 			}
 			fmt.Printf("initramfs built: initramfs%s (kernel %s)\n", suffix, abi)
