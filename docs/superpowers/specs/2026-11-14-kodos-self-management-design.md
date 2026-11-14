@@ -72,7 +72,7 @@ CI forever.
 |---|---|
 | `kodos apply [DIR\|FILE.lua] [--dry-run]` | Full on-machine converge: load config → live lock → generate (in-place mode) → `exec -root /` → activate N+1. `--dry-run` prints the plan, changes nothing. |
 | `kodos status` | Current generation (`current` alias), boot default entry, generation list with package counts. |
-| `kodos rollback [N]` | Re-activate generation N (default: previous). Re-runs hooks, flips `current`, moves the grub default. |
+| `kodos rollback [N]` | Re-activate generation N (default: previous). Flips `current`, moves the grub default. Does NOT re-run post-install hooks (they ran when N was first created; Alpine hooks are not idempotent — amended 2026-11-14 after Task 12). |
 | `kodos exec ...` | Today's executor, unchanged; dev/harness + internal plumbing. |
 
 No `edit`, no `diff`, no confirmation prompt: you edited the config, you ran
@@ -122,8 +122,11 @@ config itself (existing requirement).
    schema; executor prune becomes config-driven; the generation `current`
    points at is never pruned regardless of cap.
 7. **Rollback.** `kodos rollback [N]`: "previous" = highest generation
-   strictly below the current one. Load that generation's stored metadata → `exec` a minimal stream (activate + hooks + bootloader
-   default) → `current` flips → reboot lands there. Live /etc flips because
+   strictly below the current one. Load that generation's stored metadata → `exec` a minimal stream (mounts from live fstab + activate + bootloader
+   default) → `current` flips → reboot lands there. Post-install hooks are
+   NOT re-run (they already ran for that generation; re-running them after
+   activation would abort mid-boot-config with `current` already flipped).
+   Live /etc flips because
    activation re-hardlinks (the fs-agnostic etc model already does this at
    activation).
 8. **Service lifecycle stays honest.** apply changes *state*; running
