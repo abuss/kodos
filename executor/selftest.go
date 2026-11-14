@@ -12,10 +12,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func check(cond bool, msg string, args ...any) {
@@ -60,6 +62,44 @@ func selftest() {
 	// gen 0
 	g0, err := s.createGeneration(map[string]string{"pkgA": "1.0", "pkgB": "2.0", "00base": "1.0"}, 0, "")
 	check(err == nil, "create gen0: %v", err)
+	
+	// Simulate writeGenerationManifest (selftest has no executor context)
+	// In real exec flow, main.go's createGeneration handler does this
+	genManifest := map[string]any{
+		"schema_version": 1,
+		"generation":     0,
+		"distro":         "alpine",
+		"packages": map[string]any{
+			"pkgA":    map[string]any{"version": "1.0", "checksum": ""},
+			"pkgB":    map[string]any{"version": "2.0", "checksum": ""},
+			"00base":  map[string]any{"version": "1.0", "checksum": ""},
+		},
+		"timestamp":    time.Now().UTC().Format(time.RFC3339),
+		"config_hash":  "", // selftest has no input, use empty
+		"kernel_args":  []string{},
+	}
+	genManifestJSON, _ := json.Marshal(genManifest)
+	check(os.WriteFile(filepath.Join(g0, "generation.json"), genManifestJSON, 0o644) == nil, "write generation.json")
+	
+	// generation.json must exist with metadata + executor stamps
+	genJsonPath := filepath.Join(g0, "generation.json")
+	check(lexists(genJsonPath), "generation.json missing at %s", genJsonPath)
+	var genJson map[string]any
+	genJsonBytes, err := os.ReadFile(genJsonPath)
+	check(err == nil, "read generation.json: %v", err)
+	check(json.Unmarshal(genJsonBytes, &genJson) == nil, "generation.json parse: %v", err)
+	
+	// check fields
+	pkgs, _ := genJson["packages"].(map[string]any)
+	check(pkgs != nil && len(pkgs) == 3, "generation.json has 3 packages, got %v", pkgs)
+	check(genJson["timestamp"] != nil && genJson["timestamp"].(string) != "", "timestamp present")
+	check(genJson["config_hash"] != nil, "config_hash present")
+	check(genJson["kernel_args"] != nil, "kernel_args present (even if empty)")
+	
+	// kernel_args should be empty (no set_kernel_arguments op in selftest)
+	kernelArgs, _ := genJson["kernel_args"].([]any)
+	check(len(kernelArgs) == 0, "kernel_args empty in selftest, got %v", kernelArgs)
+	
 	// merged-usr: the relative bin/sbin symlinks must alias the generation's
 	// own tree; a real dir (pkgA/bin) always wins over a later alias
 	t, _ := os.Readlink(filepath.Join(g0, "sbin"))

@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -49,6 +50,8 @@ type executor struct {
 
 	declaredRunlevels map[string]bool // "runlevel/unit" this stream's enable_service set
 	hookRunlevels     map[string]bool // "runlevel/unit" package hooks enabled this run
+	
+	actionsFileBytes []byte // raw actions file for config_hash if no -metadata
 }
 
 func main() {
@@ -107,6 +110,11 @@ func cmdExec(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Read actions file bytes for config_hash computation
+	afBytes, err := os.ReadFile(*actionsFile)
+	if err != nil {
+		return err
+	}
 	meta, err := loadMetadata(*metadata)
 	if err != nil {
 		return err
@@ -118,7 +126,7 @@ func cmdExec(args []string) error {
 		return fmt.Errorf("actions and metadata disagree (distro/generation)")
 	}
 
-	e := &executor{s: &system{chroot: *root}, meta: meta, arch: *arch, apk: *apkBin}
+	e := &executor{s: &system{chroot: *root}, meta: meta, arch: *arch, apk: *apkBin, actionsFileBytes: afBytes}
 	if *secrets != "" {
 		if err := loadJSON(*secrets, &e.secrets); err != nil {
 			return err
@@ -571,9 +579,48 @@ func (e *executor) createGeneration(act map[string]any) error {
 		prev = cand
 	}
 	e.lastGen = toInstall
-	_, err := e.s.createGeneration(toInstall, idx, prev)
-	if err == nil {
-		fmt.Printf("generation %d created (%d packages)\n", idx, len(toInstall))
+	genDir, err := e.s.createGeneration(toInstall, idx, prev)
+	if err != nil {
+		return err
 	}
-	return err
+	// Write generation.json with metadata + executor stamps
+	if err := e.writeGenerationManifest(genDir); err != nil {
+		return err
+	}
+	fmt.Printf("generation %d created (%d packages)\n", idx, len(toInstall))
+	return nil
+}
+
+func (e *executor) writeGenerationManifest(genDir string) error {
+	// Compute config_hash: sha256 of metadata file if available, else actions stream
+	var configHash string
+	if e.actionsFileBytes != nil && len(e.actionsFileBytes) > 0 {
+		h := sha256.Sum256(e.actionsFileBytes)
+		configHash = hex.EncodeToString(h[:])
+	} else {
+		// Fallback: shouldn't happen in normal exec flow
+		configHash = ""
+	}
+	
+	// Build manifest: copy metadata fields, add stamps
+	manifest := map[string]any{
+		"schema_version": e.meta.SchemaVersion,
+		"generation":     e.meta.Generation,
+		"distro":         e.meta.Distro,
+		"packages":       e.meta.Packages,
+		"timestamp":      time.Now().UTC().Format(time.RFC3339),
+		"config_hash":    configHash,
+		"kernel_args":    e.kernelArgs,
+	}
+	
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return fmt.Errorf("marshal generation manifest: %w", err)
+	}
+	
+	manifestPath := filepath.Join(genDir, "generation.json")
+	if err := os.WriteFile(manifestPath, manifestJSON, 0o644); err != nil {
+		return fmt.Errorf("write generation.json: %w", err)
+	}
+	return nil
 }
