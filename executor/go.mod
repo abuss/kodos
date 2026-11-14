@@ -1,3 +1,3 @@
-module kodos-exec
+module kodos
 
 go 1.27

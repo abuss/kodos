@@ -1,8 +1,8 @@
-// kodos-exec — executor spike consuming the IR contract (example/eszkoz/IR.md):
+// kodos — executor spike consuming the IR contract (example/eszkoz/IR.md):
 //
-//	kodos-exec -actions actions.json -metadata generation-N.json -root ROOTFS
+//	kodos exec -actions actions.json -metadata generation-N.json -root ROOTFS
 //	           [-secrets FILE] [-arch x86_64] [-dry-run]
-//	kodos-exec selftest
+//	kodos selftest
 //
 // Spike scope (alpine/apk family): implements the whole offline store/
 // generation core — configure_repos, write_file, install_packages (download
@@ -52,38 +52,67 @@ type executor struct {
 }
 
 func main() {
-	actions := flag.String("actions", "", "actions.json (IR stream)")
-	metadata := flag.String("metadata", "", "generation-N.json (version lock)")
-	root := flag.String("root", "", "target root filesystem directory")
-	secrets := flag.String("secrets", "", "secrets store JSON (dotted key -> value, mode 0600)")
-	arch := flag.String("arch", "x86_64", "package arch for download URLs")
-	apkBin := flag.String("apk", "apk", "apk-tools binary used to resolve the dependency closure")
-	dryRun := flag.Bool("dry-run", false, "validate + print the plan, change nothing")
-	flag.Parse()
-
-	if len(flag.Args()) > 0 && flag.Args()[0] == "selftest" {
-		selftest()
-		return
-	}
-	if *actions == "" || *metadata == "" || *root == "" {
-		fmt.Fprintln(os.Stderr, "usage: kodos-exec -actions A -metadata M -root R [-secrets F] [-arch A] [-dry-run] | selftest")
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: kodos [exec|selftest] ...")
 		os.Exit(2)
 	}
 
-	af, err := loadActions(*actions)
-	fatal(err)
+	cmd := os.Args[1]
+	switch cmd {
+	case "exec":
+		if err := cmdExec(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			if os.Getenv("KODOS_TRACEBACK") != "" {
+				debug.PrintStack()
+			}
+			os.Exit(1)
+		}
+	case "selftest":
+		cmdSelftest()
+	default:
+		fmt.Fprintln(os.Stderr, "usage: kodos [exec|selftest] ...")
+		os.Exit(2)
+	}
+}
+
+func cmdExec(args []string) error {
+	actions := flag.NewFlagSet("exec", flag.ContinueOnError)
+	metadata := actions.String("metadata", "", "generation-N.json (version lock)")
+	root := actions.String("root", "", "target root filesystem directory")
+	secrets := actions.String("secrets", "", "secrets store JSON (dotted key -> value, mode 0600)")
+	arch := actions.String("arch", "x86_64", "package arch for download URLs")
+	apkBin := actions.String("apk", "apk", "apk-tools binary used to resolve the dependency closure")
+	dryRun := actions.Bool("dry-run", false, "validate + print the plan, change nothing")
+	actionsFile := actions.String("actions", "", "actions.json (IR stream)")
+
+	if err := actions.Parse(args); err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
+
+	if *actionsFile == "" || *metadata == "" || *root == "" {
+		return fmt.Errorf("usage: kodos exec -actions A -metadata M -root R [-secrets F] [-arch A] [-dry-run]")
+	}
+
+	af, err := loadActions(*actionsFile)
+	if err != nil {
+		return err
+	}
 	meta, err := loadMetadata(*metadata)
-	fatal(err)
+	if err != nil {
+		return err
+	}
 	if af.Distro != "alpine" {
-		fatal(fmt.Errorf("spike implements the alpine/apk family only (got distro %q)", af.Distro))
+		return fmt.Errorf("spike implements the alpine/apk family only (got distro %q)", af.Distro)
 	}
 	if meta.Distro != af.Distro || meta.Generation < 0 {
-		fatal(fmt.Errorf("actions and metadata disagree (distro/generation)"))
+		return fmt.Errorf("actions and metadata disagree (distro/generation)")
 	}
 
 	e := &executor{s: &system{chroot: *root}, meta: meta, arch: *arch, apk: *apkBin}
 	if *secrets != "" {
-		fatal(loadJSON(*secrets, &e.secrets))
+		if err := loadJSON(*secrets, &e.secrets); err != nil {
+			return err
+		}
 	}
 	if e.secrets == nil {
 		e.secrets = map[string]string{}
@@ -98,24 +127,19 @@ func main() {
 		fmt.Printf("== %s\n", op)
 		if err := e.run(act); err != nil {
 			e.umountChroot() // leave no half-mounted pseudo-fs behind
-			fatal(err)
+			return err
 		}
 	}
 	if err := e.reconcileRunlevels(); err != nil {
 		e.umountChroot()
-		fatal(err)
+		return err
 	}
 	e.umountChroot()
+	return nil
 }
 
-func fatal(err error) {
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR:", err)
-		if os.Getenv("KODOS_TRACEBACK") != "" { // debug aid
-			debug.PrintStack()
-		}
-		os.Exit(1)
-	}
+func cmdSelftest() {
+	selftest()
 }
 
 func (e *executor) run(act map[string]any) error {

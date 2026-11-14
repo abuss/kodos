@@ -136,7 +136,7 @@ do_install() {
     # never rely on a host-path guess for an unknown distro
     APK=${APK_BIN:-$VMDIR/apk-tools-static}
     [ -x "$APK" ] || { echo "ERROR: no static apk-tools at $APK (APK_BIN=/path vm/run.sh)"; exit 1; }
-    "$REPO/executor/kodos-exec" -actions "$VMDIR/actions.json" \
+    "$REPO/executor/kodos" exec -actions "$VMDIR/actions.json" \
         -metadata "$VMDIR/generation-0.json" -root "$MNT" \
         -secrets "$VMDIR/secrets.json" \
         -apk "$APK"
