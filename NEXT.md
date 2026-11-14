@@ -124,9 +124,9 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   Selftest covers it (in-memory tar.gz with 04755 file + hardlink).
   WARNING: stores unpacked BEFORE this fix keep scarrred modes (fetch
   skips existing dirs) — use `vm/run.sh fresh`, do not heal by hand.
-- **No network in guest (ssh dead)** — root-caused in FOUR layers
-  (2026-11-14; guest now reaches "connecting" with our `wired` profile,
-  DHCP reply path fixed, final boot round pending):
+- **No network in guest (ssh dead)** — FIXED (2026-11-14, four layers;
+  verified: eth0 connects via our `wired` profile and host
+  `ssh -p 2222 abuss@127.0.0.1` works):
   (1) linux-virt builds virtio_net as `=m` and nothing coldplugged it
   (Alpine enables its device manager via the *installer*, not packages).
   (2) coldplug alone was NOT enough: nmcli showed EVERY device
