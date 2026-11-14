@@ -197,6 +197,14 @@ M.schema = {
         -- top-level packages: FLAT tagged list (all-packages.lua keeps
         -- authoring categories internally and exports the flat .all)
         packages = { optional = tagged_list },
+
+        -- managed single-file writes: name -> {path, content, mode?}.
+        -- Emitted as generic write_file ops (IR #6); mode is an OCTAL STRING
+        -- ("0600"), absent = the executor's default 0644.
+        files = { optional = { dict_of = { record = {
+            path = "string", content = "string",
+            mode = { optional = "string" },
+        } } } },
     },
 }
 
@@ -231,6 +239,21 @@ function M.validate(conf)
     if conf.generations and type(conf.generations.keep) == "number" then
         if conf.generations.keep < 1 then
             errs[#errs + 1] = "$.generations.keep: must be >= 1 (got " .. conf.generations.keep .. ")"
+        end
+    end
+    -- files entries: write_file paths are target-root-absolute (IR.md), and a
+    -- mode the executor cannot parse would abort a live stream at exec time
+    for fname, f in pairs(conf.files or {}) do
+        if type(f) == "table" then
+            if type(f.path) == "string" and f.path:sub(1, 1) ~= "/" then
+                errs[#errs + 1] = "$.files." .. fname
+                    .. ": path must be absolute (got " .. f.path .. ")"
+            end
+            if f.mode ~= nil and not tostring(f.mode):match("^0?[0-7][0-7][0-7][0-7]?$") then
+                errs[#errs + 1] = "$.files." .. fname
+                    .. ': mode must be an octal string, e.g. "0600" (got '
+                    .. tostring(f.mode) .. ")"
+            end
         end
     end
     for uname, u in pairs(conf.users or {}) do

@@ -4,6 +4,8 @@
 #   vm/run.sh          install + boot (Ctrl-a x quits qemu)
 #   vm/run.sh install  just install   vm/run.sh boot   just boot
 #   vm/run.sh fresh    delete the disk first
+#   vm/run.sh guest '<cmd>'      run <cmd> inside the BOOTED guest (ssh 2222)
+#   vm/run.sh guest-file F [DIR] copy F into the guest (default: its repo dir)
 # Everything is idempotent: re-running install re-partitions nothing
 # (partition table/fs checks) and re-creates generation N+... as designed.
 set -eu
@@ -21,7 +23,13 @@ FRESH=0
 if [ "${1:-}" = fresh ]; then FRESH=1; fi
 PHASE=${1:-all}; [ "$PHASE" = fresh ] && PHASE=all
 
-if [ "$(id -u)" -ne 0 ]; then exec sudo env APK_BIN="${APK_BIN:-}" "$0" "$@"; fi
+if [ "$(id -u)" -ne 0 ]; then
+    # the in-guest phases are a plain ssh client: they need no root here
+    case "$PHASE" in
+        guest|guest-file) ;;
+        *) exec sudo env APK_BIN="${APK_BIN:-}" "$0" "$@" ;;
+    esac
+fi
 if [ "$FRESH" = 1 ]; then rm -f "$DISK"; fi
 
 cleanup() {
@@ -147,6 +155,49 @@ do_install() {
     cleanup
 }
 
+# ====== in-guest runner: the paste rounds drive the booted VM over ssh ======
+# vm/run.sh boot forwards host 2222 -> guest 22 (qemu hostfwd). Root login over
+# ssh is enabled in vm-layer/guest-config for this throwaway box only; the
+# password is the public test cred vm/run.sh writes into vm/secrets.json.
+GUEST_HOST=127.0.0.1
+GUEST_PORT=2222
+GUEST_USER=root
+GUEST_PASS=kodos-root-test
+# host keys: the guest is recreated every round, so trust-on-first-use and
+# keep the host's known_hosts clean (ConnectTimeout: a guest that is not
+# booted must fail fast, not hang the paste round).
+GUEST_SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
+
+guest_ssh() { # $* = one command string, run by the guest's /bin/sh
+    if command -v sshpass >/dev/null 2>&1; then
+        sshpass -p "$GUEST_PASS" ssh $GUEST_SSH_OPTS -p "$GUEST_PORT" \
+            "$GUEST_USER@$GUEST_HOST" "$*"
+    else
+        # no sshpass here: same command, one manual keystroke more. Type the
+        # guest password (kodos-root-test) when ssh asks.
+        echo "(host has no sshpass: ssh will prompt for $GUEST_PASS)" >&2
+        ssh $GUEST_SSH_OPTS -p "$GUEST_PORT" "$GUEST_USER@$GUEST_HOST" "$*"
+    fi
+}
+
+do_guest() {
+    [ $# -ge 1 ] || { echo "usage: vm/run.sh guest '<cmd>'"; exit 2; }
+    guest_ssh "$*"
+}
+
+# guest-file LOCAL [REMOTE]: no scp/sftp — the sshd_config our config renders
+# carries no Subsystem line, so an sftp-based scp dies on the spot; an ssh
+# pipe needs nothing on the guest but a shell. REMOTE defaults to the repo dir
+# the guest applies (self-upgrade round: copy the newer kodos.apk in).
+do_guest_file() {
+    [ $# -ge 1 ] || { echo "usage: vm/run.sh guest-file LOCAL [REMOTE]"; exit 2; }
+    [ -r "$1" ] || { echo "no such file: $1"; exit 1; }
+    rem=${2:-/var/kodos/repo/x86_64/}
+    case $rem in */) rem="$rem$(basename "$1")";; esac
+    guest_ssh "cat > '$rem'" < "$1"
+    echo "sent $1 -> $GUEST_USER@$GUEST_HOST:$rem"
+}
+
 do_boot() {
     [ -f "$DISK" ] || { echo "no $DISK: run 'vm/run.sh install' first"; exit 1; }
     # Firmware handling is distro- AND qemu-version-sensitive: recent qemu
@@ -189,6 +240,8 @@ do_boot() {
 
 case "$PHASE" in
     install) trap cleanup EXIT; do_install ;;
+    guest)      shift; do_guest "$@" ;;
+    guest-file) shift; do_guest_file "$@" ;;
     debug)   trap cleanup EXIT; cleanup; attach_nbd; mkdir -p "$MNT"
              mount "${NBD}p2" "$MNT"
              G=$MNT/kod/generation
@@ -200,5 +253,5 @@ case "$PHASE" in
              exec su -s /bin/sh "${SUDO_USER:-root}" ;;
     boot)    do_boot ;;
     all)     trap cleanup EXIT; do_install; do_boot ;;
-    *) echo "usage: vm/run.sh [install|boot|fresh]"; exit 2 ;;
+    *) echo "usage: vm/run.sh [install|boot|fresh|guest '<cmd>'|guest-file LOCAL [REMOTE]]"; exit 2 ;;
 esac

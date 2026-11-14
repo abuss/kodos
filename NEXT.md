@@ -201,6 +201,12 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   net/http + system apk; in-place generate mode; `copy_tree` IR op ships a
   file:// local repo carrying kodos.apk; generations_keep cap). Awaiting
   written-spec review, then implementation plan.
+  **Implemented + host-proven (Tasks 10-13, this tree):** the single binary
+  embeds the Lua toolchain and runs `apply`/`status`/`rollback`; `kodos.apk`
+  ships in the local file:// repo (`build/mkapk.sh`); the machine's own
+  `/etc/kodos/config.lua` + 0600 secrets are written by the bootstrap stream.
+  The definition-of-done round on the VM is the paste sequence in "Self-
+  management on the VM (Task 13)" below — machinery DONE, run it next.
 
 - **Initramfs store debris** — FIXED (2026-11-14, 2nd attempt): mkinitfs
   chrooted into the gen tree copies our etc symlinks (etc/modprobe.d/
@@ -258,6 +264,79 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   not yet wired into repos/install.
 - Static-IP connections, display-manager section, mounts config, arch/deb
   lock parsers: unchanged backlog below.
+
+## Self-management on the VM (Task 13) — machinery DONE, paste round pending
+
+The round that proves an installed machine manages itself. Every piece of it is
+in place and proven host-side (scratch root); the install/boot/ssh lines below
+are the paste round, because they need nbd + qemu + a booted guest.
+
+What the bootstrap now ships into the image (host proof: regenerating
+`vm/actions.json` with `lua generate.lua system.lua "$PWD/../../vm/vm-layer.lua"
+../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua`):
+
+- `/etc/kodos/config.lua` — the machine's OWN config. `kodos apply` reads its
+  config from DISK and the kodos binary embeds only the toolchain, so this file
+  must be on the guest. Content is read at generate time from
+  `vm/guest-config/config.lua` via a new config `files` section
+  (`name -> {path, content, mode?}` → two `write_file` ops, no new IR op). It
+  mirrors the whole layer stack (system + vm + machine + user) because those
+  layer FILES exist only on the build host, and it is the one file the guest is
+  meant to edit: it declares `dummy`, which bootstrap does NOT install, so the
+  first in-guest apply is a live package ADD.
+- `/etc/kodos/secrets.json`, mode 0600 — apply's secrets sidecar, read from the
+  config's own directory (the default `/etc/kodos/secrets.json`). Test creds,
+  already public in this repo.
+- `repositories.kodos.src = "/var/kodos/repo"` (absolute, i.e. the machine's own
+  copy of the repo): `copy_tree` self-skips (src == the chroot-mapped dst) and
+  apk/fetchUnpack read the repo off the local disk. Bootstrap keeps
+  `src = "repo"` — host-path provenance — and its lock is unchanged (868 pins,
+  `kodos` 0.1.0-r0, no `dummy`).
+- Guest disk identity: `qemu -drive ...,if=virtio` ⇒ the guest's disk is
+  **/dev/vda** (bootstrap's /dev/nbdX is the host's view; fstab mounts by UUID).
+- `services.ssh.permit_root_login = true` in vm-layer AND the guest config: the
+  paste rounds drive this throwaway box as root over ssh. A real machine keeps
+  the base profile's `false`.
+
+Live-add proof on the scratch root (`scratch/apply-config-guest.lua` = the
+guest's own config with only the repo `src` and the disk name host-adapted,
+since the host has no /dev/vda): bootstrap gen0 = 868 packages, no `dummy` and
+no `store/dummy`; `kodos apply` → gen1 = 869 packages, `dummy` 1.0-r0 pinned,
+`store/dummy/1.0-r0` fetched from the local repo, `current` → gen1.
+
+### The paste round — one paste line per step
+
+```sh
+# 0. terminal A: build the repo artifacts and install into the qcow2
+sudo vm/run.sh install                    # runs build/mkrepo.sh + build/mkapk.sh itself
+# 1. terminal B: boot (quit with Ctrl-a x; the next lines run from terminal A)
+vm/run.sh boot
+# 2. kodos on the machine it runs on: selftest (suitetest SKIPs by design, see the file)
+vm/run.sh guest "$(cat vm/guest-test/00-kodos.sh)"
+# 3. the machine reconfigures itself: dry-run, then real (minutes), then status
+#    expect: a new generation is current, dummy pinned inside it, no storage ops
+vm/run.sh guest "$(cat vm/guest-test/10-apply.sh)"
+# 4. land on the new generation
+vm/run.sh guest 'reboot'                  # qemu exits with the guest
+vm/run.sh boot
+# 5. after reboot: boot default names the NEW generation, and no libkmod noise
+vm/run.sh guest 'kodos status; dmesg | grep -i libkmod || echo "no libkmod errors"'
+# 6. roll back, reboot, confirm it stuck (grub title + status name the OLD generation)
+vm/run.sh guest "$(cat vm/guest-test/20-rollback.sh)"
+vm/run.sh guest 'reboot'
+vm/run.sh boot
+vm/run.sh guest 'kodos status'
+# 7. self-upgrade: newer kodos.apk into the guest's repo, then apply on the guest
+bash vm/guest-test/selfup-build.sh         # PKGVER=0.2.0 build + copy into the guest
+vm/run.sh guest "$(cat vm/guest-test/30-selfup.sh)"
+```
+
+`vm/run.sh guest '<cmd>'` / `vm/run.sh guest-file F [DIR]` are the ssh runners
+(host 2222 → guest 22, root + the test password). This host HAS `sshpass`, so
+the rounds run non-interactively; on a host without it the same lines work but
+ssh prompts for `kodos-root-test` (the runner says so). Findings from this round
+become fix-forward commits; the round is the definition of done for
+self-management.
 
 ## Offline VM forensics (no sudo; host needs qemu-img, mtools, e2fsprogs)
 

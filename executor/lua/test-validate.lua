@@ -139,4 +139,15 @@ return { repositories = { mylocal = { url = "file:///x" } },
 ]])
 assert(has("unknown repo 'typo'"), "tagged package with unknown repo not caught")
 
-print("PASS: schema validation (clean configs + 20 seeded errors caught)")
+-- files entries (the machine's own /etc files, Task 13): write_file paths are
+-- target-root-absolute, and an unparsable mode would abort a live stream
+has = scratch_layer("_scratch_v10.lua", [[
+return { files = {
+    cfg = { path = "etc/kodos/config.lua", content = "return {}" },
+    sec = { path = "/etc/kodos/secrets.json", content = "{}", mode = "600rw" },
+} }
+]])
+assert(has("$.files.cfg: path must be absolute"), "relative files path not rejected")
+assert(has('$.files.sec: mode must be an octal string'), "non-octal files mode not rejected")
+
+print("PASS: schema validation (clean configs + 22 seeded errors caught)")

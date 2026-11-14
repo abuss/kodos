@@ -324,7 +324,13 @@ func (e *executor) writeFile(act map[string]any) error {
 		return fmt.Errorf("write_file %s: %w", path, err)
 	}
 	mode := os.FileMode(0o644)
-	if path == "/etc/sudoers" || strings.HasPrefix(path, "/etc/sudoers.d/") {
+	if s, ok := act["mode"].(string); ok { // config `files` entries carry it
+		m, perr := strconv.ParseInt(s, 8, 32) // "0600" is a valid base-8 literal
+		if perr != nil {
+			return fmt.Errorf("write_file %s: bad mode %q (octal string, e.g. \"0600\")", path, s)
+		}
+		mode = os.FileMode(m & 0o7777)
+	} else if path == "/etc/sudoers" || strings.HasPrefix(path, "/etc/sudoers.d/") {
 		mode = 0o440 // sudo silently ignores sudoers files it deems too open
 	}
 	return e.writeFileTo(path, content, mode)
@@ -338,7 +344,12 @@ func (e *executor) writeFileTo(path, content string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(p, []byte(content), mode)
+	if err := os.WriteFile(p, []byte(content), mode); err != nil {
+		return err
+	}
+	// WriteFile KEEPS the mode of a pre-existing file: a managed write with a
+	// different mode (the 0600 secrets sidecar) must never inherit an old one.
+	return os.Chmod(p, mode)
 }
 
 // installPackages resolves the FULL dependency closure with apk's own

@@ -40,7 +40,7 @@ Rules:
 | 3 | `format` | `partition`, `filesystem` | partitions | skip if a filesystem exists |
 | 4 | `create_swap` | `partition` | swap partitions | `mkswap` |
 | 5 | `mount` | `partition`, `point`, `options` | partitions with `mountpoint` | emitted deepest-path-last so `/` mounts first |
-| 6 | `write_file` | `path`, `content` | derived: `/etc/fstab`, `/etc/hostname` | generic single-file write |
+| 6 | `write_file` | `path`, `content`, `mode` (optional octal string, e.g. `"0600"`; default 0644, sudoers 0440) | derived: `/etc/fstab`, `/etc/hostname`, `/etc/inittab`, `/etc/sudoers.d/*` + the config's `files` section (`name -> {path, content, mode?}`, emitted sorted) | generic single-file write; the mode is applied with `chmod` so re-runs cannot inherit a stale one |
 | 7 | `install_packages` | `names[]` | all package sources: config (mapped), backend base, kernel variant, service plans (baseline+additive), bootloader, locale, flatpak tool | fetch into the generation store + link; deduped, sorted |
 | 8 | `configure_flatpak_remote` | `name`, `url` | `repos.flatpak` | `flatpak remote-add --if-not-exists` |
 | 9 | `install_flatpak` | `ids[]`, `user?` | `{repo="flatpak"}` tags; system scope, or one action per user (`user` = login) when tagged inside that user's `environment` | flatpak tool comes from backend `flatpak_packages` via #7; per-user installs the executor defers to first login (needs the user session) |

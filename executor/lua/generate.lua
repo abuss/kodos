@@ -172,6 +172,23 @@ act("write_file", { path = "/etc/sudoers.d/60-kodos-admin",
                     content = "# kodos: wheel members are administrators\n" ..
                               "%wheel ALL=(ALL:ALL) ALL\n" })
 
+-- ====== 6b. managed files: the config's `files` section -> write_file ops ======
+-- name -> {path, content, mode?}; sorted by name for determinism. This is how
+-- a config ships files no package owns (Task 13: the machine's own
+-- /etc/kodos/config.lua + secrets sidecar, so `kodos apply` has its config
+-- ON DISK — the toolchain is embedded in the binary, the config is not).
+if conf.files then
+    local fnames = {}
+    for n in pairs(conf.files) do fnames[#fnames + 1] = n end
+    table.sort(fnames)
+    for _, n in ipairs(fnames) do
+        local f = conf.files[n]
+        local a = { path = f.path, content = f.content }
+        if f.mode then a.mode = f.mode end
+        act("write_file", a)
+    end
+end
+
 -- ====== 7. packages: one deduped install set, sorted for determinism ======
 -- (versions come from the lockfile / generation-N.json, see lockfile.lua;
 -- the executor installs EXACTLY those versions of these names)

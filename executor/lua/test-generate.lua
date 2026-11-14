@@ -171,6 +171,30 @@ assert(src_m:find("vm/repo", 1, true), "copy_tree src must contain the relative 
 assert(not lr:find('"op": "copy_tree"', 1, true), "copy_tree must NOT appear when src is absent")
 os.remove("_scratch_copytree.lua")
 
+-- ====== managed files: config `files` -> write_file ops (path/content/mode) ====
+local f_ft = assert(io.open("_scratch_files.lua", "w"))
+f_ft:write([[
+return { files = {
+    sec = { path = "/etc/kodos/secrets.json", content = "{}\n", mode = "0600" },
+    cfg = { path = "/etc/kodos/config.lua", content = "return {}\n" },
+} }
+]])
+f_ft:close()
+local ft = run("system.lua _scratch_files.lua")
+assert(ft:find('"path": "/etc/kodos/config.lua"', 1, true)
+       and ft:find('"content": "return {}\\n"', 1, true),
+       "a files entry must emit a write_file carrying its path + content")
+assert(ft:find('"mode": "0600"', 1, true), "a files entry's mode must reach the action")
+assert(ft:find('"path": "/etc/kodos/config.lua"', 1, true)
+       < ft:find('"path": "/etc/kodos/secrets.json"', 1, true),
+       "files entries emit sorted by name (determinism)")
+-- write_file is rank 6: the machine's own config must exist before the
+-- generation/user ops that assume it (IR.md order)
+assert(ft:find('"path": "/etc/kodos/secrets.json"', 1, true)
+       < ft:find('"op": "install_packages"', 1, true),
+       "files writes must precede install_packages")
+os.remove("_scratch_files.lua")
+
 -- flatpak ids without repos.flatpak: hard error, same strictness rule
 local f3 = assert(io.open("_scratch_flatpak2.lua", "w"))
 f3:write('return { packages = { { repo = "flatpak", name = "org.gimp.GIMP" } } }')
