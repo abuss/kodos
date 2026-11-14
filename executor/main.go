@@ -195,6 +195,12 @@ func (e *executor) configureRepos(act map[string]any) error {
 func (e *executor) writeFile(act map[string]any) error {
 	path, _ := act["path"].(string)
 	content, _ := act["content"].(string)
+	content, err := expandUUIDTokens(content, func(dev string) (string, error) {
+		return runOut("blkid", "-o", "value", "-s", "UUID", dev)
+	})
+	if err != nil {
+		return fmt.Errorf("write_file %s: %w", path, err)
+	}
 	return e.writeFileTo(path, content, 0o644)
 }
 

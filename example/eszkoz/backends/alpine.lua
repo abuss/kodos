@@ -17,7 +17,11 @@ M.base_packages = { "alpine-base", "openrc", "dbus",
     -- kernel's .post-install hook (initramfs is required: Alpine kernels
     -- build virtio/ext4 as modules), and tzdata provides the zoneinfo
     -- tree that configure_timezone links into /etc/localtime.
-    "mkinitfs", "tzdata" }
+    "mkinitfs", "tzdata",
+    -- fsck.<type> binaries: OpenRC's "Checking local filesystems" runs
+    -- fsck on the fstab passno entries (ext4 -> fsck.ext4), and an admin
+    -- needs mkfs/resize tools on a disk-managed system.
+    "e2fsprogs" }
 
 -- Kernel: keyed by NEUTRAL variant (boot.kernel.variant selects; absent =
 -- "default"). Alpine flavors verified on v3.24 x86_64: lts (main, the

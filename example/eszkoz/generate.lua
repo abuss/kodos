@@ -71,14 +71,17 @@ for _, m in ipairs(mounts) do
 end
 
 -- ====== 6. derived files: fstab, hostname ======
+-- Device names are install-time identities (nbd under the installer); the
+-- executor expands {UUID:<device>} placeholders via blkid at write_file
+-- time, so the guest fstab uses stable UUID= sources.
 local fstab = {}
 for _, m in ipairs(mounts) do
     fstab[#fstab + 1] = table.concat(
-        { m.part, m.point, m.fs, m.options, 0, m.pass }, "\t")
+        { "{UUID:" .. m.part .. "}", m.point, m.fs, m.options, 0, m.pass }, "\t")
 end
 for _, s in ipairs(swaps) do
     fstab[#fstab + 1] = table.concat(
-        { s.part, s.point, s.fs, s.options, 0, 0 }, "\t")
+        { "{UUID:" .. s.part .. "}", s.point, s.fs, s.options, 0, 0 }, "\t")
 end
 act("write_file", { path = "/etc/fstab",
                     content = table.concat(fstab, "\n") .. "\n" })

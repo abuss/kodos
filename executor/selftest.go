@@ -142,6 +142,26 @@ func selftestPure() {
 	// sshd-style setting keys
 	check(settingsKey("permit_root_login") == "PermitRootLogin", "CamelCase key")
 
+	// {UUID:<device>} expansion in write_file content (guest fstab must
+	// never carry install-time device names like /dev/nbd6p1)
+	uuids := map[string]string{"/dev/nbd6p1": "BEEF", "/dev/nbd6p4": "SWAP-U"}
+	got, err := expandUUIDTokens("{UUID:/dev/nbd6p1}\t/boot\tvfat\tdefaults\t0\t0\n{UUID:/dev/nbd6p4}\tnone\tswap\tsw\t0\t0\n",
+		func(d string) (string, error) { return uuids[d], nil })
+	check(err == nil, "uuid tokens: %v", err)
+	check(strings.HasPrefix(got, "UUID=BEEF\t/boot") && strings.Contains(got, "UUID=SWAP-U\tnone"),
+		"uuid substitution, got %q", got)
+	if _, err := expandUUIDTokens("{UUID:/dev/ghost}", func(string) (string, error) {
+		return "", fmt.Errorf("no such device")
+	}); err == nil {
+		check(false, "unresolvable UUID token must be a hard error")
+	}
+	check(strings.Contains(fmt.Sprint(func() error {
+		_, err := expandUUIDTokens("{UUID:/dev/ghost}", func(string) (string, error) {
+			return "", fmt.Errorf("boom")
+		})
+		return err
+	}()), "{UUID:/dev/ghost}"), "error names the failing token")
+
 	// diskBusy must refuse host-active disks (the config carries real names)
 	if busy := diskBusy("/dev/" + hostRootDisk()); busy {
 		// expected on any normal machine

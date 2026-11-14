@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -226,6 +227,30 @@ menuentry 'Kodos generation %d' {
 // settingsKey: neutral snake_case -> sshd-style CamelCase keys (pure,
 // selftested). Honest limit: per-service key dialects beyond CamelCase
 // need backend settings knowledge (same known limit as the schema).
+// uuidToken matches {UUID:<device>} placeholders in write_file content
+// (fstab: Lua cannot know UUIDs — the executor formats/mounts the devices
+// BEFORE write_file runs, so it resolves them here; guests then mount by
+// stable UUID instead of install-time device names like /dev/nbd6p1).
+var uuidToken = regexp.MustCompile(`\{UUID:([^}]+)\}`)
+
+// expandUUIDTokens is pure (selftested): uuidOf resolves a device to its
+// UUID; any failure aborts (a half-substituted fstab would fail at boot).
+func expandUUIDTokens(content string, uuidOf func(string) (string, error)) (string, error) {
+	var firstErr error
+	out := uuidToken.ReplaceAllStringFunc(content, func(tok string) string {
+		if firstErr != nil {
+			return tok
+		}
+		uuid, err := uuidOf(uuidToken.FindStringSubmatch(tok)[1])
+		if err != nil {
+			firstErr = fmt.Errorf("token %s: %w", tok, err)
+			return tok
+		}
+		return "UUID=" + uuid
+	})
+	return out, firstErr
+}
+
 func settingsKey(k string) string {
 	var b strings.Builder
 	up := true
@@ -549,10 +574,10 @@ func (e *executor) genChrootSh(script string) error {
 	return cmd.Run()
 }
 
-// runPostInstalls executes package .post-install scripts INSIDE the
-// activated generation. Alpine 3.24 busybox creates /bin/sh etc only via
-// its own hook (`#!/bin/busybox sh; /bin/busybox --install -s`), so:
-// busybox runs FIRST and scripts are exec'd through their SHEBANG, not
+// runPostInstalls executes package .pre-install/.post-install scripts
+// INSIDE the activated generation. Alpine 3.24 busybox creates /bin/sh etc
+// only via its own hook (`#!/bin/busybox sh; /bin/busybox --install -s`),
+// so: busybox runs FIRST and scripts are exec'd through their SHEBANG, not
 // wrapped in /bin/sh (which may not exist yet). Deterministic order.
 func (e *executor) runPostInstalls(toInstall map[string]string) error {
 	names := make([]string, 0, len(toInstall))
@@ -564,19 +589,27 @@ func (e *executor) runPostInstalls(toInstall map[string]string) error {
 		names = append([]string{"busybox"}, append(names[:i:i], names[i+1:]...)...)
 	}
 	for _, p := range names {
-		script := filepath.Join(e.s.store(), p, toInstall[p], ".post-install")
-		if !lexists(script) {
-			continue
-		}
-		rel := "/" + mustRel(e.s.chroot, script)
-		fmt.Printf("post-install: %s\n", p)
-		err := e.chrootExecScript(rel)
-		if err != nil {
-			// shebang-less or non-exec script: plain sh fallback (/bin/sh
-			// exists by now if busybox ran)
-			err2 := e.chrootSh(rel)
-			if err2 != nil {
-				return fmt.Errorf("post-install %s: %w", p, err)
+		// apk runs .pre-install before a package's files land and
+		// .post-install after; Alpine's pre-install hooks only need
+		// busybox adduser/addgroup (landed first), so running both in
+		// one sweep after activation is fine — and system users like
+		// dbus's messagebus are created ONLY there, nothing else in
+		// the package metadata declares them.
+		for _, kind := range []string{".pre-install", ".post-install"} {
+			script := filepath.Join(e.s.store(), p, toInstall[p], kind)
+			if !lexists(script) {
+				continue
+			}
+			rel := "/" + mustRel(e.s.chroot, script)
+			fmt.Printf("%s: %s\n", kind[1:], p)
+			err := e.chrootExecScript(rel)
+			if err != nil {
+				// shebang-less or non-exec script: plain sh fallback (/bin/sh
+				// exists by now if busybox ran)
+				err2 := e.chrootSh(rel)
+				if err2 != nil {
+					return fmt.Errorf("%s %s: %w", kind[1:], p, err)
+				}
 			}
 		}
 	}

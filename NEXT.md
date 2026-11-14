@@ -117,9 +117,15 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   /etc until the next activation re-hardlinks it. Real kodos gets this free
   via whole-root btrfs subvol flips; our fs-agnostic etc model needs an
   explicit store→live re-link at boot (or generation-pinned fstab).
-- **Guest fstab** bakes host-side nbd device names into the VM's
-  /etc/fstab (wrong at real boot: devices are vdaX). grub `root=UUID=`
-  carries / fine; fix `generate_fstab` to use UUIDs when that op lands.
+- **Guest fstab** — FIXED (2026-11-14): generate.lua emits `{UUID:<device>}`
+  placeholders in fstab; the executor's `write_file` expands them via blkid
+  (format/mount ops ran first, devices attached). Guests mount by stable
+  UUID; re-runs are byte-stable (format never re-mkfs'd), which also kills
+  the repeated fstab etc-conflict litter. Also fixed same round: package
+  `.pre-install` hooks now run at activation (system users like dbus's
+  `messagebus` are created ONLY there — nothing declares them in
+  metadata), and `e2fsprogs` joined Alpine base_packages so OpenRC's fstab
+  fsck pass finds `fsck.ext4`.
 - **Package build wiring** (real kodos `build.rs` → generation-apks
   equivalent): eszkoz binaries ship as prebuilt apks from a local repo dir;
   not yet wired into repos/install.
