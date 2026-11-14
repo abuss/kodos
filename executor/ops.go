@@ -39,14 +39,13 @@ func runOut(name string, args ...string) (string, error) {
 
 // parseMounts parses /proc/mounts text and returns mountpoint→device map.
 // Handles octal-escaped spaces (\040) in fields.
-// Non-/dev/ sources (proc, sysfs, tmpfs, bind mounts from real paths) are
-// kept: extra refusals are always safe; a false refusal is better than a
-// missed one. Only non-"/" prefixed sources are skipped (e.g. "none").
+// All entries are kept (tmpfs/bind mounts with non-/ source are valid mountpoints;
+// extra refusals are always safe — a false refusal is better than a missed one).
 func parseMounts(text string) map[string]string {
 	m := map[string]string{}
 	for _, line := range strings.Split(text, "\n") {
 		f := strings.Fields(line)
-		if len(f) < 2 || !strings.HasPrefix(f[0], "/") {
+		if len(f) < 2 {
 			continue
 		}
 		m[unescapeMount(f[1])] = unescapeMount(f[0])
@@ -514,6 +513,9 @@ func (e *executor) mount(act map[string]any) error {
 	}
 	if _, ok := mountedTargetAt(target, mounts); ok {
 		fmt.Printf("mount %s: already mounted, skipping\n", target)
+		if point == "/" {
+			e.rootPart = part // R2: rootPart must be set even on skip (bootloader UUID path)
+		}
 		return nil
 	}
 	if err := os.MkdirAll(target, 0o755); err != nil {

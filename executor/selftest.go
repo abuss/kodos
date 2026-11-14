@@ -340,7 +340,7 @@ func selftestPure() {
 		check(m["/home"] == "/dev/sda2", "parseMounts /home")
 		check(m["/mnt/boot"] == "/dev/nbd0p1", "parseMounts /mnt/boot")
 		check(m["/mnt/space"] == "/dev/disk/by-label/My Disk", `parseMounts \040 unescaped, got %q`, m["/mnt/space"])
-		check(m["/proc"] == "", "parseMounts proc skipped (no /dev/ prefix)")
+		check(m["/proc"] == "proc", "parseMounts proc included (all mount points tracked)")
 
 		// isMounted: exact device match
 		check(isMounted("/dev/sda1", m), "isMounted exact match")

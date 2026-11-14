@@ -32,7 +32,8 @@ builddate = $(date +%s 2>/dev/null || echo 0)
 packager = kodos
 PKGINFO
 
-# Build apk (tar.gz of stage tree; owner root to avoid host uid leakage)
+# Build apk (tar.gz of stage tree; --owner/--group are GNU tar flags,
+# available on dev hosts; avoids leaking the invoking uid into the archive)
 (cd "$STAGE" && tar czf "$OUTDIR/$PKGFILE" \
     --owner=0 --group=0 \
     .PKGINFO \

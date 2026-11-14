@@ -212,8 +212,30 @@ function M.validate(conf)
                 .. ": url must start with file:/// (got " .. r.url .. ")"
         end
     end
+    -- tagged package repo values must name a known repo key
+    local known_repos = { base = true, flatpak = true }
+    for rname in pairs(conf.repositories or {}) do known_repos[rname] = true end
+    local function walk_tagged(t, path)
+        if type(t) ~= "table" then return end
+        if t.repo and t.name then
+            if not known_repos[t.repo] then
+                errs[#errs + 1] = path .. ": unknown repo '" .. tostring(t.repo)
+                    .. "' (must be base, flatpak, or a key of repositories)"
+            end
+        else
+            for k, v in pairs(t) do walk_tagged(v, path .. "." .. k) end
+        end
+    end
+    walk_tagged(conf.packages or {}, "$.packages")
+    for uname, u in pairs(conf.users or {}) do
+        walk_tagged((u.environment or {}).packages or {}, "$.users." .. uname .. ".environment.packages")
+        for sname, s in pairs((u.environment or {}).services or {}) do
+            walk_tagged((s.packages or {}), "$.users." .. uname .. ".environment.services." .. sname .. ".packages")
+        end
+    end
     for sname, s in pairs(conf.services or {}) do
         if type(s) == "table" then
+            walk_tagged(s.packages or {}, "$.services." .. sname .. ".packages")
             for cname, c in pairs(s.connections or {}) do
                 if type(c) == "table" and c.type == "wifi"
                    and not (type(c.psk) == "table" and c.psk.secret) then

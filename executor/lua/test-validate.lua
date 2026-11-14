@@ -133,4 +133,10 @@ return { repositories = { mylocal = { url = "file:///x", extra = "bad" } } }
 ]])
 assert(has("$.repositories.mylocal.extra: unknown key"), "repositories unknown key not caught")
 
-print("PASS: schema validation (clean configs + 19 seeded errors caught)")
+has = scratch_layer("_scratch_v9.lua", [[
+return { repositories = { mylocal = { url = "file:///x" } },
+         packages = { { repo = "typo", name = "foo" } } }
+]])
+assert(has("unknown repo 'typo'"), "tagged package with unknown repo not caught")
+
+print("PASS: schema validation (clean configs + 20 seeded errors caught)")

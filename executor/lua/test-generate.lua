@@ -161,6 +161,8 @@ local cr_pos = ct:find('"op": "configure_repos"', 1, true)
 assert(ct_pos, "copy_tree op must be present when repository has src")
 assert(ct_pos < cr_pos, "copy_tree must precede configure_repos")
 assert(ct:find('"dst": "/var/kodos/repo"', 1, true), "copy_tree dst must be url minus file://")
+-- repos entry must carry src (host-abs) when copy_tree was declared
+assert(ct:find('"src":', 1, true), "configure_repos repos entry must carry src when copy_tree declared")
 -- src must be absolute (provenance resolved against layer dir = ".")
 local src_m = ct:match('"src": "([^"]+)"')
 assert(src_m and src_m:sub(1,1) == "/", "copy_tree src must be absolute, got: " .. tostring(src_m))
@@ -226,6 +228,8 @@ assert(not ip:find('"op": "format"', 1, true),
     "--inplace must omit format ops")
 assert(not ip:find('"op": "create_swap"', 1, true),
     "--inplace must omit create_swap ops")
+assert(ip:find('"op": "mount"', 1, true),
+    "--inplace must KEEP mount ops (skip-if-mounted guard fires on live machine)")
 assert(ip:find('"op": "configure_repos"', 1, true),
     "--inplace must keep configure_repos")
 assert(ip:find('"op": "install_packages"', 1, true),

@@ -70,6 +70,22 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
    **All 22 IR ops now implemented** incl. partition/format/mount, users,
    services, locale/kbd/tz/modules, bootloader, and the full dependency
    closure via apk's own solver (90 requested → 864 installed).
+
+   **Canonical scratch E2E recipe** (Task 9+): pre-mount stubs so the 3
+   `mount` actions in the `--inplace` stream all hit the skip-if-mounted
+   guard; run ends at the expected fake-grub ERROR:
+   ```sh
+   rm -rf scratch/root && mkdir -p scratch/root
+   unshare -Urm sh -c "
+     mount -t tmpfs none scratch/root
+     mkdir -p scratch/root/boot scratch/root/home
+     mount -t tmpfs none scratch/root/boot
+     mount --bind scratch/root/home scratch/root/home
+     PATH=\$PWD/scratch/fakabin3:/usr/bin:/bin ./executor/kodos exec \
+       -actions scratch/actions.json -metadata vm/generation-0.json \
+       -secrets vm/secrets.json -root \$PWD/scratch/root -apk vm/apk-tools-static
+   "
+   ```
    qcow2 VM E2E (`vm/run.sh`, paste-run): the flow runs cleanly through
    repos → partition → formats → mounts → 864-pkg store → config rendering
    → create/activate generation → post-installs; the create_user/services/

@@ -40,7 +40,7 @@ type executor struct {
 	arch     string
 	mirror   string // captured from configure_repos (#1 always precedes #7)
 	branches []string
-	localRepos []struct{ name, url string } // file:// repos from configure_repos
+	localRepos []struct{ name, url, hostSrc string } // file:// repos from configure_repos
 
 	rootPart      string            // captured from mount / (bootloader needs UUID)
 	chrootMounted bool              // pseudo-fs mounted once
@@ -282,7 +282,8 @@ func (e *executor) configureRepos(act map[string]any) error {
 		if name == "" || url == "" {
 			return fmt.Errorf("configureRepos: malformed repos entry (name=%q url=%q) — generator bug", name, url)
 		}
-		e.localRepos = append(e.localRepos, struct{ name, url string }{name, url})
+		hostSrc, _ := m["src"].(string)
+		e.localRepos = append(e.localRepos, struct{ name, url, hostSrc string }{name, url, hostSrc})
 		if err := e.writeFileTo("/etc/apk/repositories.d/"+name+".list", url+"\n", 0o644); err != nil {
 			return err
 		}
@@ -384,14 +385,11 @@ func (e *executor) apkSimulate(addArgs []string) (map[string]string, error) {
 		args = append(args, "-X", e.mirror+"/"+b)
 	}
 	for _, lr := range e.localRepos {
-		// Local repo url is guest-rooted (e.g. file:///var/kodos/repo); apkSimulate
-		// runs on the host, so remap to chroot-rooted path when that path exists.
+		// Use host-abs src path when available (declarative, from generate.lua);
+		// fall back to raw url for host-absolute file:// test repos (Task 7 path).
 		url := lr.url
-		if path, ok := strings.CutPrefix(url, "file://"); ok {
-			chrootPath := filepath.Join(e.s.chroot, path)
-			if _, err := os.Stat(chrootPath); err == nil {
-				url = "file://" + chrootPath
-			}
+		if lr.hostSrc != "" {
+			url = "file://" + lr.hostSrc
 		}
 		args = append(args, "-X", url)
 	}
@@ -424,21 +422,21 @@ func (e *executor) fetchUnpack(name, version string) error {
 	var lastErr error
 	// try local file:// repos first
 	for _, lr := range e.localRepos {
-		guestPath := strings.TrimPrefix(lr.url, "file://")
-		// Local repo URLs may be guest-rooted (e.g. /var/kodos/repo) or
-		// host-absolute (from tests). Try chroot-joined first, then direct.
-		for _, base := range []string{filepath.Join(e.s.chroot, guestPath), guestPath} {
-			apkPath := base + "/" + e.arch + "/" + name + "-" + version + ".apk"
-			f, err := os.Open(apkPath)
-			if err == nil {
-				body = f
-				break
-			}
-			lastErr = err
+		// Use host-abs src path when available (declarative); fall back to
+		// stripping file:// for host-absolute test repos (Task 7 path).
+		var base string
+		if lr.hostSrc != "" {
+			base = lr.hostSrc
+		} else {
+			base = strings.TrimPrefix(lr.url, "file://")
 		}
-		if body != nil {
+		apkPath := base + "/" + e.arch + "/" + name + "-" + version + ".apk"
+		f, err := os.Open(apkPath)
+		if err == nil {
+			body = f
 			break
 		}
+		lastErr = err
 	}
 	if body == nil {
 		for _, br := range e.branches {

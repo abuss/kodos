@@ -56,7 +56,7 @@ end
 
 local backend = resolve.backend_for(conf)
 
-local inplace_skip = { partition_disk = true, format = true, create_swap = true, mount = true }
+local inplace_skip = { partition_disk = true, format = true, create_swap = true }
 local actions = {}
 local function act(op, f)
     if inplace and inplace_skip[op] then return end
@@ -80,13 +80,15 @@ if conf.repositories then
     if #rnames > 0 then
         local repos_list = {}
         for _, n in ipairs(rnames) do
-            repos_list[#repos_list + 1] = { name = n, url = conf.repositories[n].url }
+            local entry = { name = n, url = conf.repositories[n].url }
             -- emit copy_tree before configure_repos if src was declared
             if repo_src_provenance[n] then
                 local url = conf.repositories[n].url
                 local dst = url:gsub("^file://", "")
                 act("copy_tree", { name = n, src = repo_src_provenance[n], dst = dst })
+                entry.src = repo_src_provenance[n] -- host-abs path for executor apk resolution
             end
+            repos_list[#repos_list + 1] = entry
         end
         configure_repos_act.repos = repos_list
     end
