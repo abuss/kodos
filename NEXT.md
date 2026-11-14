@@ -124,13 +124,24 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   Selftest covers it (in-memory tar.gz with 04755 file + hardlink).
   WARNING: stores unpacked BEFORE this fix keep scarrred modes (fetch
   skips existing dirs) — use `vm/run.sh fresh`, do not heal by hand.
-- **No network in guest (ssh dead)** — FIXED (2026-11-14): linux-virt
-  builds virtio_net as `=m`; nothing coldplugged modalias modules because
-  the device manager is enabled by Alpine's *installer*, not by any
-  package. Added neutral `mdev` service (base config) + alpine backend
-  entry (busybox-mdev-openrc, runlevel boot, alphabetically before
-  networkmanager); arch/deb backends mark it `service_name = false`
-  (systemd-udevd coldplugs unconditionally).
+- **No network in guest (ssh dead)** — FIXED (2026-11-14, two layers):
+  (1) linux-virt builds virtio_net as `=m` and nothing coldplugged it
+  (Alpine enables its device manager via the *installer*, not packages).
+  (2) coldplug alone was NOT enough: nmcli showed EVERY device
+  `unmanaged`, reason 71 = NM_DEVICE_STATE_REASON_UNMANAGED_LINK_NOT_INIT
+  — NM >=1.48 refuses to manage links udev never tagged, and busybox
+  mdev never tags. Neutral service renamed `mdev` -> `udev`; alpine maps
+  it to eudev (+libs/hwids/openrc + udev-init-scripts-openrc, which
+  ships /etc/init.d/udev) at runlevel **sysinit** (must precede NM at
+  boot; "udev" sorts after "networkmanager"). arch/deb: no-op (their
+  udev always runs). NOT the ifupdown plugin (checked its strings;
+  [ifupdown] managed=true + missing /etc/network/interfaces was a
+  red herring per the reason code).
+- **Runlevel litter**: `enable_service` never removes stale entries from
+  earlier rounds (guest boot still had `mdev@boot` after the backend
+  switched to udev). Declarative fix: reconcile runlevel dirs against
+  the enable-set (or manage runlevels as etc like everything else).
+  Until then: fresh disk when service sets flip.
 - **check-packages.lua fails pre-existing** (assert at line 19, unrelated
   to config changes; investigate when package-set work resumes).
 

@@ -201,6 +201,10 @@ for _, s in ipairs(plan) do
         act("enable_service", { name = s.name, unit = s.unit,
                                 runlevel = s.runlevel })
     end
+    for _, x in ipairs(s.extra or {}) do
+        act("enable_service", { name = s.name, unit = x.unit,
+                                runlevel = x.runlevel })
+    end
 end
 for _, s in ipairs(hplan) do
     act("enable_home_service", { user = s.user, name = s.name,

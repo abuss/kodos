@@ -122,7 +122,11 @@ M.services = {
     -- is the only ordering that wins).
     udev = { packages = { "eudev", "eudev-libs", "eudev-openrc",
         "eudev-hwids", "udev-init-scripts-openrc" },
-        service_name = "udev", runlevel = "sysinit" },
+        service_name = "udev", runlevel = "sysinit",
+        -- coldplug is its OWN service: boot uevents are long gone, so the
+        -- udev daemon alone never sees boot devices; udev-trigger re-fires
+        -- them ("need udev" orders it after the daemon).
+        extra = { { unit = "udev-trigger", runlevel = "sysinit" } } },
     -- system logging (installer default): busybox-openrc ships the
     -- syslog/klogd init scripts for busybox's applets; without it there
     -- is no /var/log/messages and daemons like NM are undebuggable.

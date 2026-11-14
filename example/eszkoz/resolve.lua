@@ -227,6 +227,7 @@ function M.service_plan(conf, backend)
                 name = name,
                 unit = unit ~= false and unit or nil, -- false = packages only
                 runlevel = be and be.runlevel or "default",
+                extra = be and be.extra or nil, -- backend-required helper units
                 packages = pkgs,
                 settings = has_settings and settings or nil,
                 settings_file = be and be.settings_file or nil,
