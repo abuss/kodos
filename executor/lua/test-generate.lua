@@ -1,9 +1,19 @@
 -- test-generate.lua — pin the IR contract: run generate.lua (base and
 -- layered) and assert shape, order, and layering effects. Run: lua test-generate.lua
 local function run(...)
-    local h = assert(io.popen("lua generate.lua " .. table.concat({ ... }, " ")
-                              .. " 2>/dev/null"))
-    local out = h:read("a")
+    if os.getenv("KODOS_INPROCESS") == "1" then
+        -- Each vararg may be a space-joined string (matches host-popen style);
+        -- split all args on spaces to get individual script arguments.
+        local args = {}
+        for _, s in ipairs({ ... }) do
+            for w in s:gmatch("%S+") do args[#args + 1] = w end
+        end
+        return kodos_run("generate.lua", unpack(args))
+    end
+    local cmd = (os.getenv("KODOS_LUA_CMD") or "lua") .. " generate.lua "
+                .. table.concat({ ... }, " ") .. " 2>/dev/null"
+    local h = assert(io.popen(cmd))
+    local out = h:read("*a")
     h:close()
     assert(#out > 100, "generator produced no output")
     return out
@@ -128,9 +138,15 @@ os.remove("_scratch_flatpak.lua")
 local f3 = assert(io.open("_scratch_flatpak2.lua", "w"))
 f3:write('return { packages = { { repo = "flatpak", name = "org.gimp.GIMP" } } }')
 f3:close()
-local h2 = assert(io.popen("lua generate.lua system.lua _scratch_flatpak2.lua 2>&1"))
-local err2 = h2:read("a")
-h2:close()
+local err2
+if os.getenv("KODOS_INPROCESS") == "1" then
+    local ok, e = pcall(kodos_run, "generate.lua", "system.lua", "_scratch_flatpak2.lua")
+    err2 = ok and "" or tostring(e)
+else
+    local h2 = assert(io.popen((os.getenv("KODOS_LUA_CMD") or "lua") .. " generate.lua system.lua _scratch_flatpak2.lua 2>&1"))
+    err2 = h2:read("*a")
+    h2:close()
+end
 os.remove("_scratch_flatpak2.lua")
 assert(err2:find("repos.flatpak is missing", 1, true),
        "flatpak packages without a declared remote must abort generation")
@@ -139,9 +155,15 @@ assert(err2:find("repos.flatpak is missing", 1, true),
 local f = assert(io.open("_scratch.lua", "w"))
 f:write('return { boot = { kernel = { variant = "hardened" } } }')
 f:close()
-local h = assert(io.popen("lua generate.lua system.lua _scratch.lua 2>&1"))
-local err = h:read("a")
-h:close()
+local err
+if os.getenv("KODOS_INPROCESS") == "1" then
+    local ok, e = pcall(kodos_run, "generate.lua", "system.lua", "_scratch.lua")
+    err = ok and "" or tostring(e)
+else
+    local h = assert(io.popen((os.getenv("KODOS_LUA_CMD") or "lua") .. " generate.lua system.lua _scratch.lua 2>&1"))
+    err = h:read("*a")
+    h:close()
+end
 os.remove("_scratch.lua")
 assert(err:find("not offered by backend", 1, true),
        "kernel variant the backend cannot offer must be a hard error")

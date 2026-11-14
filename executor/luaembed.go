@@ -71,6 +71,7 @@ func runLuaScript(name string, args []string, searchDir string) (string, error) 
 
 	// Capture stdout: replace print and io.write.
 	var buf bytes.Buffer
+	var errBuf bytes.Buffer
 	L.SetGlobal("print", L.NewFunction(func(L *lua.LState) int {
 		n := L.GetTop()
 		parts := make([]string, n)
@@ -91,6 +92,27 @@ func runLuaScript(name string, args []string, searchDir string) (string, error) 
 			}
 			return 0
 		}))
+		// Redirect io.stderr:write to errBuf so error messages are captured
+		// and can be included in os.exit error strings.
+		if stderrUD, ok := L.GetField(iot, "stderr").(*lua.LUserData); ok {
+			_ = stderrUD
+		}
+		// Create a fake stderr file table that writes to errBuf.
+		stderrTbl := L.NewTable()
+		stderrTbl.RawSetString("write", L.NewFunction(func(L *lua.LState) int {
+			for i := 1; i <= L.GetTop(); i++ {
+				v := L.Get(i)
+				if _, ok := v.(*lua.LUserData); ok {
+					continue
+				}
+				if _, ok := v.(*lua.LTable); ok {
+					continue // skip self (stderrTbl) when called as method
+				}
+				errBuf.WriteString(L.ToStringMeta(v).String())
+			}
+			return 0
+		}))
+		iot.RawSetString("stderr", stderrTbl)
 	}
 
 	// Override dofile to check embedded FS first.
@@ -146,6 +168,45 @@ func runLuaScript(name string, args []string, searchDir string) (string, error) 
 		pt.RawSetString(modname, fn)
 	}
 
+	// Override os.exit so scripts that call it raise a Lua error instead of
+	// killing the Go process. Exit code 0 raises "exit:0", non-zero raises
+	// "exit:N". Callers can pcall and check the message.
+	if osTable, ok := L.GetGlobal("os").(*lua.LTable); ok {
+		osTable.RawSetString("exit", L.NewFunction(func(L *lua.LState) int {
+			code := L.OptInt(1, 0)
+			if code == 0 {
+				L.RaiseError("exit:0")
+			} else {
+				// Include captured stderr so callers (pcall) can inspect error messages.
+				L.RaiseError("exit:%d\n%s", code, errBuf.String())
+			}
+			return 0
+		}))
+	}
+
+	// kodos_run(scriptname, arg1, ...) — runs another embedded script in a
+	// fresh VM and returns its captured stdout as a string. Used by
+	// test-generate/test-lock in KODOS_INPROCESS mode instead of io.popen.
+	L.SetGlobal("kodos_run", L.NewFunction(func(L *lua.LState) int {
+		n := L.GetTop()
+		if n < 1 {
+			L.RaiseError("kodos_run: script name required")
+			return 0
+		}
+		script := L.CheckString(1)
+		var innerArgs []string
+		for i := 2; i <= n; i++ {
+			innerArgs = append(innerArgs, L.CheckString(i))
+		}
+		out, err := runLuaScript(script, innerArgs, searchDir)
+		if err != nil {
+			L.RaiseError("kodos_run %s: %v", script, err)
+			return 0
+		}
+		L.Push(lua.LString(out))
+		return 1
+	}))
+
 	// Add searchDir to package.path if provided.
 	if searchDir != "" {
 		pkgPath := L.GetField(L.GetField(L.Get(lua.EnvironIndex), "package"), "path")
@@ -165,7 +226,12 @@ func runLuaScript(name string, args []string, searchDir string) (string, error) 
 	}
 	L.Push(fn)
 	if err := L.PCall(0, lua.MultRet, nil); err != nil {
-		return "", err
+		msg := err.Error()
+		// os.exit shim: "exit:0" is a clean exit, non-zero is an error.
+		if strings.HasPrefix(msg, "exit:0") {
+			return buf.String(), nil
+		}
+		return buf.String(), err
 	}
 	return buf.String(), nil
 }

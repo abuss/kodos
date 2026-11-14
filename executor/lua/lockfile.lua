@@ -43,10 +43,10 @@ local function read_index(path)
     if path:match("%.tar%.gz$") then
         local h = assert(io.popen("tar -xzOf '" .. path .. "' APKINDEX"),
                          "cannot extract APKINDEX from " .. path)
-        text = h:read("a")
+        text = h:read("*a")
         h:close()
     else
-        text = assert(io.open(path)):read("a")
+        text = assert(io.open(path)):read("*a")
     end
     local pkgs = {}
     parse_apk_index(text, pkgs)
@@ -139,7 +139,7 @@ table.sort(pins) -- stable argument order -> deterministic simulate output
 local h = assert(io.popen(("'%s' --root '%s/db' --no-cache --allow-untrusted %s "
                           .. "add --simulate %s 2>/dev/null"):
     format(apkbin, tmp, table.concat(repoArgs, " "), table.concat(pins, " "))))
-local simout = h:read("a")
+local simout = h:read("*a")
 h:close()
 sh(("rm -rf '%s'"):format(tmp))
 

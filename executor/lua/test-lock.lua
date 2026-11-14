@@ -14,8 +14,16 @@ for _, p in ipairs(IDX) do
 end
 
 local function run(...)
-    local h = assert(io.popen("lua lockfile.lua " .. table.concat({ ... }, " ")))
-    local out = h:read("a")
+    if os.getenv("KODOS_INPROCESS") == "1" then
+        local args = {}
+        for _, s in ipairs({ ... }) do
+            for w in s:gmatch("%S+") do args[#args + 1] = w end
+        end
+        return kodos_run("lockfile.lua", unpack(args)), true
+    end
+    local cmd = (os.getenv("KODOS_LUA_CMD") or "lua") .. " lockfile.lua " .. table.concat({ ... }, " ")
+    local h = assert(io.popen(cmd))
+    local out = h:read("*a")
     local ok = h:close()
     return out, ok
 end
@@ -64,10 +72,18 @@ assert(out == again, "lock output is not deterministic")
 local f = assert(io.open("_scratch_lock.lua", "w"))
 f:write('return { packages = { { repo = "base", name = "pkg-that-does-not-exist-xyz" } } }')
 f:close()
-local h = assert(io.popen("lua lockfile.lua 0 " .. IDX[1] .. " " .. IDX[2]
-                          .. " -- system.lua _scratch_lock.lua 2>&1"))
-local err = h:read("a")
-local bad = h:close()
+local err, bad
+if os.getenv("KODOS_INPROCESS") == "1" then
+    local ok, e = pcall(kodos_run, "lockfile.lua",
+        "0", IDX[1], IDX[2], "--", "system.lua", "_scratch_lock.lua")
+    err = ok and "" or tostring(e)
+    bad = ok  -- ok=false means script aborted (expected); bad=false => assert(not bad) passes
+else
+    local h = assert(io.popen((os.getenv("KODOS_LUA_CMD") or "lua") .. " lockfile.lua 0 " .. IDX[1] .. " " .. IDX[2]
+                              .. " -- system.lua _scratch_lock.lua 2>&1"))
+    err = h:read("*a")
+    bad = h:close()
+end
 os.remove("_scratch_lock.lua")
 assert(not bad, "missing package must abort the lock")
 assert(err:find("pkg-that-does-not-exist-xyz not found in indexes", 1, true))

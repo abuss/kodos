@@ -69,6 +69,11 @@ func main() {
 		}
 	case "selftest":
 		cmdSelftest()
+	case "suitetest":
+		if err := cmdSuitetest(); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			os.Exit(1)
+		}
 	case "lua":
 		if err := cmdLua(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR:", err)
@@ -145,6 +150,25 @@ func cmdExec(args []string) error {
 
 func cmdSelftest() {
 	selftest()
+}
+
+func cmdSuitetest() error {
+	os.Setenv("KODOS_INPROCESS", "1")
+	suites := []string{
+		"test-merge.lua",
+		"test-validate.lua",
+		"test-equivalence.lua",
+		"test-generate.lua",
+		"test-lock.lua",
+	}
+	for _, s := range suites {
+		out, err := runLuaScript(s, nil, "")
+		if err != nil {
+			return fmt.Errorf("suite %s FAIL: %w", s, err)
+		}
+		os.Stdout.WriteString(out)
+	}
+	return nil
 }
 
 func (e *executor) run(act map[string]any) error {
