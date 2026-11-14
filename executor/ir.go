@@ -22,6 +22,9 @@ type metadata struct {
 	Generation    int               `json:"generation"`
 	Distro        string            `json:"distro"`
 	Packages      map[string]pkgPin `json:"packages"`
+	Timestamp     string            `json:"timestamp,omitempty"`
+	ConfigHash    string            `json:"config_hash,omitempty"`
+	KernelArgs    []string          `json:"kernel_args"`
 }
 
 type actionsFile struct {

@@ -51,7 +51,8 @@ type executor struct {
 	declaredRunlevels map[string]bool // "runlevel/unit" this stream's enable_service set
 	hookRunlevels     map[string]bool // "runlevel/unit" package hooks enabled this run
 	
-	actionsFileBytes []byte // raw actions file for config_hash if no -metadata
+	metadataFileBytes []byte // raw -metadata file for config_hash if provided
+	actionsFileBytes  []byte // raw actions file for config_hash fallback
 }
 
 func main() {
@@ -110,12 +111,17 @@ func cmdExec(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Read actions file bytes for config_hash computation
+	// Read actions file bytes for config_hash fallback
 	afBytes, err := os.ReadFile(*actionsFile)
 	if err != nil {
 		return err
 	}
 	meta, err := loadMetadata(*metadata)
+	if err != nil {
+		return err
+	}
+	// Read metadata file bytes for config_hash (primary source per brief)
+	metaBytes, err := os.ReadFile(*metadata)
 	if err != nil {
 		return err
 	}
@@ -126,7 +132,7 @@ func cmdExec(args []string) error {
 		return fmt.Errorf("actions and metadata disagree (distro/generation)")
 	}
 
-	e := &executor{s: &system{chroot: *root}, meta: meta, arch: *arch, apk: *apkBin, actionsFileBytes: afBytes}
+	e := &executor{s: &system{chroot: *root}, meta: meta, arch: *arch, apk: *apkBin, metadataFileBytes: metaBytes, actionsFileBytes: afBytes}
 	if *secrets != "" {
 		if err := loadJSON(*secrets, &e.secrets); err != nil {
 			return err
@@ -591,29 +597,29 @@ func (e *executor) createGeneration(act map[string]any) error {
 	return nil
 }
 
-func (e *executor) writeGenerationManifest(genDir string) error {
-	// Compute config_hash: sha256 of metadata file if available, else actions stream
+// stampGeneration writes generation.json manifest for a generation directory,
+// stamping metadata with timestamp, config_hash, and kernel_args.
+// Used by both executor's create_generation handler and selftest.
+func stampGeneration(genDir string, meta *metadata, kernelArgs []string, metadataFileBytes, actionsFileBytes []byte) error {
+	// Compute config_hash: sha256 of metadata file if provided, else actions stream
 	var configHash string
-	if e.actionsFileBytes != nil && len(e.actionsFileBytes) > 0 {
-		h := sha256.Sum256(e.actionsFileBytes)
+	if len(metadataFileBytes) > 0 {
+		// Primary: hash the -metadata file (version lock is the contract)
+		h := sha256.Sum256(metadataFileBytes)
 		configHash = hex.EncodeToString(h[:])
-	} else {
-		// Fallback: shouldn't happen in normal exec flow
-		configHash = ""
+	} else if len(actionsFileBytes) > 0 {
+		// Fallback: no -metadata (selftest/synth flows), use actions stream
+		h := sha256.Sum256(actionsFileBytes)
+		configHash = hex.EncodeToString(h[:])
 	}
 	
-	// Build manifest: copy metadata fields, add stamps
-	manifest := map[string]any{
-		"schema_version": e.meta.SchemaVersion,
-		"generation":     e.meta.Generation,
-		"distro":         e.meta.Distro,
-		"packages":       e.meta.Packages,
-		"timestamp":      time.Now().UTC().Format(time.RFC3339),
-		"config_hash":    configHash,
-		"kernel_args":    e.kernelArgs,
-	}
+	// Stamp the metadata with manifest fields
+	meta.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	meta.ConfigHash = configHash
+	meta.KernelArgs = kernelArgs
 	
-	manifestJSON, err := json.Marshal(manifest)
+	// Marshal metadata struct directly (now has the extra fields)
+	manifestJSON, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("marshal generation manifest: %w", err)
 	}
@@ -623,4 +629,8 @@ func (e *executor) writeGenerationManifest(genDir string) error {
 		return fmt.Errorf("write generation.json: %w", err)
 	}
 	return nil
+}
+
+func (e *executor) writeGenerationManifest(genDir string) error {
+	return stampGeneration(genDir, e.meta, e.kernelArgs, e.metadataFileBytes, e.actionsFileBytes)
 }

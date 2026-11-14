@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func check(cond bool, msg string, args ...any) {
@@ -63,42 +62,42 @@ func selftest() {
 	g0, err := s.createGeneration(map[string]string{"pkgA": "1.0", "pkgB": "2.0", "00base": "1.0"}, 0, "")
 	check(err == nil, "create gen0: %v", err)
 	
-	// Simulate writeGenerationManifest (selftest has no executor context)
-	// In real exec flow, main.go's createGeneration handler does this
-	genManifest := map[string]any{
-		"schema_version": 1,
-		"generation":     0,
-		"distro":         "alpine",
-		"packages": map[string]any{
-			"pkgA":    map[string]any{"version": "1.0", "checksum": ""},
-			"pkgB":    map[string]any{"version": "2.0", "checksum": ""},
-			"00base":  map[string]any{"version": "1.0", "checksum": ""},
+	// Write generation.json using real stampGeneration function
+	// For selftest, provide a minimal but real metadata file content as bytes to test determinism
+	metaContent := []byte(`{"schema_version":1,"generation":0,"distro":"alpine","packages":{"pkgA":{"version":"1.0","checksum":""},"pkgB":{"version":"2.0","checksum":""},"00base":{"version":"1.0","checksum":""}}}`)
+	meta0 := &metadata{
+		SchemaVersion: 1,
+		Generation:    0,
+		Distro:        "alpine",
+		Packages: map[string]pkgPin{
+			"pkgA":   {Version: "1.0", Checksum: ""},
+			"pkgB":   {Version: "2.0", Checksum: ""},
+			"00base": {Version: "1.0", Checksum: ""},
 		},
-		"timestamp":    time.Now().UTC().Format(time.RFC3339),
-		"config_hash":  "", // selftest has no input, use empty
-		"kernel_args":  []string{},
 	}
-	genManifestJSON, _ := json.Marshal(genManifest)
-	check(os.WriteFile(filepath.Join(g0, "generation.json"), genManifestJSON, 0o644) == nil, "write generation.json")
+	check(stampGeneration(g0, meta0, []string{}, metaContent, nil) == nil, "stamp generation 0")
 	
 	// generation.json must exist with metadata + executor stamps
 	genJsonPath := filepath.Join(g0, "generation.json")
 	check(lexists(genJsonPath), "generation.json missing at %s", genJsonPath)
-	var genJson map[string]any
+	var genJson *metadata
 	genJsonBytes, err := os.ReadFile(genJsonPath)
 	check(err == nil, "read generation.json: %v", err)
 	check(json.Unmarshal(genJsonBytes, &genJson) == nil, "generation.json parse: %v", err)
 	
-	// check fields
-	pkgs, _ := genJson["packages"].(map[string]any)
-	check(pkgs != nil && len(pkgs) == 3, "generation.json has 3 packages, got %v", pkgs)
-	check(genJson["timestamp"] != nil && genJson["timestamp"].(string) != "", "timestamp present")
-	check(genJson["config_hash"] != nil, "config_hash present")
-	check(genJson["kernel_args"] != nil, "kernel_args present (even if empty)")
+	// check fields and verify package map equals input
+	check(genJson.Packages != nil && len(genJson.Packages) == 3, "generation.json has 3 packages, got %v", genJson.Packages)
+	check(genJson.Timestamp != "", "timestamp present")
+	check(genJson.ConfigHash != "", "config_hash present")
+	check(genJson.KernelArgs != nil, "kernel_args present (even if empty)")
 	
 	// kernel_args should be empty (no set_kernel_arguments op in selftest)
-	kernelArgs, _ := genJson["kernel_args"].([]any)
-	check(len(kernelArgs) == 0, "kernel_args empty in selftest, got %v", kernelArgs)
+	check(len(genJson.KernelArgs) == 0, "kernel_args empty in selftest, got %v", genJson.KernelArgs)
+	
+	// Verify package map matches input
+	for name, pin := range meta0.Packages {
+		check(genJson.Packages[name].Version == pin.Version, "pkg %s version matches", name)
+	}
 	
 	// merged-usr: the relative bin/sbin symlinks must alias the generation's
 	// own tree; a real dir (pkgA/bin) always wins over a later alias
@@ -130,6 +129,19 @@ func selftest() {
 	write(filepath.Join(s.store(), "pkgA", "1.1", "etc", "foo"), "new-upstream\n")
 	g1, err := s.createGeneration(map[string]string{"pkgA": "1.1"}, 1, g0)
 	check(err == nil, "create gen1: %v", err)
+	
+	// Stamp generation 1 with its metadata content
+	metaContent1 := []byte(`{"schema_version":1,"generation":1,"distro":"alpine","packages":{"pkgA":{"version":"1.1","checksum":""}}}`)
+	meta1 := &metadata{
+		SchemaVersion: 1,
+		Generation:    1,
+		Distro:        "alpine",
+		Packages: map[string]pkgPin{
+			"pkgA": {Version: "1.1", Checksum: ""},
+		},
+	}
+	check(stampGeneration(g1, meta1, []string{}, metaContent1, nil) == nil, "stamp generation 1")
+	
 	check(readOr(filepath.Join(g1, "etc_default", "foo")) == "new-upstream\n", "baseline = pristine new default")
 	check(readOr(filepath.Join(g1, "etc_store", "foo")) == "edited\n", "local edit carried forward")
 	check(readOr(filepath.Join(g1, "etc_default", "foo.apknew-1")) == "new-upstream\n", "conflict copy apknew-1")
