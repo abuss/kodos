@@ -177,6 +177,15 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 - **check-packages.lua fails pre-existing** (assert at line 19, unrelated
   to config changes; investigate when package-set work resumes).
 
+- **Self-management (`kodos apply` on the machine itself)** — the primary
+  interaction model once installed (there is no host on bare metal). Design
+  approved + spec written: `docs/superpowers/specs/2026-11-14-kodos-self-
+  management-design.md` (single Go binary embedding the Lua toolchain via
+  gopher-lua + go:embed; apply/status/rollback verbs; live lock via
+  net/http + system apk; in-place generate mode; `copy_tree` IR op ships a
+  file:// local repo carrying kodos.apk; generations_keep cap). Awaiting
+  written-spec review, then implementation plan.
+
 - **Initramfs store debris** — FIXED (2026-11-14, 2nd attempt): mkinitfs
   chrooted into the gen tree copies our etc symlinks (etc/modprobe.d/
   *.conf -> /kod/generation/N/etc_store/modprobe.d/...) AND their store
