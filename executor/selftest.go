@@ -9,6 +9,9 @@ package main
 // chroot-rooted and resolve through `current`. Run: kodos-exec selftest
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -161,6 +164,35 @@ func selftestPure() {
 		})
 		return err
 	}()), "{UUID:/dev/ghost}"), "error names the failing token")
+
+	// apk unpack keeps setuid bits (guest sudo/su/passwd break silently
+	// if Perm() truncates them) and hardlinks/symlinks survive
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(zw)
+	for _, h := range []*tar.Header{
+		{Name: "usr/bin/sudo", Mode: 04755, Size: 4, Typeflag: tar.TypeReg},
+		{Name: "usr/bin/sudodbg", Mode: 04755, Typeflag: tar.TypeLink, Linkname: "usr/bin/sudo"},
+		{Name: "usr/share/man/man8/sudo.8.gz", Mode: 0644, Size: 4, Typeflag: tar.TypeReg},
+	} {
+		check(tw.WriteHeader(h) == nil, "tar hdr %s", h.Name)
+		if h.Size > 0 {
+			tw.Write([]byte("sudo"))
+		}
+	}
+	tw.Close()
+	zw.Close()
+	unpackDir, err := os.MkdirTemp("", "kodos-unpack-")
+	check(err == nil, "unpack tempdir: %v", err)
+	defer os.RemoveAll(unpackDir)
+	check(unpackApkStream(bytes.NewReader(buf.Bytes()), unpackDir, "fake") == nil, "unpackApkStream")
+	st, err := os.Lstat(filepath.Join(unpackDir, "usr/bin/sudo"))
+	check(err == nil && st.Mode().Perm() == 0o755 && st.Mode()&os.ModeSetuid != 0,
+		"sudo keeps setuid, got %v", st.Mode())
+	hst, err := os.Lstat(filepath.Join(unpackDir, "usr/bin/sudodbg"))
+	check(err == nil && hst.Mode()&os.ModeSetuid != 0 && sameInode(
+		filepath.Join(unpackDir, "usr/bin/sudodbg"), filepath.Join(unpackDir, "usr/bin/sudo")),
+		"hardlink keeps setuid+inode, got %v", hst.Mode())
 
 	// diskBusy must refuse host-active disks (the config carries real names)
 	if busy := diskBusy("/dev/" + hostRootDisk()); busy {

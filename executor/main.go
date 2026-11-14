@@ -331,9 +331,17 @@ func (e *executor) fetchUnpack(name, version string) error {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return err
 	}
+	return unpackApkStream(body, dst, name)
+}
+
+// unpackApkStream unpacks a .apk (tar.gz) stream into dst (pure,
+// selftested). Modes come from hdr.FileInfo().Mode() IN FULL: .Perm()
+// silently drops the setuid/setgid bits, and a sudo/su/passwd that lost
+// them breaks guest privilege handling in ways only noticed at boot.
+func unpackApkStream(body io.Reader, dst, name string) error {
 	gz, err := gzip.NewReader(body) // .apk is a tar.gz
 	if err != nil {
-		return fmt.Errorf("unpack %s-%s: %w", name, version, err)
+		return fmt.Errorf("unpack %s: %w", name, err)
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
@@ -354,7 +362,8 @@ func (e *executor) fetchUnpack(name, version string) error {
 			os.MkdirAll(p, 0o755)
 		case tar.TypeReg:
 			os.MkdirAll(filepath.Dir(p), 0o755)
-			f, err := os.OpenFile(p, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, hdr.FileInfo().Mode().Perm())
+			os.Remove(p) // existing file would keep its OLD mode through O_TRUNC
+			f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_EXCL, hdr.FileInfo().Mode())
 			if err != nil {
 				return err
 			}
@@ -363,6 +372,13 @@ func (e *executor) fetchUnpack(name, version string) error {
 				return err
 			}
 			f.Close()
+			// chmod AFTER the copy: the kernel strips setuid/setgid on
+			// writes (file_remove_privs) depending on fsuid/capabilities —
+			// creation mode alone is not enough for sudo/passwd to work
+			// in the guest.
+			if err := os.Chmod(p, hdr.FileInfo().Mode()); err != nil {
+				return err
+			}
 		case tar.TypeSymlink:
 			os.MkdirAll(filepath.Dir(p), 0o755)
 			os.Remove(p)

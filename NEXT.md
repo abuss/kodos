@@ -116,6 +116,14 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   read the serial line. New config knob `system.serial_console = true`
   (vm-layer sets it); backend-owned full managed `/etc/inittab` emitted
   as a `write_file` action; backends without `M.inittab` hard-error.
+- **setuid bits lost in unpack** — FIXED (2026-11-14): guest `sudo`/`su`
+  died ("must be suid"). Two compounding bugs: the tar loop wrote files
+  with `Mode().Perm()` (truncates setuid) AND the kernel strips
+  setuid/setgid on *writes* (file_remove_privs) — creation mode alone is
+  not enough. Fix: full mode at create + `chmod` after the content copy.
+  Selftest covers it (in-memory tar.gz with 04755 file + hardlink).
+  WARNING: stores unpacked BEFORE this fix keep scarrred modes (fetch
+  skips existing dirs) — use `vm/run.sh fresh`, do not heal by hand.
 - **No network in guest (ssh dead)** — FIXED (2026-11-14): linux-virt
   builds virtio_net as `=m`; nothing coldplugged modalias modules because
   the device manager is enabled by Alpine's *installer*, not by any
