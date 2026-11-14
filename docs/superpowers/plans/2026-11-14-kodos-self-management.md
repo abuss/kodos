@@ -127,9 +127,9 @@
 **Interfaces:**
 - Produces: pure helpers `parseMounts(text string) map[string]string` (device/mountpoint → line) used by the guards and by Task 12's rollback fstab handling; guard error text starts `refusing to format mounted target`.
 
-- [ ] **Step 1:** Failing selftest: `parseMounts` + `isMounted(target, mounts, liveRoot)` (live-root exception: `-root` itself isn't a live mountpoint in dev flows — the guard checks `/proc/mounts` truth, not intent).
-- [ ] **Step 2:** Implement guards in the three ops; existing scratch E2E shows skip-lines on re-run and still completes.
-- [ ] **Step 3:** Commit `feat(executor): hard guards — no format of mounted targets, mount skip-if-mounted`.
+- [x] **Step 1:** Failing selftest: `parseMounts` + `isMounted(target, mounts, liveRoot)` (live-root exception: `-root` itself isn't a live mountpoint in dev flows — the guard checks `/proc/mounts` truth, not intent).
+- [x] **Step 2:** Implement guards in the three ops; existing scratch E2E shows skip-lines on re-run and still completes.
+- [x] **Step 3:** Commit `feat(executor): hard guards — no format of mounted targets, mount skip-if-mounted`.
 
 ### Task 7: Local `file://` repos end-to-end (schema + configure_repos + lock)
 
