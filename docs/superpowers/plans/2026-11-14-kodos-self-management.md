@@ -114,9 +114,9 @@
 **Interfaces:**
 - Produces: `kodos lua generate.lua --inplace <configfiles…> → actions.json` (Task 11 consumes).
 
-- [ ] **Step 1:** Add assertions: with `--inplace`, `actions.json` contains NO `partition_disk`/`format`/`create_swap` ops, and contains all of `configure_repos`/`install_packages`/`create_generation`/`activate_generation`/`install_bootloader`; without the flag, `format` still present. Run → FAIL.
-- [ ] **Step 2:** Implement the filter in generate.lua; suites green (host lua AND suitetest).
-- [ ] **Step 3:** Commit `feat(lua): generate --inplace omits storage ops`.
+- [x] **Step 1:** Add assertions: with `--inplace`, `actions.json` contains NO `partition_disk`/`format`/`create_swap` ops, and contains all of `configure_repos`/`install_packages`/`create_generation`/`activate_generation`/`install_bootloader`; without the flag, `format` still present. Run → FAIL.
+- [x] **Step 2:** Implement the filter in generate.lua; suites green (host lua AND suitetest).
+- [x] **Step 3:** Commit `feat(lua): generate --inplace omits storage ops`.
 
 ### Task 6: Executor guards — format refuses mounted, mount skip-if-mounted
 
