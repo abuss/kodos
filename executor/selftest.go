@@ -308,8 +308,24 @@ func selftestPruneLogic() {
 	check(!lexists(filepath.Join(s.store(), "solePkg", "1.0")),
 		"solePkg/1.0 sole ref was pruned gen: must be GC'd")
 
+	// hand-edited current alias → prune refuses (fail closed, no silent ignore)
+	{
+		dir, err := os.MkdirTemp("", "kodos-curalias-")
+		check(err == nil, "mkdtemp: %v", err)
+		defer os.RemoveAll(dir)
+		sc := &system{chroot: dir}
+		genRoot := filepath.Join(sc.root(), "generation")
+		check(os.MkdirAll(genRoot, 0o755) == nil, "mkdir gen root")
+		check(os.Symlink("/kod/generation/notagen", filepath.Join(genRoot, "current")) == nil,
+			"hand-edited current link")
+		re := &executor{s: sc, meta: &metadata{Generation: 1, Distro: "alpine"}}
+		err = re.run(map[string]any{"op": "create_generation", "packages": []any{}})
+		check(err != nil && strings.Contains(err.Error(), "not a generation number"),
+			"unparseable current alias must fail closed, got %v", err)
+	}
+
 	fmt.Println("PASS: prunePlan table-driven tests")
-	fmt.Println("PASS: pruneGenerations fs-backed (keep=2, protect={0}, gen1+2 deleted, store GC sole refs, preserve shared)")
+	fmt.Println("PASS: pruneGenerations fs-backed (keep=2, protect={0}, gen1+2 deleted, store GC sole refs, preserve shared, fail-closed current alias)")
 }
 
 func selftestPure() {

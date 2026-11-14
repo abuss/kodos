@@ -618,10 +618,13 @@ func (e *executor) createGeneration(act map[string]any) error {
 	currentLink := filepath.Join(e.s.root(), "generation", "current")
 	if target, err := os.Readlink(currentLink); err == nil {
 		var liveCurrent int
-		if _, scanErr := fmt.Sscanf(filepath.Base(target), "%d", &liveCurrent); scanErr == nil {
-			if liveCurrent != e.meta.Generation {
-				protect = append(protect, liveCurrent)
-			}
+		if _, scanErr := fmt.Sscanf(filepath.Base(target), "%d", &liveCurrent); scanErr != nil {
+			// Fail closed: a present-but-unparseable current (human hand-edit)
+			// must not silently drop the boot-critical gen from protection.
+			return fmt.Errorf("cannot prune: current alias target %q is not a generation number", target)
+		}
+		if liveCurrent != e.meta.Generation {
+			protect = append(protect, liveCurrent)
 		}
 	}
 	// (if current doesn't exist yet — first install — only idx needs protection)
