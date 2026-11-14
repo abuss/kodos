@@ -63,7 +63,9 @@ func selftest() {
 	check(t == "/kod/generation/current/usr/sbin", "sbin aliases current/usr/sbin, got %q", t)
 	check(isRealDir(filepath.Join(g0, "bin")), "real bin dir wins over alias")
 	t, _ = os.Readlink(filepath.Join(g0, "bin", "a"))
-	check(t == "/kod/store/pkgA/1.0/bin/a", "store link chroot-rooted, got %q", t)
+	check(t == "", "gen bin/a is a hardlink, not a symlink (got %q)", t)
+	check(sameInode(filepath.Join(g0, "bin", "a"), filepath.Join(s.store(), "pkgA", "1.0", "bin", "a")),
+		"gen file hardlinks into store pool")
 	t, _ = os.Readlink(filepath.Join(g0, "etc", "foo"))
 	check(strings.HasPrefix(t, "/kod/generation/0/etc_store/"), "etc link into etc_store, got %q", t)
 

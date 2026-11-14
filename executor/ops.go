@@ -9,7 +9,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -892,20 +895,20 @@ func (e *executor) installBootloader(act map[string]any) error {
 		return fmt.Errorf("bootloader: no /boot/vmlinuz-* (kernel post-install did not run?)")
 	}
 	kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
-	st, err := os.Stat(filepath.Join(e.s.chroot, "boot", "initramfs-"+kver))
-	if err != nil {
+	if _, err := os.Stat(filepath.Join(e.s.chroot, "boot", "initramfs-"+kver)); err != nil {
 		return fmt.Errorf("bootloader: no initramfs for kernel %s (mkinitfs failed?)", kver)
 	}
 	// mkinitfs degrades SILENTLY: its file-collection stage runs through
 	// shell pipelines that swallow failures (missing lddtree, empty
-	// features in /etc/mkinitfs/mkinitfs.conf), leaving a KB-sized
-	// skeleton with no busybox//bin/sh: the kernel unpacks an empty
-	// rootfs and panics "No working init found" with zero console
-	// output. Real images carry busybox+libs+modules: always MBs.
-	if st.Size() < 512<<10 {
-		return fmt.Errorf("bootloader: initramfs-%s is only %d bytes: skeleton "+
-			"(mkinitfs degraded: check etc/mkinitfs/mkinitfs.conf features line and lddtree in the generation)",
-			kver, st.Size())
+	// features files under /etc/mkinitfs), leaving a skeleton image with
+	// no busybox//bin/sh: the kernel unpacks an almost-empty rootfs and
+	// panics "No working init found" with zero console output. We saw a
+	// 3.5MB hollow image pass a size guard, so check CONTENTS: a real
+	// image always carries busybox in the cpio stream.
+	if err := initramfsSane(filepath.Join(e.s.chroot, "boot", "initramfs-"+kver)); err != nil {
+		return fmt.Errorf("bootloader: initramfs-%s is skeleton (%v): "+
+			"mkinitfs degraded: check etc/mkinitfs/mkinitfs.conf features line and features.d/*.files",
+			kver, err)
 	}
 	timeout := 5
 	if f, ok := act["timeout"].(float64); ok {
@@ -919,5 +922,29 @@ func (e *executor) installBootloader(act map[string]any) error {
 		return err
 	}
 	fmt.Printf("bootloader: grub EFI (removable path) + grub.cfg for generation %d, kernel %s\n", genIdx, kver)
+	return nil
+}
+
+// initramfsSane gunzips (stdlib; no host tools) and greps the cpio stream
+// for busybox: mkinitfs' collection stage swallows its own failures and
+// otherwise hands back a hollow image silently.
+func initramfsSane(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("not gzip: %w", err)
+	}
+	defer zr.Close()
+	blob, err := io.ReadAll(zr)
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(blob, []byte("busybox")) {
+		return fmt.Errorf("cpio stream has no busybox (%d bytes unpacked)", len(blob))
+	}
 	return nil
 }

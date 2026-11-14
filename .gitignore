@@ -6,3 +6,4 @@ mnt/
 *~
 secrets*.json
 secret*.d/
+scratch/

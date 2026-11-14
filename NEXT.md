@@ -126,6 +126,24 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 - Static-IP connections, display-manager section, mounts config, arch/deb
   lock parsers: unchanged backlog below.
 
+## Offline VM forensics (no sudo; host needs qemu-img, mtools, e2fsprogs)
+
+```
+qemu-img convert -U -O raw vm/vm-disk.qcow2 /tmp/opencode/vm-raw.img
+dd if=vm-raw.img of=esp.img bs=512 skip=2048 count=1046528   # p1 ESP
+mdir -i esp.img ::/ ; mcopy -i esp.img ::/initramfs-virt out  # ESP via mtools
+dd if=vm-raw.img of=root.img bs=4M iflag=skip_bytes,count_bytes \
+   skip=$((1050624*512)) count=$((134215680*512)) conv=sparse  # p2 root
+debugfs -R "ls -l <path>" root.img                            # ext4 read-only
+```
+
+Incident note (2026-11-13): a wedged-nbd crashed install truncated live
+/etc files (0 bytes); the etc conflict-preservation logic then fossilized
+them into every later etc_store, so mkinitfs silently built hollow 79-entry
+initramfs images forever. Fix: clean disk (`vm/run.sh fresh`) — do not heal
+scarred disks by hand. Hardening idea: guard install_bootloader on
+initramfs *contents* (must contain /init provider), not just size.
+
 ## Ranked next steps
 
 | # | Step | Why this order |
