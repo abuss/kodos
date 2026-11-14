@@ -177,9 +177,21 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 - **check-packages.lua fails pre-existing** (assert at line 19, unrelated
   to config changes; investigate when package-set work resumes).
 
-- **Closure locking**: locked config names are pinned exact, but 774 of 864
-  packages arrive as unlocked deps that float (loud WARNING at install).
-  Proper fix: persist the full resolved closure in `lockfile.lua`.
+- **Closure locking** — FIXED (2026-11-14): lockfile.lua now locks the
+  FULL apk closure (VM profile: 97 requests -> 867 pinned). It serves
+  the given index snapshots as `file://` repos (layout apk really
+  fetches: `<repo>/<arch>/APKINDEX.tar.gz`, member named APKINDEX) to
+  the repo's static apk-tools (`KODOS_APK=/path`, default
+  script-relative `../../vm/apk-tools-static`), runs `add --simulate`
+  on the pinned requests, and pins every resolved dep by index
+  checksum (name|version missing from the snapshots = lock error).
+  Executor side: the "N deps unpinned" float is gone — the live resolve
+  now ENFORCES the lock: a pinned dep resolving to another version is
+  a hard "lock drift" abort (proven with doctored metadata), and a dep
+  the live repos gained post-lock warns loudly (repo moved past the
+  snapshot: re-snapshot via the curl recipe and relock). test-lock
+  asserts closure >> requests, transitive pins (libcrypto3, dbus-libs),
+  determinism, and strictness.
 - **Rollback vs live /etc**: booting an older generation does not flip live
   /etc until the next activation re-hardlinks it. Real kodos gets this free
   via whole-root btrfs subvol flips; our fs-agnostic etc model needs an

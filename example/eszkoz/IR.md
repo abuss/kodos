@@ -66,7 +66,11 @@ app ids without a declared `repos.flatpak` likewise abort generation.
 
 `lockfile.lua` resolves the SAME install set as `install_packages` against
 real distro indexes (apk index text or `.tar.gz`) and emits the generation
-metadata JSON — every package pinned to exact version + checksum:
+metadata JSON — EVERY package pinned to exact version + checksum: the
+config-declared requests PLUS their full dependency closure, locked by
+running the repo's static apk-tools (`KODOS_APK=/path`, default
+`../../vm/apk-tools-static`) in `add --simulate` mode against those exact
+snapshots served as `file://` repos:
 
     lua lockfile.lua <generation> main.apkindex community.apkindex \
         -- system.lua layers/machine.lua layers/user.lua > generation-0.json
@@ -77,15 +81,20 @@ metadata JSON — every package pinned to exact version + checksum:
   "distro": "alpine", "kernel_variant": "default",
   "kernel": "linux-lts-6.18.63-r0",
   "packages": { "clang20": { "version": "20.1.8-r3", "checksum": "Q1I//..." }, ... },
-  "flatpak": { "system": [], "users": [] }, "locked_count": 88
+  "flatpak": { "system": [], "users": [] },
+  "locked_count": 978, "requested_count": 99
 }
 ```
 
 Executor contract:
-- the `install_packages` names and `generation-N.json` `packages` keys are
-  the SAME set (both from `resolve.install_set`); the executor fetches and
-  installs the EXACT versions/checksums from the metadata — never
-  "latest".
+- the `install_packages` names are the config-declared requests; the
+  `generation-N.json` `packages` keys are their full resolved closure
+  (a superset; both computed from `resolve.install_set` + apk). The
+  executor re-resolves live and ENFORCES the lock: any pinned version
+  resolving differently is a hard lock-drift error; a dependency the
+  live repos resolve but the lock does not contain (repo changed after
+  locking) is reported loudly. A locked install is reproducible or
+  fails visibly — nothing floats.
 - `timestamp` / `config_hash` are deliberately absent from the Lua output
   so it is byte-deterministic per index snapshot; the executor stamps them
   when it materializes a generation (per the GENERATION_STORAGE_SUMMARY

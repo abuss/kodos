@@ -31,14 +31,20 @@ assert(out:find('"distro": "alpine"', 1, true))
 assert(out:find('"kernel": "linux-lts-6', 1, true), "kernel not pinned")
 
 -- every locked package carries BOTH version and checksum, and the counts
--- agree with the reported locked_count
+-- agree with the reported locked_count. Closure lock: locked_count covers
+-- the full apk closure (requests + transitive deps), far above the requests.
 local n = tonumber(out:match('"locked_count": (%d+)'))
-assert(n and n > 80, "locked_count suspicious: " .. tostring(n))
+local req = tonumber(out:match('"requested_count": (%d+)'))
+assert(n and n > 400, "locked_count suspicious: " .. tostring(n))
+assert(req and req < n / 3, ("closure lock looks off: %d locked vs %d requested"):format(n, req))
 local vers, checs = 0, 0
 for _ in out:gmatch('"version": "') do vers = vers + 1 end
 for _ in out:gmatch('"checksum": "') do checs = checs + 1 end
 assert(vers == n and checs == n,
        ("counts: %d names, %d versions, %d checksums"):format(n, vers, checs))
+-- transitive deps pinned too (neither name appears in any config layer)
+assert(out:find('"libcrypto3": {', 1, true), "closure lock: dep libcrypto3 not pinned")
+assert(out:find('"dbus-libs": {', 1, true), "closure lock: dep dbus-libs not pinned")
 
 -- distro-name locking (canonical mapping applied BEFORE locking) and
 -- layering honored: clang20 (not clang19) locked, cups gone, tz/locale

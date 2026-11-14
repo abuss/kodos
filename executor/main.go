@@ -230,9 +230,10 @@ func (e *executor) writeFileTo(path, content string, mode os.FileMode) error {
 // installPackages resolves the FULL dependency closure with apk's own
 // solver (add --simulate; the config's names are requests, not a closure:
 // busybox/musl/baselayout arrive only via depends), then fetches each .apk
-// into the store. Locked names are pinned to their exact locked version
-// (lock drift = hard error); dep versions come from apk and are reported
-// loudly (closure locking in lockfile.lua = future work, see NEXT.md).
+// into the store. lockfile.lua now locks the whole closure, so this live
+// resolve ENFORCES the lock: pinned version resolving elsewhere = hard lock
+// drift error; a dep the live repos added that the lock lacks is loud
+// (repo moved after locking — re-snapshot and relock).
 func (e *executor) installPackages(act map[string]any) error {
 	if e.mirror == "" {
 		return fmt.Errorf("install_packages before configure_repos: no repos captured")
@@ -268,7 +269,7 @@ func (e *executor) installPackages(act map[string]any) error {
 	}
 	slices.Sort(unpinned)
 	if len(unpinned) > 0 {
-		fmt.Printf("WARNING: %d deps unpinned in metadata (resolved live by apk; closure lock is TODO): %s\n",
+		fmt.Printf("WARNING: %d deps NOT in the locked closure (repo drifted since the lock — re-snapshot indexes and relock): %s\n",
 			len(unpinned), strings.Join(unpinned, " "))
 	}
 	e.resolved = resolved
