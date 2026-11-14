@@ -88,6 +88,17 @@ act("write_file", { path = "/etc/fstab",
 act("write_file", { path = "/etc/hostname",
                     content = conf.system.host_name .. "\n" })
 
+-- serial console: backend-owned inittab (alpine baselayout ships the
+-- getty line COMMENTED OUT, so OpenRC boots fine but nothing ever reads
+-- the serial line: silent boot ending with no login prompt).
+if conf.system.serial_console then
+    if not backend.inittab then
+        error("system.serial_console: backend '" .. backend.name ..
+              "' has no serial getty support")
+    end
+    act("write_file", { path = "/etc/inittab", content = backend.inittab })
+end
+
 -- ====== 7. packages: one deduped install set, sorted for determinism ======
 -- (versions come from the lockfile / generation-N.json, see lockfile.lua;
 -- the executor installs EXACTLY those versions of these names)

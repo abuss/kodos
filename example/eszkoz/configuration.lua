@@ -125,6 +125,8 @@ return {
         keyboard_layout = { layout = "us" },
         console_keymap = "us",
         locale = { default = "en_US.UTF-8" }, -- musl limits locales (backend note)
+        serial_console = false, -- true = getty on the kernel console tty
+                                -- (VMs via qemu -nographic need this)
     },
 
     -- ====== SERVICES (plain data; names/packages/units from the backend) ======

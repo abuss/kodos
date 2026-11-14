@@ -70,6 +70,35 @@ M.locales_supported = {
     "nb_NO.UTF-8", "nl_NL.UTF-8", "pt_BR.UTF-8", "pt_PT.UTF-8", "ru_RU.UTF-8",
     "sr_RS.UTF-8", "sv_SE.UTF-8",
 }
+-- Serial console (system.serial_console): full managed /etc/inittab.
+-- Alpine's baselayout ships the ttyS0 getty line commented out; with
+-- console=ttyS0 the box boots fully but the serial line stays silent
+-- (nothing reads it). Content mirrors alpine-baselayout-data's inittab
+-- verbatim with ONLY the documented serial line enabled.
+M.inittab = [[# /etc/inittab
+
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::wait:/sbin/openrc default
+
+# Set up a couple of getty's
+tty1::respawn:/sbin/getty 38400 tty1
+tty2::respawn:/sbin/getty 38400 tty2
+tty3::respawn:/sbin/getty 38400 tty3
+tty4::respawn:/sbin/getty 38400 tty4
+tty5::respawn:/sbin/getty 38400 tty5
+tty6::respawn:/sbin/getty 38400 tty6
+
+# Put a getty on the serial port
+ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100
+
+# Stuff to do for the 3-finger salute
+::ctrlaltdel:/sbin/reboot
+
+# Stuff to do before rebooting
+::shutdown:/sbin/openrc shutdown
+]]
+
 M.rc_conf = { unicode = "YES" } -- needs a unicode console font too
 
 -- Services: keyed by the config's neutral service name -> OpenRC reality.

@@ -110,6 +110,15 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 
 ## Known gaps / TODOs (found during VM E2E, 2026-11-13)
 
+- **Silent boot / no login prompt** — FIXED (2026-11-14): Alpine's
+  baselayout inittab ships the `ttyS0` getty line COMMENTED OUT, so with
+  `console=ttyS0` the box booted fully (all services `[ ok ]`) but nothing
+  read the serial line. New config knob `system.serial_console = true`
+  (vm-layer sets it); backend-owned full managed `/etc/inittab` emitted
+  as a `write_file` action; backends without `M.inittab` hard-error.
+- **check-packages.lua fails pre-existing** (assert at line 19, unrelated
+  to config changes; investigate when package-set work resumes).
+
 - **Closure locking**: locked config names are pinned exact, but 774 of 864
   packages arrive as unlocked deps that float (loud WARNING at install).
   Proper fix: persist the full resolved closure in `lockfile.lua`.

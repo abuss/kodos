@@ -165,6 +165,7 @@ M.schema = {
             timezone = { optional = "string" },
             keyboard_layout = { optional = { record = { layout = "string" } } },
             console_keymap = { optional = "string" },
+            serial_console = { optional = "bool" },
         } },
 
         services = { optional = { dict_of = service_spec } },

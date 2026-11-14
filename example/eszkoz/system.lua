@@ -62,6 +62,7 @@ local eszkoz = {
         -- musl has limited locale support; en_US.UTF-8 works natively,
         -- anything beyond needs glibc-compat. Keep it minimal.
         locale = { default = "en_US.UTF-8" },
+        serial_console = false, -- true = getty on the kernel console tty
     },
 
     -- ====== SERVICES (modules/services.lua) ======
