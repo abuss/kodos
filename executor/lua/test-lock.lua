@@ -19,7 +19,7 @@ local function run(...)
         for _, s in ipairs({ ... }) do
             for w in s:gmatch("%S+") do args[#args + 1] = w end
         end
-        return kodos_run("lockfile.lua", unpack(args)), true
+        return kodos_run("lockfile.lua", unpack(args)), true -- Lua 5.1: table.unpack is just unpack
     end
     local cmd = (os.getenv("KODOS_LUA_CMD") or "lua") .. " lockfile.lua " .. table.concat({ ... }, " ")
     local h = assert(io.popen(cmd))

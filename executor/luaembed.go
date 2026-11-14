@@ -86,7 +86,7 @@ func runLuaScript(name string, args []string, searchDir string) (string, error) 
 			for i := 1; i <= L.GetTop(); i++ {
 				v := L.Get(i)
 				if _, ok := v.(*lua.LUserData); ok {
-					continue // inline-case only: f:write(...) passes file handle as arg[1]; drop it
+					continue // defensive guard: module-level io.write never receives a file-handle userdata as first arg
 				}
 				buf.WriteString(L.ToStringMeta(v).String())
 			}
@@ -94,9 +94,6 @@ func runLuaScript(name string, args []string, searchDir string) (string, error) 
 		}))
 		// Redirect io.stderr:write to errBuf so error messages are captured
 		// and can be included in os.exit error strings.
-		if stderrUD, ok := L.GetField(iot, "stderr").(*lua.LUserData); ok {
-			_ = stderrUD
-		}
 		// Create a fake stderr file table that writes to errBuf.
 		stderrTbl := L.NewTable()
 		stderrTbl.RawSetString("write", L.NewFunction(func(L *lua.LState) int {

@@ -154,6 +154,7 @@ func cmdSelftest() {
 
 func cmdSuitetest() error {
 	os.Setenv("KODOS_INPROCESS", "1")
+	defer os.Unsetenv("KODOS_INPROCESS")
 	suites := []string{
 		"test-merge.lua",
 		"test-validate.lua",
