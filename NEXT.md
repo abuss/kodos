@@ -124,7 +124,9 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   Selftest covers it (in-memory tar.gz with 04755 file + hardlink).
   WARNING: stores unpacked BEFORE this fix keep scarrred modes (fetch
   skips existing dirs) — use `vm/run.sh fresh`, do not heal by hand.
-- **No network in guest (ssh dead)** — FIXED (2026-11-14, two layers):
+- **No network in guest (ssh dead)** — root-caused in FOUR layers
+  (2026-11-14; guest now reaches "connecting" with our `wired` profile,
+  DHCP reply path fixed, final boot round pending):
   (1) linux-virt builds virtio_net as `=m` and nothing coldplugged it
   (Alpine enables its device manager via the *installer*, not packages).
   (2) coldplug alone was NOT enough: nmcli showed EVERY device
@@ -133,10 +135,23 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   mdev never tags. Neutral service renamed `mdev` -> `udev`; alpine maps
   it to eudev (+libs/hwids/openrc + udev-init-scripts-openrc, which
   ships /etc/init.d/udev) at runlevel **sysinit** (must precede NM at
-  boot; "udev" sorts after "networkmanager"). arch/deb: no-op (their
-  udev always runs). NOT the ifupdown plugin (checked its strings;
-  [ifupdown] managed=true + missing /etc/network/interfaces was a
-  red herring per the reason code).
+  boot; "udev" sorts after "networkmanager"), plus `udev-trigger`
+  (coldplug is its own service: boot uevents are long gone). arch/deb:
+  no-op. NOT the ifupdown plugin (checked its strings; red herring).
+  (3) our keyfile profiles silently rejected: hand-built connection UUID
+  had a 2-hex-char 4th segment (%x of one byte) -> keyfile plugin
+  refuses the whole file -> NM fell back to its transient profile.
+  connUUID() + regex selftest (4676aef).
+  (4) THE BIG ONE, host-side: run.sh booted
+  `-netdev user,id=n0 -device virtio-net-pci` — a NIC without netdev=
+  lands on qemu's default hub literally named **"net0"**, our id was
+  "n0": BOTH sides "have no peer" and the guest NIC talked to NOTHING
+  (zero DHCPOFFERs from any client, no ICMP to 10.0.2.2; busybox udhcpc
+  ruled out NM). Proven with a disposable `-kernel vmlinuz-virt
+  -initrd initramfs-virt ... break` boot (no disk, no lock, no sudo):
+  without netdev=n0 silent, with it 10.0.2.2 replies to ping instantly.
+  qemu warns about this on stderr — the warnings were buried. Lesson:
+  read qemu launch warnings!
 - **Runlevel litter**: `enable_service` never removes stale entries from
   earlier rounds (guest boot still had `mdev@boot` after the backend
   switched to udev). Declarative fix: reconcile runlevel dirs against

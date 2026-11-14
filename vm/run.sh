@@ -170,11 +170,16 @@ do_boot() {
         [ -n "$BIOS" ] || { echo "ERROR: no OVMF firmware found (install edk2-ovmf/ovmf)"; exit 1; }
         QARGS="-bios $BIOS"
     fi
+    # netdev=n0 is NOT cosmetic: a NIC with no netdev= property lands on
+    # qemu's default hub literally named "net0", while our netdev id is
+    # "n0" -> both sides "have no peer" and the guest NIC talks to nothing
+    # (zero DHCP offers, no ICMP to 10.0.2.2). Verified: adding the
+    # property makes 10.0.2.2 answer pings instantly, same kernel/qemu.
     echo "booting (quit: Ctrl-a x; login: abuss / kodos-user-test, then 'su -')"
     exec qemu-system-x86_64 -m 4096 -smp 2 \
         -drive file="$DISK",if=virtio,format=qcow2 \
         -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 \
-        -device virtio-net-pci \
+        -device virtio-net-pci,netdev=n0 \
         $QARGS \
         -nographic
 }
