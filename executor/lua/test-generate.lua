@@ -168,4 +168,42 @@ os.remove("_scratch.lua")
 assert(err:find("not offered by backend", 1, true),
        "kernel variant the backend cannot offer must be a hard error")
 
+-- ====== --inplace: storage ops filtered, rest intact ======
+-- Use the layered config which exercises partition_disk/format/create_swap.
+local inplace_args = "system.lua ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua --inplace"
+local ip
+if os.getenv("KODOS_INPROCESS") == "1" then
+    ip = kodos_run("generate.lua", "system.lua",
+        "../../example/eszkoz/layers/machine.lua",
+        "../../example/eszkoz/layers/user.lua", "--inplace")
+else
+    local cmd2 = (os.getenv("KODOS_LUA_CMD") or "lua") .. " generate.lua "
+                 .. inplace_args .. " 2>/dev/null"
+    local h2 = assert(io.popen(cmd2))
+    ip = h2:read("*a")
+    h2:close()
+    assert(#ip > 100, "inplace generator produced no output")
+end
+
+assert(not ip:find('"op": "partition_disk"', 1, true),
+    "--inplace must omit partition_disk ops")
+assert(not ip:find('"op": "format"', 1, true),
+    "--inplace must omit format ops")
+assert(not ip:find('"op": "create_swap"', 1, true),
+    "--inplace must omit create_swap ops")
+assert(ip:find('"op": "configure_repos"', 1, true),
+    "--inplace must keep configure_repos")
+assert(ip:find('"op": "install_packages"', 1, true),
+    "--inplace must keep install_packages")
+assert(ip:find('"op": "create_generation"', 1, true),
+    "--inplace must keep create_generation")
+assert(ip:find('"op": "activate_generation"', 1, true),
+    "--inplace must keep activate_generation")
+assert(ip:find('"op": "install_bootloader"', 1, true),
+    "--inplace must keep install_bootloader")
+
+-- Without the flag, format is still present
+assert(out:find('"op": "format"', 1, true),
+    "without --inplace, format must still be present")
+
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")

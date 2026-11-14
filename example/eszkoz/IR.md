@@ -104,6 +104,10 @@ Executor contract:
 - flatpak ids stay floating (Flathub is the authority offline indexes
   cannot pin); online flathub locking is future work.
 
+## `--inplace` flag
+
+Pass `--inplace` to `generate.lua` when re-applying config to an already-installed machine. The flag is stripped before config-file parsing and causes the emitted stream to omit every action whose `op` is `partition_disk`, `format`, or `create_swap`; all other actions are emitted byte-identically to the no-flag output. This is a generator flag, not a config schema field. The executor also guards against storage ops on live mounts as defense-in-depth.
+
 ## `build_package` — source-built packages (designed, NOT yet emitted)
 
 Closes the AUR-shaped hole, distro-neutrally (Arch aport / Alpine APKBUILD /

@@ -6,6 +6,15 @@ local resolve = require("resolve")
 local validate = require("validate")
 local json = require("json")
 
+-- Strip --inplace from args before config loading
+local inplace = false
+local filtered_args = {}
+for _, v in ipairs(arg) do
+    if v == "--inplace" then inplace = true
+    else filtered_args[#filtered_args + 1] = v end
+end
+arg = filtered_args
+
 local conf = resolve.load(arg)
 
 -- schema-validate the MERGED config before anything generates
@@ -17,8 +26,10 @@ end
 
 local backend = resolve.backend_for(conf)
 
+local inplace_skip = { partition_disk = true, format = true, create_swap = true }
 local actions = {}
 local function act(op, f)
+    if inplace and inplace_skip[op] then return end
     f = f or {}
     f.op = op
     actions[#actions + 1] = f
