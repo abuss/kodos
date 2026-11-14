@@ -384,7 +384,16 @@ func (e *executor) apkSimulate(addArgs []string) (map[string]string, error) {
 		args = append(args, "-X", e.mirror+"/"+b)
 	}
 	for _, lr := range e.localRepos {
-		args = append(args, "-X", lr.url)
+		// Local repo url is guest-rooted (e.g. file:///var/kodos/repo); apkSimulate
+		// runs on the host, so remap to chroot-rooted path when that path exists.
+		url := lr.url
+		if path, ok := strings.CutPrefix(url, "file://"); ok {
+			chrootPath := filepath.Join(e.s.chroot, path)
+			if _, err := os.Stat(chrootPath); err == nil {
+				url = "file://" + chrootPath
+			}
+		}
+		args = append(args, "-X", url)
 	}
 	args = append(args, "add", "--simulate")
 	args = append(args, addArgs...)
@@ -415,14 +424,21 @@ func (e *executor) fetchUnpack(name, version string) error {
 	var lastErr error
 	// try local file:// repos first
 	for _, lr := range e.localRepos {
-		apkPath := strings.TrimPrefix(lr.url, "file://") +
-			"/" + e.arch + "/" + name + "-" + version + ".apk"
-		f, err := os.Open(apkPath)
-		if err == nil {
-			body = f
+		guestPath := strings.TrimPrefix(lr.url, "file://")
+		// Local repo URLs may be guest-rooted (e.g. /var/kodos/repo) or
+		// host-absolute (from tests). Try chroot-joined first, then direct.
+		for _, base := range []string{filepath.Join(e.s.chroot, guestPath), guestPath} {
+			apkPath := base + "/" + e.arch + "/" + name + "-" + version + ".apk"
+			f, err := os.Open(apkPath)
+			if err == nil {
+				body = f
+				break
+			}
+			lastErr = err
+		}
+		if body != nil {
 			break
 		}
-		lastErr = err
 	}
 	if body == nil {
 		for _, br := range e.branches {

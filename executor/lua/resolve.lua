@@ -150,6 +150,10 @@ function M.install_set(conf, backend)
     addp(kpkgs)
     addp(blpkgs)
     addp(cfgnames)
+    -- local repo packages: tagged {repo=<reponame>} where reponame is a key in conf.repositories
+    for rname in pairs(conf.repositories or {}) do
+        addp(M.names_in(conf, rname))
+    end
     for _, s in ipairs(M.service_plan(conf, backend)) do addp(s.packages) end
     for _, s in ipairs(M.home_service_plan(conf, backend)) do addp(s.packages) end
     if conf.system.locale then addp(backend.locale_packages) end

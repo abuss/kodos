@@ -127,7 +127,10 @@ do_install() {
             [ -n "${SUDO_USER:-}" ] && chown "$SUDO_USER" "$D" "$D/$r-324.apkindex"
         }
     done
-    lua lockfile.lua 0 "$D/main-324.apkindex" "$D/community-324.apkindex" -- \
+    # build repo artifacts (fixture dummy + kodos apk + APKINDEX)
+    (cd "$REPO" && sh build/mkrepo.sh && sh build/mkapk.sh)
+
+    lua lockfile.lua 0 "$D/main-324.apkindex" "$D/community-324.apkindex" "$VMDIR/repo/x86_64/APKINDEX.tar.gz" -- \
         system.lua "$REPO/vm/vm-layer.lua" ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua \
         > "$VMDIR/generation-0.json"
 

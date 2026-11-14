@@ -17,4 +17,6 @@ return {
     -- The desktop config enables bluetooth for real hardware; the
     -- throwaway VM test machine opts out. (Layering doing real work.)
     services = { bluetooth = { enable = false } },
+    repositories = { kodos = { url = "file:///var/kodos/repo", src = "repo" } },
+    packages = { { repo = "kodos", name = "kodos" } },
 }

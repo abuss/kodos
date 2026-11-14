@@ -19,8 +19,8 @@ local function check(v, spec, path, errs)
                 err("expected tagged package {repo=..., name=...}, got " .. type(v))
             elseif type(v.name) ~= "string" or v.name == "" then
                 err("tagged package entry needs a name")
-            elseif v.repo ~= "base" and v.repo ~= "flatpak" then
-                err("unknown repo '" .. tostring(v.repo) .. "' (base|flatpak)")
+            elseif type(v.repo) ~= "string" or v.repo == "" then
+                err("tagged package entry needs a repo")
             end
         elseif spec == "str_or_false" then
             if type(v) ~= "string" and v ~= false then

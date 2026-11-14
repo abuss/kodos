@@ -56,7 +56,7 @@ end
 
 local backend = resolve.backend_for(conf)
 
-local inplace_skip = { partition_disk = true, format = true, create_swap = true }
+local inplace_skip = { partition_disk = true, format = true, create_swap = true, mount = true }
 local actions = {}
 local function act(op, f)
     if inplace and inplace_skip[op] then return end
