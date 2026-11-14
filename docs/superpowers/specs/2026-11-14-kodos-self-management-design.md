@@ -1,7 +1,8 @@
 # Kodos self-management — design
 
 Date: 2026-11-14
-Status: approved in chat (sections 1-3), awaiting written-spec review
+Status: APPROVED — sections 1-3 in chat; gopher-lua kept as the 5.1-dialect
+decision after the version-support research (2026-11-14)
 
 ## Problem
 
@@ -31,7 +32,14 @@ previous generation → `kodos status` shows the whole story.
 - Toolchain distribution: kodos **eats its own dogfood** — a real `kodos`
   apk in a local repo, declared like any package. No installer injection.
 - The Go binary embeds the Lua toolchain (`go:embed`) and runs it with
-  **gopher-lua**; distribution is ONE static binary.
+  **gopher-lua**; distribution is ONE static binary. Lua dialect policy:
+  config + toolchain Lua is written to the **5.1 dialect (+ `goto`, which
+  gopher-lua supports)** — our sources are already 5.1-clean by scan.
+  Escape hatches for a future modern-Lua requirement (5.3 go-lua forks,
+  or cgo + Lua 5.4 C at the cost of pure-Go cross-builds) are explicit
+  trade-offs to take *then*, not now. Shopify/go-lua was considered and
+  rejected: its own README lists missing core stdlib (coroutines, string
+  patterns).
 - Config discovery: explicit DIR (contains `config.lua`) or explicit FILE.lua;
   default `/etc/kodos/config.lua`.
 - Live apply never formats (omitted from stream + executor hard guard).
