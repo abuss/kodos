@@ -86,10 +86,10 @@
 - Consumes: `runLuaScript` from Task 2.
 - Produces: `kodos suitetest` (used by CI, selfupgrades' smoke test, and this plan's later tasks).
 
-- [ ] **Step 1:** `cmdSuitetest` runs the pure suites first (failing: they don't exist as subtests yet) — implement the harness.
-- [ ] **Step 2:** Add `KODOS_INPROCESS=1` branches to test-lock/test-generate (popen helper indirection); run under `kodos suitetest`; fix every gopher-lua incompatibility encountered (one dialect-clean fix per stumble, no feature work).
-- [ ] **Step 3:** Verify `./kodos suitetest` prints 5 PASS lines; also host-`lua` suites still pass (dev path).
-- [ ] **Step 4:** Commit `test(executor): run Lua suites under gopher-lua (kodos suitetest)`.
+- [x] **Step 1:** `cmdSuitetest` runs the pure suites first (failing: they don't exist as subtests yet) — implement the harness.
+- [x] **Step 2:** Add `KODOS_INPROCESS=1` branches to test-lock/test-generate (popen helper indirection); run under `kodos suitetest`; fix every gopher-lua incompatibility encountered (one dialect-clean fix per stumble, no feature work).
+- [x] **Step 3:** Verify `./kodos suitetest` prints 5 PASS lines; also host-`lua` suites still pass (dev path).
+- [x] **Step 4:** Commit `test(executor): run Lua suites under gopher-lua (kodos suitetest)`.
 
 ### Task 4: Persist per-generation metadata (status/rollback substrate)
 
