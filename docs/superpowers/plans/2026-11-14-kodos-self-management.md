@@ -181,8 +181,8 @@
 - Modify: `executor/lua/validate.lua` (`boot.generations_keep` integer ≥1), `generate.lua` (emit as field on `create_generation` action, default 5), `executor/ops.go`/`main.go` create_generation case — prune keeps newest `keep` generations, and NEVER prunes the one `kod/generation/current` points at even if outside the cap; selftest covering: cap 2 with gens 0..4 + current=0 → gens {0,4,3} survive (store dirs pruned too).
 - Test: `executor/selftest.go` — `prunePlan(gens []int, keep int, current int) []int` pure fn: sorted newest-first minus current, drop beyond cap; then fs-backed prune uses it.
 
-- [ ] **Step 1:** Failing selftest table incl. the current-is-untouchable case; implement pure fn + wire existing prune through it.
-- [ ] **Step 2:** Lua schema + generate default 5; suites green; commit `feat: boot.generations_keep prune cap (current never pruned)`.
+- [x] **Step 1:** Failing selftest table incl. the current-is-untouchable case; implement pure fn + wire existing prune through it.
+- [x] **Step 2:** Lua schema + generate default 5; suites green; commit `feat: boot.generations_keep prune cap (current never pruned)`.
 
 ### Task 11: `kodos apply` — config → live lock → in-place exec against `/`
 
