@@ -11,6 +11,9 @@ local services = {
     -- modules and its installer enables mdev for exactly this; without
     -- it a VM guest has NO network device at all.
     mdev = { enable = true },
+    -- system logging to /var/log/messages: without it the box is
+    -- undebuggable (Alpine enables it from its installer too).
+    syslog = { enable = true },
     ssh = {
         enable = true,
         permit_root_login = false,

@@ -135,6 +135,7 @@ return {
     services = {
         networkmanager = { enable = true },
         mdev = { enable = true }, -- cold-plug of =m modules (see modules/services.lua)
+        syslog = { enable = true }, -- /var/log/messages
         ssh = {
             enable = true,
             permit_root_login = false,

@@ -110,7 +110,8 @@ M.rc_conf = { unicode = "YES" } -- needs a unicode console font too
 -- overridden by service_name; false = packages only).
 M.services = {
     networkmanager = {
-        packages = { "networkmanager", "networkmanager-openrc", "ethtool", "iw" },
+        packages = { "networkmanager", "networkmanager-cli",
+            "networkmanager-openrc", "ethtool", "iw" },
         service_name = "networkmanager", runlevel = "boot",
     },
     -- busybox's mdev coldplugs =m modules via modalias (installer default:
@@ -118,6 +119,11 @@ M.services = {
     -- networkmanager, so devices exist when NM starts.
     mdev = { packages = { "busybox-mdev-openrc" },
         service_name = "mdev", runlevel = "boot" },
+    -- system logging (installer default): busybox-openrc ships the
+    -- syslog/klogd init scripts for busybox's applets; without it there
+    -- is no /var/log/messages and daemons like NM are undebuggable.
+    syslog = { packages = { "busybox-openrc" },
+        service_name = "syslog", runlevel = "boot" },
     ssh = {
         packages = { "openssh", "openssh-server-common-openrc" },
         service_name = "sshd", runlevel = "default",

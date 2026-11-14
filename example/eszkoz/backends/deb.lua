@@ -72,6 +72,8 @@ M.services = {
     },
     -- systemd-udevd coldplugs =m modules unconditionally: nothing to do.
     mdev = { service_name = false },
+    -- journald is part of systemd and always logging: nothing to do.
+    syslog = { service_name = false },
     ssh = {
         packages = { "openssh-server" },
         service_name = "ssh",
