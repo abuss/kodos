@@ -157,8 +157,8 @@
 **Interfaces:**
 - Produces: IR op `copy_tree`; generate maps config `repositories.<n>.src` → action (Task 9/11 consume).
 
-- [ ] **Step 1:** Failing scratch check (file absent); implement; rerun idempotent.
-- [ ] **Step 2:** IR.md documents src/dst semantics + rank; commit `feat(executor): copy_tree IR op + generate emission for local repo src`.
+- [x] **Step 1:** Failing scratch check (file absent); implement; rerun idempotent.
+- [x] **Step 2:** IR.md documents src/dst semantics + rank; commit `feat(executor): copy_tree IR op + generate emission for local repo src`.
 
 ### Task 9: kodos.apk build + self-package install (bootstrap proof)
 
