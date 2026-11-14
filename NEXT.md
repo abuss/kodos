@@ -152,6 +152,15 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   without netdev=n0 silent, with it 10.0.2.2 replies to ping instantly.
   qemu warns about this on stderr — the warnings were buried. Lesson:
   read qemu launch warnings!
+- **bluetooth `[crashed]` in VM** — vanilla behavior, not our bug:
+  linux-virt ships `# CONFIG_BT is not set`, so bluetoothd can never open
+  the management socket. vm-layer now sets `services.bluetooth.enable =
+  false` (desktop config keeps it for real hardware; bluez drops from
+  the VM closure). Existing guest disks keep the stale
+  `runlevels/default/bluetooth` symlink until reconciled: one-time
+  `rc-update del bluetooth default` in-guest, or let it crash harmlessly
+  until the next fresh. (3rd bite of the runlevel-litter gap -> do the
+  declarative-runlevel reconciliation next.)
 - **Runlevel litter**: `enable_service` never removes stale entries from
   earlier rounds (guest boot still had `mdev@boot` after the backend
   switched to udev). Declarative fix: reconcile runlevel dirs against

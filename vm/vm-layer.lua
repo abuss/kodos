@@ -12,4 +12,9 @@ return {
         },
     },
     storage = { devices = { disk0 = { device = "/dev/nbd0" } } },
+    -- linux-virt is built with "# CONFIG_BT is not set": bluetoothd can
+    -- never start on this VM ("Failed to access management interface").
+    -- The desktop config enables bluetooth for real hardware; the
+    -- throwaway VM test machine opts out. (Layering doing real work.)
+    services = { bluetooth = { enable = false } },
 }
