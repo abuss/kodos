@@ -247,7 +247,7 @@ func selftestPure() {
 		"hardlink keeps setuid+inode, got %v", hst.Mode())
 
 	// diskBusy must refuse host-active disks (the config carries real names)
-	if busy := diskBusy("/dev/" + hostRootDisk()); busy {
+	if busy := diskBusy("/dev/"+hostRootDisk(), liveMounts()); busy {
 		// expected on any normal machine
 	} else {
 		check(false, "diskBusy failed to flag the host root disk")
@@ -327,6 +327,31 @@ func selftestPure() {
 		check(err5 != nil, "stripCpio must reject truncated records")
 	}
 	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard/keyfile-uuid/runlevels/initramfs-cpio)")
+
+	// parseMounts + isMounted: pure helpers used by format/mount guards
+	{
+		sample := "proc /proc proc rw 0 0\n" +
+			"/dev/sda1 / ext4 rw 0 0\n" +
+			"/dev/sda2 /home ext4 rw 0 0\n" +
+			"/dev/nbd0p1 /mnt/boot vfat rw 0 0\n" +
+			`/dev/disk/by-label/My\040Disk /mnt/space ext4 rw 0 0` + "\n"
+		m := parseMounts(sample)
+		check(m["/"] == "/dev/sda1", "parseMounts root, got %q", m["/"])
+		check(m["/home"] == "/dev/sda2", "parseMounts /home")
+		check(m["/mnt/boot"] == "/dev/nbd0p1", "parseMounts /mnt/boot")
+		check(m["/mnt/space"] == "/dev/disk/by-label/My Disk", `parseMounts \040 unescaped, got %q`, m["/mnt/space"])
+		check(m["/proc"] == "", "parseMounts proc skipped (no /dev/ prefix)")
+
+		// isMounted: exact device match
+		check(isMounted("/dev/sda1", m), "isMounted exact match")
+		check(!isMounted("/dev/sda3", m), "isMounted unmounted device")
+		// whole disk with mounted partition
+		check(isMounted("/dev/nbd0", m), "isMounted whole disk via partition nbd0p1")
+		check(!isMounted("/dev/nbd1", m), "isMounted nbd1 not a false positive for nbd0")
+		check(isMounted("/dev/sda", m), "isMounted whole disk via partition sda1")
+	}
+
+	fmt.Println("PASS: executor selftest (parseMounts/isMounted guards)")
 }
 
 // cpioRec builds one newc record (header hex + NUL-terminated name, then

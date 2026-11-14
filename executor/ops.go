@@ -8,7 +8,6 @@ package main
 // planning, grub.cfg rendering, settings keys) is unit-checked in selftest.
 
 import (
-	"bufio"
 	"bytes"
 	"compress/gzip"
 	"fmt"
@@ -38,23 +37,63 @@ func runOut(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// parseMounts parses /proc/mounts text and returns mountpoint→device map.
+// Handles octal-escaped spaces (\040) in fields.
+func parseMounts(text string) map[string]string {
+	m := map[string]string{}
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || !strings.HasPrefix(f[0], "/") {
+			continue
+		}
+		m[unescapeMount(f[1])] = unescapeMount(f[0])
+	}
+	return m
+}
+
+// isMounted returns true if device itself or any partition of it (the whole
+// disk case: /dev/nbd0 → /dev/nbd0p2, /dev/sda3) appears as a mounted device.
+func isMounted(device string, mounts map[string]string) bool {
+	for _, dev := range mounts {
+		if dev == device {
+			return true
+		}
+		// partition: device name + optional "p" + digits (e.g. nbd0p1, sda3)
+		if strings.HasPrefix(dev, device) {
+			rest := dev[len(device):]
+			if len(rest) > 0 && (rest[0] == 'p' || (rest[0] >= '0' && rest[0] <= '9')) {
+				// rest must be only "p" + digits or just digits
+				check := rest
+				if check[0] == 'p' {
+					check = check[1:]
+				}
+				allDigits := len(check) > 0
+				for _, c := range check {
+					if c < '0' || c > '9' {
+						allDigits = false
+						break
+					}
+				}
+				if allDigits {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func liveMounts() map[string]string {
+	b, _ := os.ReadFile("/proc/mounts")
+	return parseMounts(string(b))
+}
+
 // mountedAt / diskBusy read /proc/mounts: the executor must never carve up
 // a disk the HOST is using (the config carries the real machine's device
 // names; a wrong layer or typo must not nuke the running system).
-func mountedTargetAt(target string) (string, bool) {
-	f, err := os.Open("/proc/mounts")
-	if err != nil {
-		return "", false
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) >= 2 && unescapeMount(f[1]) == target {
-			return unescapeMount(f[0]), true
-		}
-	}
-	return "", false
+func mountedTargetAt(target string, mounts map[string]string) (string, bool) {
+	dev, ok := mounts[target]
+	return dev, ok
 }
 
 func unescapeMount(s string) string {
@@ -62,27 +101,8 @@ func unescapeMount(s string) string {
 	return r.Replace(s)
 }
 
-func diskBusy(device string) bool {
-	f, err := os.Open("/proc/mounts")
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) < 2 {
-			continue
-		}
-		src := unescapeMount(f[0])
-		// the disk itself or any partition of it (nvme0n1p2, nbd0p1, sda1)
-		if src == device || (strings.HasPrefix(src, device) &&
-			(len(src) > len(device) && (src[len(device)] >= '0' && src[len(device)] <= '9' ||
-				src[len(device)] == 'p'))) {
-			return true
-		}
-	}
-	return false
+func diskBusy(device string, mounts map[string]string) bool {
+	return isMounted(device, mounts)
 }
 
 // isMountpoint: different st_dev than the parent (no external tools).
@@ -276,8 +296,8 @@ func (e *executor) partitionDisk(act map[string]any) error {
 	if !strings.HasPrefix(device, "/dev/") {
 		return fmt.Errorf("partition_disk: %q is not a device path", device)
 	}
-	if diskBusy(device) {
-		return fmt.Errorf("partition_disk: %s (or a partition of it) is MOUNTED on this host: refusing", device)
+	if diskBusy(device, liveMounts()) {
+		return fmt.Errorf("refusing to partition mounted disk %s", device)
 	}
 	if out, err := runOut("sfdisk", "-d", device); err == nil && strings.Contains(out, "label:") {
 		// idempotent ONLY when all expected partitions exist; a half-done
@@ -346,6 +366,10 @@ func (e *executor) partitionDisk(act map[string]any) error {
 
 func (e *executor) formatPartition(act map[string]any) error {
 	part := field(act, "partition")
+	mounts := liveMounts()
+	if isMounted(part, mounts) {
+		return fmt.Errorf("refusing to format mounted target %s", part)
+	}
 	if out, _ := runOut("blkid", "-o", "value", "-s", "TYPE", part); out != "" {
 		// never re-mkfs a live partition — but a fs torn by an earlier
 		// crashed run would poison later ops with mysterious I/O errors,
@@ -405,6 +429,10 @@ func repairFS(fstype, part string) error {
 
 func (e *executor) createSwap(act map[string]any) error {
 	part := field(act, "partition")
+	mounts := liveMounts()
+	if isMounted(part, mounts) {
+		return fmt.Errorf("refusing to format mounted target %s (swap)", part)
+	}
 	if out, _ := runOut("blkid", "-o", "value", "-s", "TYPE", part); out == "swap" {
 		return nil
 	}
@@ -414,8 +442,8 @@ func (e *executor) createSwap(act map[string]any) error {
 func (e *executor) mount(act map[string]any) error {
 	part, point := field(act, "partition"), field(act, "point")
 	target := filepath.Join(e.s.chroot, point)
-	if src, ok := mountedTargetAt(target); ok {
-		fmt.Printf("%s already mounted at %s (%s)\n", src, target, src)
+	if _, ok := mountedTargetAt(target, liveMounts()); ok {
+		fmt.Printf("mount %s: already mounted, skipping\n", target)
 		return nil
 	}
 	if err := os.MkdirAll(target, 0o755); err != nil {
