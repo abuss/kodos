@@ -198,10 +198,10 @@
   - `apply(arg string, dryRun bool) error`: resolve → `runLuaScript("generate.lua", {"--inplace", configfiles…}, <config dir>)` (config dir on the module path via Task 2's `searchDir`, spec §1) → actions JSON → parse the `configure_repos` op (mirror/branches/repos) → `fetchIndexes` → `runLuaScript("lockfile.lua", {nextGenIdx, indexes…, "--", configfiles…}, <config dir>)` → generation-N.json → copy both into `<chroot>/kod/actions/` (0600 dir) → `cmdExec(-actions … -metadata … -root / -secrets <configdir>/secrets.json if it exists)`. `--dry-run` stops after printing generate+lock outputs + plan.
 - Produces: next generation number = `maxExistingGenDir(chroot)+1` (never reuses numbers; rollback reactivation of old gens does NOT bump).
 
-- [ ] **Step 1:** Failing `apply_test.go`: resolveConfig 4 cases (dir-with-config.lua / single .lua / default path absent error / nonexistent path error text) — Review Focus 2.
-- [ ] **Step 2:** Implement resolveConfig; failing `fetchIndexes` test against an `httptest` server (200 + 404: 404 error names the URL; no partial files left behind); implement.
-- [ ] **Step 3:** Failing scratch-root apply E2E (chroot = scratch root, config = vm-layer variant): apply creates gen N+1 with the fixture `dummy` package added via local repo, prints plan; a SECOND apply bumps again; `--dry-run` mutates nothing (compare `ls kod/generation`).
-- [ ] **Step 4:** Commit `feat(executor): kodos apply — config → live lock → in-place exec`.
+- [x] **Step 1:** Failing `apply_test.go`: resolveConfig 4 cases (dir-with-config.lua / single .lua / default path absent error / nonexistent path error text) — Review Focus 2.
+- [x] **Step 2:** Implement resolveConfig; failing `fetchIndexes` test against an `httptest` server (200 + 404: 404 error names the URL; no partial files left behind); implement.
+- [x] **Step 3:** Failing scratch-root apply E2E (chroot = scratch root, config = vm-layer variant): apply creates gen N+1 with the fixture `dummy` package added via local repo, prints plan; a SECOND apply bumps again; `--dry-run` mutates nothing (compare `ls kod/generation`).
+- [x] **Step 4:** Commit `feat(executor): kodos apply — config → live lock → in-place exec`.
 
 ### Task 12: `kodos status` and `kodos rollback [N]`
 
