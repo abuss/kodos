@@ -39,6 +39,9 @@ func runOut(name string, args ...string) (string, error) {
 
 // parseMounts parses /proc/mounts text and returns mountpoint→device map.
 // Handles octal-escaped spaces (\040) in fields.
+// Non-/dev/ sources (proc, sysfs, tmpfs, bind mounts from real paths) are
+// kept: extra refusals are always safe; a false refusal is better than a
+// missed one. Only non-"/" prefixed sources are skipped (e.g. "none").
 func parseMounts(text string) map[string]string {
 	m := map[string]string{}
 	for _, line := range strings.Split(text, "\n") {
@@ -53,6 +56,9 @@ func parseMounts(text string) map[string]string {
 
 // isMounted returns true if device itself or any partition of it (the whole
 // disk case: /dev/nbd0 → /dev/nbd0p2, /dev/sda3) appears as a mounted device.
+// ponytail: path-based matching only; dm/LVM targets show as /dev/dm-N and
+// are not resolved to their underlying disks. Upgrade: compare st_dev of the
+// device node against mounted devices' st_dev if dm/LVM support is needed.
 func isMounted(device string, mounts map[string]string) bool {
 	for _, dev := range mounts {
 		if dev == device {
@@ -83,9 +89,12 @@ func isMounted(device string, mounts map[string]string) bool {
 	return false
 }
 
-func liveMounts() map[string]string {
-	b, _ := os.ReadFile("/proc/mounts")
-	return parseMounts(string(b))
+func liveMounts() (map[string]string, error) {
+	b, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return nil, err
+	}
+	return parseMounts(string(b)), nil
 }
 
 // mountedAt / diskBusy read /proc/mounts: the executor must never carve up
@@ -296,7 +305,11 @@ func (e *executor) partitionDisk(act map[string]any) error {
 	if !strings.HasPrefix(device, "/dev/") {
 		return fmt.Errorf("partition_disk: %q is not a device path", device)
 	}
-	if diskBusy(device, liveMounts()) {
+	mounts, err := liveMounts()
+	if err != nil {
+		return fmt.Errorf("cannot read /proc/mounts, refusing to partition disk %s: %w", device, err)
+	}
+	if diskBusy(device, mounts) {
 		return fmt.Errorf("refusing to partition mounted disk %s", device)
 	}
 	if out, err := runOut("sfdisk", "-d", device); err == nil && strings.Contains(out, "label:") {
@@ -366,7 +379,10 @@ func (e *executor) partitionDisk(act map[string]any) error {
 
 func (e *executor) formatPartition(act map[string]any) error {
 	part := field(act, "partition")
-	mounts := liveMounts()
+	mounts, err := liveMounts()
+	if err != nil {
+		return fmt.Errorf("cannot read /proc/mounts, refusing to format %s: %w", part, err)
+	}
 	if isMounted(part, mounts) {
 		return fmt.Errorf("refusing to format mounted target %s", part)
 	}
@@ -429,7 +445,10 @@ func repairFS(fstype, part string) error {
 
 func (e *executor) createSwap(act map[string]any) error {
 	part := field(act, "partition")
-	mounts := liveMounts()
+	mounts, err := liveMounts()
+	if err != nil {
+		return fmt.Errorf("cannot read /proc/mounts, refusing to create swap %s: %w", part, err)
+	}
 	if isMounted(part, mounts) {
 		return fmt.Errorf("refusing to format mounted target %s (swap)", part)
 	}
@@ -442,7 +461,11 @@ func (e *executor) createSwap(act map[string]any) error {
 func (e *executor) mount(act map[string]any) error {
 	part, point := field(act, "partition"), field(act, "point")
 	target := filepath.Join(e.s.chroot, point)
-	if _, ok := mountedTargetAt(target, liveMounts()); ok {
+	mounts, err := liveMounts()
+	if err != nil {
+		return fmt.Errorf("cannot read /proc/mounts, refusing to mount %s: %w", target, err)
+	}
+	if _, ok := mountedTargetAt(target, mounts); ok {
 		fmt.Printf("mount %s: already mounted, skipping\n", target)
 		return nil
 	}

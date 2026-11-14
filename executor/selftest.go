@@ -247,10 +247,10 @@ func selftestPure() {
 		"hardlink keeps setuid+inode, got %v", hst.Mode())
 
 	// diskBusy must refuse host-active disks (the config carries real names)
-	if busy := diskBusy("/dev/"+hostRootDisk(), liveMounts()); busy {
-		// expected on any normal machine
-	} else {
-		check(false, "diskBusy failed to flag the host root disk")
+	if lm, err := liveMounts(); err == nil {
+		if busy := diskBusy("/dev/"+hostRootDisk(), lm); !busy {
+			check(false, "diskBusy failed to flag the host root disk")
+		}
 	}
 	check(kodosUUIDRe.MatchString(connUUID("wired")) &&
 		connUUID("wired") == connUUID("wired") && connUUID("wired") != connUUID("home"),
