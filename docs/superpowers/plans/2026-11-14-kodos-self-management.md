@@ -143,10 +143,10 @@
 **Interfaces:**
 - Produces: `configure_repos` action gains optional `repos` list; `e.branches` pattern extended by `e.localRepos []string` for `-X`.
 
-- [ ] **Step 1:** Failing validate + generate assertions for a local repo entry; implement; suites green.
-- [ ] **Step 2:** `build/mkrepo.sh`: stage dummy pkg tree (`.PKGINFO` minimal valid), `tar czf`, `apk index` → `vm/repo/{dummy-1.0-r0.apk,APKINDEX.tar.gz}`. Commit the SCRIPT; gitignore the artifacts.
-- [ ] **Step 3:** Scratch E2E: actions with the local repos entry + installing `dummy` succeeds via `-X file://$PWD/vm/repo` (store dir gets `dummy/1.0-r0`). Lockfile path: `lua lockfile.lua … vm/repo/APKINDEX.tar.gz` as index arg already works — assert `dummy` locks.
-- [ ] **Step 4:** Commit `feat: local file:// apk repos in config schema, repos.d, solver, lock`.
+- [x] **Step 1:** Failing validate + generate assertions for a local repo entry; implement; suites green.
+- [x] **Step 2:** `build/mkrepo.sh`: stage dummy pkg tree (`.PKGINFO` minimal valid), `tar czf`, `apk index` → `vm/repo/{dummy-1.0-r0.apk,APKINDEX.tar.gz}`. Commit the SCRIPT; gitignore the artifacts.
+- [x] **Step 3:** Scratch E2E: actions with the local repos entry + installing `dummy` succeeds via `-X file://$PWD/vm/repo` (store dir gets `dummy/1.0-r0`). Lockfile path: `lua lockfile.lua … vm/repo/APKINDEX.tar.gz` as index arg already works — assert `dummy` locks.
+- [x] **Step 4:** Commit `feat: local file:// apk repos in config schema, repos.d, solver, lock`.
 
 ### Task 8: `copy_tree` IR op
 
