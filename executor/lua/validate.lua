@@ -161,7 +161,7 @@ M.schema = {
         } } } } },
 
         generations = { record = {
-            storage = "string", root = "string", keep = "number",
+            storage = "string", root = "string", keep = { optional = "number" },
         } },
 
         system = { record = {
@@ -227,6 +227,12 @@ function M.validate(conf)
         end
     end
     walk_tagged(conf.packages or {}, "$.packages")
+    -- generations.keep must be >= 1 if present
+    if conf.generations and type(conf.generations.keep) == "number" then
+        if conf.generations.keep < 1 then
+            errs[#errs + 1] = "$.generations.keep: must be >= 1 (got " .. conf.generations.keep .. ")"
+        end
+    end
     for uname, u in pairs(conf.users or {}) do
         walk_tagged((u.environment or {}).packages or {}, "$.users." .. uname .. ".environment.packages")
         for sname, s in pairs((u.environment or {}).services or {}) do

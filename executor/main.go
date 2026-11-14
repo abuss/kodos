@@ -602,6 +602,12 @@ func (e *executor) configureNetwork(act map[string]any) error {
 }
 
 func (e *executor) createGeneration(act map[string]any) error {
+	// Extract generations_keep from action (default 5)
+	generationsKeep := 5
+	if k, ok := act["generations_keep"].(float64); ok {
+		generationsKeep = int(k)
+	}
+	
 	// Live /etc edits made after the last activation (shadow's
 	// groupadd/useradd rename the managed file away) must be captured into
 	// the current store before it is seeded forward into the new generation.
@@ -645,6 +651,12 @@ func (e *executor) createGeneration(act map[string]any) error {
 	if err := e.writeGenerationManifest(genDir); err != nil {
 		return err
 	}
+	
+	// Prune old generations, preserving the current and newest `keep` gens
+	if err := e.s.pruneGenerations(generationsKeep, idx); err != nil {
+		return err
+	}
+	
 	fmt.Printf("generation %d created (%d packages)\n", idx, len(toInstall))
 	return nil
 }

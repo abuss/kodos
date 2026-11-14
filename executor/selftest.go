@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -161,7 +162,108 @@ func selftest() {
 	check(readOr(s.chrootResolve(filepath.Join(chroot, "bin", "a"))) == "A1\n", "bin back at gen0")
 
 	fmt.Println("PASS: executor selftest (create/activate/seed/switch/prune/rollback)")
+	selftestPruneLogic()
 	selftestPure()
+}
+
+// prunePlan returns the list of generation numbers that should SURVIVE,
+// given the cap and current. Sorted descending, current is always included
+// (never pruned), and at most `keep` newest gens survive (excluding current).
+func prunePlan(gens []int, keep int, current int) []int {
+	if keep < 1 {
+		keep = 1
+	}
+	if len(gens) == 0 {
+		return []int{}
+	}
+	// Filter out current, sort desc
+	var withoutCurrent []int
+	for _, g := range gens {
+		if g != current {
+			withoutCurrent = append(withoutCurrent, g)
+		}
+	}
+	slices.SortFunc(withoutCurrent, func(a, b int) int { return b - a })
+	
+	// Keep the top `keep` and always add current
+	var survivors []int
+	for i := 0; i < len(withoutCurrent) && i < keep; i++ {
+		survivors = append(survivors, withoutCurrent[i])
+	}
+	survivors = append(survivors, current)
+	slices.SortFunc(survivors, func(a, b int) int { return b - a })
+	return survivors
+}
+
+func selftestPruneLogic() {
+	type testCase struct {
+		gens     []int
+		keep     int
+		current  int
+		expected []int
+	}
+	cases := []testCase{
+		// cap 2, gens 0..4, current=0 → survivors {0,4,3}
+		{[]int{0, 1, 2, 3, 4}, 2, 0, []int{4, 3, 0}},
+		// cap 2, gens 0..4, current=2 → survivors {2,4,3}
+		{[]int{0, 1, 2, 3, 4}, 2, 2, []int{4, 3, 2}},
+		// cap 5, gens 0..1 → {1,0}
+		{[]int{0, 1}, 5, 1, []int{1, 0}},
+		// cap 1, gens 0..2, current=0 → {0,2}
+		{[]int{0, 1, 2}, 1, 0, []int{2, 0}},
+		// current outside cap: cap 1, gens 0..2, current=0 (already tested)
+		// keep >= len: cap 10, gens 0..2, current=1 → all
+		{[]int{0, 1, 2}, 10, 1, []int{2, 1, 0}},
+		// single gen, current=0 → {0}
+		{[]int{0}, 5, 0, []int{0}},
+	}
+	for i, tc := range cases {
+		got := prunePlan(tc.gens, tc.keep, tc.current)
+		// check length and values match
+		if len(got) != len(tc.expected) {
+			fmt.Printf("SELFTEST FAIL: prunePlan case %d length mismatch: expected %v, got %v\n",
+				i, tc.expected, got)
+			os.Exit(1)
+		}
+		for j, v := range tc.expected {
+			if got[j] != v {
+				fmt.Printf("SELFTEST FAIL: prunePlan case %d value mismatch at [%d]: expected %v, got %v\n",
+					i, j, tc.expected, got)
+				os.Exit(1)
+			}
+		}
+	}
+	
+	// fs-backed test: create multiple generations, prune, verify dirs removed
+	chroot, err := os.MkdirTemp("", "kodos-prune-fs-")
+	check(err == nil, "tempdir for prune fs test: %v", err)
+	defer os.RemoveAll(chroot)
+	s := &system{chroot: chroot}
+	
+	// Create fake generations 0, 1, 2, 3, 4
+	for i := 0; i <= 4; i++ {
+		genDir := s.genDir(i)
+		check(os.MkdirAll(genDir, 0o755) == nil, "mkdir gen %d", i)
+		check(os.WriteFile(filepath.Join(genDir, "marker"), []byte(fmt.Sprintf("gen%d", i)), 0o644) == nil,
+			"write marker gen %d", i)
+	}
+	
+	// Prune with keep=2, current=0 → should keep 0,4,3 and delete 1,2
+	err = s.pruneGenerations(2, 0)
+	check(err == nil, "pruneGenerations: %v", err)
+	
+	// Verify survivors exist and pruned are gone
+	survivors := []int{0, 3, 4}
+	deleted := []int{1, 2}
+	for _, g := range survivors {
+		check(lexists(s.genDir(g)), "gen %d should survive", g)
+	}
+	for _, g := range deleted {
+		check(!lexists(s.genDir(g)), "gen %d should be pruned", g)
+	}
+	
+	fmt.Println("PASS: prunePlan table-driven tests")
+	fmt.Println("PASS: pruneGenerations fs-backed (keep=2, current=0, deleted 1..2)")
 }
 
 func selftestPure() {

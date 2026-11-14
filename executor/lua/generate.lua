@@ -244,7 +244,7 @@ if #nets > 0 then act("configure_network", { connections = nets }) end
 -- busybox + init.d scripts only exist once the generation is activated,
 -- so this must precede them) ======
 act("create_generation", { packages = all, root = conf.generations.root,
-                           keep = conf.generations.keep })
+                           generations_keep = conf.generations.keep or 5 })
 act("activate_generation", { root = conf.generations.root })
 
 -- users (dict keyed by username; emit sorted for determinism)

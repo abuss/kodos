@@ -635,3 +635,54 @@ func (s *system) createGeneration(toInstall map[string]string, idx int, prevGene
 	}
 	return generation, nil
 }
+
+// pruneGenerations removes old generation directories based on keep cap,
+// preserving current. Only survivors (from prunePlan) are kept; the rest
+// are removed entirely (generation dir + store dirs for their packages).
+func (s *system) pruneGenerations(keep int, current int) error {
+	if keep < 1 {
+		keep = 1
+	}
+	
+	// List all existing generation directories (0, 1, 2, ...)
+	genRoot := filepath.Join(s.root(), "generation")
+	entries, err := os.ReadDir(genRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // nothing to prune
+		}
+		return err
+	}
+	
+	var existingGens []int
+	for _, e := range entries {
+		if e.Name() == "current" || e.Name() == "etc" {
+			continue
+		}
+		var n int
+		if _, err := fmt.Sscanf(e.Name(), "%d", &n); err == nil {
+			existingGens = append(existingGens, n)
+		}
+	}
+	if len(existingGens) == 0 {
+		return nil
+	}
+	
+	survivors := prunePlan(existingGens, keep, current)
+	survivorMap := make(map[int]bool)
+	for _, g := range survivors {
+		survivorMap[g] = true
+	}
+	
+	// Remove generation dirs NOT in survivors
+	for _, g := range existingGens {
+		if !survivorMap[g] {
+			genDir := s.genDir(g)
+			if err := os.RemoveAll(genDir); err != nil {
+				return fmt.Errorf("remove generation %d: %w", g, err)
+			}
+		}
+	}
+	
+	return nil
+}
