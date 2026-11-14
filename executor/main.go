@@ -46,6 +46,9 @@ type executor struct {
 	lastGen       map[string]string // pkg->version of the last create_generation
 	apk           string            // apk binary for dependency closure resolution
 	resolved      map[string]string // pkg->version full closure from apk simulate
+
+	declaredRunlevels map[string]bool // "runlevel/unit" this stream's enable_service set
+	hookRunlevels     map[string]bool // "runlevel/unit" package hooks enabled this run
 }
 
 func main() {
@@ -97,6 +100,10 @@ func main() {
 			e.umountChroot() // leave no half-mounted pseudo-fs behind
 			fatal(err)
 		}
+	}
+	if err := e.reconcileRunlevels(); err != nil {
+		e.umountChroot()
+		fatal(err)
 	}
 	e.umountChroot()
 }

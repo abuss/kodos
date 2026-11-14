@@ -161,11 +161,19 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   `rc-update del bluetooth default` in-guest, or let it crash harmlessly
   until the next fresh. (3rd bite of the runlevel-litter gap -> do the
   declarative-runlevel reconciliation next.)
-- **Runlevel litter**: `enable_service` never removes stale entries from
-  earlier rounds (guest boot still had `mdev@boot` after the backend
-  switched to udev). Declarative fix: reconcile runlevel dirs against
-  the enable-set (or manage runlevels as etc like everything else).
-  Until then: fresh disk when service sets flip.
+- **Runlevel litter** — FIXED (2026-11-14): the executor now makes
+  OpenRC runlevels declarative. It records every (runlevel,unit) its
+  enable_service actions declare, snapshots live runlevels around the
+  package-hook sweep to also protect hook-enabled units (dbus etc. —
+  hooks re-run every activation, so protection re-arms every round),
+  and after a fully successful stream removes any runlevel symlink in
+  neither set ("runlevel reconcile: removed stale <rl>/<unit>").
+  Partial (failed) streams never sweep. Boundary: runlevels are
+  kodos-owned declarative state — an admin's manual rc-update add is
+  removed by the next apply; declare it in config instead. Proven in
+  scratch: flipping bluetooth off removes only default/bluetooth;
+  rerun is a no-op. Selftest covers keep-declared/keep-hooked/
+  sweep-stale/no-service-stream-hands-off.
 - **check-packages.lua fails pre-existing** (assert at line 19, unrelated
   to config changes; investigate when package-set work resumes).
 

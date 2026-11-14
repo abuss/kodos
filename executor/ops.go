@@ -588,6 +588,7 @@ func (e *executor) runPostInstalls(toInstall map[string]string) error {
 	if i := slices.Index(names, "busybox"); i > 0 { // provides /bin/sh for the rest
 		names = append([]string{"busybox"}, append(names[:i:i], names[i+1:]...)...)
 	}
+	before := e.snapshotRunlevels() // hooks may rc-update add: protect those entries
 	for _, p := range names {
 		// apk runs .pre-install before a package's files land and
 		// .post-install after; Alpine's pre-install hooks only need
@@ -611,6 +612,15 @@ func (e *executor) runPostInstalls(toInstall map[string]string) error {
 					return fmt.Errorf("%s %s: %w", kind[1:], p, err)
 				}
 			}
+		}
+	}
+	hooked := e.snapshotRunlevels()
+	if e.hookRunlevels == nil {
+		e.hookRunlevels = map[string]bool{}
+	}
+	for k := range hooked {
+		if !before[k] {
+			e.hookRunlevels[k] = true
 		}
 	}
 	// Post-install hooks (busybox addgroup, openrc, pam...) and machine ops
@@ -883,6 +893,74 @@ func (e *executor) enableService(act map[string]any) error {
 	out, err := e.chrootShOut(fmt.Sprintf("rc-update add %s %s", shellQuote(unit), shellQuote(runlevel)))
 	if err != nil && !strings.Contains(out, "already been added") {
 		return fmt.Errorf("enable_service %s: %w", field(act, "name"), err)
+	}
+	if e.declaredRunlevels == nil {
+		e.declaredRunlevels = map[string]bool{}
+	}
+	e.declaredRunlevels[runlevel+"/"+unit] = true
+	return nil
+}
+
+// snapshotRunlevels indexes live /etc/runlevels entries as "runlevel/unit".
+func (e *executor) snapshotRunlevels() map[string]bool {
+	set := map[string]bool{}
+	roots, err := os.ReadDir(filepath.Join(e.s.chroot, "etc/runlevels"))
+	if err != nil {
+		return set
+	}
+	for _, rl := range roots {
+		if !rl.IsDir() {
+			continue
+		}
+		units, err := os.ReadDir(filepath.Join(e.s.chroot, "etc/runlevels", rl.Name()))
+		if err != nil {
+			continue
+		}
+		for _, u := range units {
+			set[rl.Name()+"/"+u.Name()] = true
+		}
+	}
+	return set
+}
+
+// reconcileRunlevels makes runlevels declarative: after the whole stream
+// ran, any live runlevel symlink NOT declared by this stream's
+// enable_service actions and NOT added by this run's package hooks is a
+// stale leftover of an older plan (the mdev@boot that outlived its
+// backend, the bluetooth a flipped config left behind) -> remove it.
+// Boundary: the model owns runlevels declaratively; an admin's manual
+// rc-update add is removed by the next apply (declare it in config).
+func (e *executor) reconcileRunlevels() error {
+	if len(e.declaredRunlevels) == 0 {
+		return nil // this stream does not manage services: hands off
+	}
+	rlRoot := filepath.Join(e.s.chroot, "etc/runlevels")
+	roots, err := os.ReadDir(rlRoot)
+	if err != nil {
+		return nil
+	}
+	for _, rl := range roots {
+		if !rl.IsDir() {
+			continue
+		}
+		units, err := os.ReadDir(filepath.Join(rlRoot, rl.Name()))
+		if err != nil {
+			continue
+		}
+		for _, u := range units {
+			key := rl.Name() + "/" + u.Name()
+			if e.declaredRunlevels[key] || e.hookRunlevels[key] {
+				continue
+			}
+			p := filepath.Join(rlRoot, rl.Name(), u.Name())
+			if _, err := os.Readlink(p); err != nil {
+				continue // only rc-update's symlinks are ours to sweep
+			}
+			if err := os.Remove(p); err != nil {
+				return fmt.Errorf("reconcile runlevels %s: %w", key, err)
+			}
+			fmt.Printf("runlevel reconcile: removed stale %s\n", key)
+		}
 	}
 	return nil
 }

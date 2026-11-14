@@ -203,7 +203,33 @@ func selftestPure() {
 	check(kodosUUIDRe.MatchString(connUUID("wired")) &&
 		connUUID("wired") == connUUID("wired") && connUUID("wired") != connUUID("home"),
 		"connUUID must be valid, deterministic per name, distinct, got %q", connUUID("wired"))
-	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard/keyfile-uuid)")
+
+	// runlevel reconciliation: sweep stale enables; protect declared and
+	// hook-added entries; streams without services touch nothing.
+	{
+		dir, err := os.MkdirTemp("", "kodos-rl")
+		check(err == nil, "mkdtemp: %v", err)
+		for _, k := range []string{"boot/keep", "boot/gone", "sysinit/hooked"} {
+			p := filepath.Join(dir, "etc/runlevels", k)
+			check(os.MkdirAll(filepath.Dir(p), 0o755) == nil, "mkdir %s", p)
+			check(os.Symlink("../init.d/"+filepath.Base(k), p) == nil, "symlink %s", p)
+		}
+		re := &executor{s: &system{chroot: dir},
+			declaredRunlevels: map[string]bool{"boot/keep": true},
+			hookRunlevels:     map[string]bool{"sysinit/hooked": true}}
+		check(re.reconcileRunlevels() == nil, "reconcile returned error")
+		_, e1 := os.Lstat(filepath.Join(dir, "etc/runlevels/boot/keep"))
+		_, e2 := os.Lstat(filepath.Join(dir, "etc/runlevels/sysinit/hooked"))
+		_, e3 := os.Lstat(filepath.Join(dir, "etc/runlevels/boot/gone"))
+		check(e1 == nil && e2 == nil && os.IsNotExist(e3),
+			"reconcile must keep declared+hooked, sweep stale: %v %v %v", e1, e2, e3)
+		re2 := &executor{s: &system{chroot: dir}} // no enables in stream: hands off
+		check(re2.reconcileRunlevels() == nil, "reconcile no-op returned error")
+		_, e4 := os.Lstat(filepath.Join(dir, "etc/runlevels/sysinit/hooked"))
+		check(e4 == nil, "no-service stream swept an entry it must not touch")
+		os.RemoveAll(dir)
+	}
+	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard/keyfile-uuid/runlevels)")
 }
 
 // hostRootDisk: device of the host's / partition, e.g. /dev/nvme0n1p2 -> nvme0n1
