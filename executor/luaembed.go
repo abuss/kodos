@@ -59,7 +59,8 @@ func runLuaScript(name string, args []string, searchDir string) (string, error) 
 		return "", err
 	}
 	if err := os.Chdir(luaDir); err != nil {
-		// If lua/ dir doesn't exist next to binary, try cwd (dev mode).
+		// Intentional fallback: if lua/ isn't next to the binary (e.g. go run),
+		// keep cwd and let on-disk relative paths resolve from there.
 		_ = err
 	} else {
 		defer os.Chdir(origDir)
@@ -84,7 +85,7 @@ func runLuaScript(name string, args []string, searchDir string) (string, error) 
 			for i := 1; i <= L.GetTop(); i++ {
 				v := L.Get(i)
 				if _, ok := v.(*lua.LUserData); ok {
-					continue // skip file handle args (io.write(io.stdout, ...))
+					continue // inline-case only: f:write(...) passes file handle as arg[1]; drop it
 				}
 				buf.WriteString(L.ToStringMeta(v).String())
 			}

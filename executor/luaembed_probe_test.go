@@ -7,8 +7,8 @@ import (
 )
 
 // Probe gopher-lua for io.popen and os.execute presence.
-// Result: gopher-lua does NOT provide io.popen or os.execute out of the box —
-// we need shims for both.
+// Result: both are registered natively by gopher-lua's base libraries —
+// no shims are needed. This test asserts the contract we rely on.
 func TestGopherLuaProbe(t *testing.T) {
 	L := lua.NewState()
 	defer L.Close()
