@@ -134,6 +134,21 @@ assert(not fp:sub(1, pos(fp, '"op": "install_packages"')):find("gimp", 1, true),
        "app ids must never enter the distro install set")
 os.remove("_scratch_flatpak.lua")
 
+-- ====== local repositories: configure_repos gains repos list ======
+local f_lr = assert(io.open("_scratch_localrepo.lua", "w"))
+f_lr:write([[
+return { repositories = { mylocal = { url = "file:///var/kodos/repo" } } }
+]])
+f_lr:close()
+local lr = run("system.lua _scratch_localrepo.lua")
+assert(lr:find('"repos"', 1, true), "configure_repos must carry repos list when repositories present")
+assert(lr:find('"name": "mylocal"', 1, true), "repo name must appear in repos list")
+assert(lr:find('"url": "file:///var/kodos/repo"', 1, true), "repo url must appear in repos list")
+os.remove("_scratch_localrepo.lua")
+
+-- without repositories section: repos field absent (byte-identity)
+assert(not base:find('"repos"', 1, true), "configure_repos must NOT carry repos field when no repositories")
+
 -- flatpak ids without repos.flatpak: hard error, same strictness rule
 local f3 = assert(io.open("_scratch_flatpak2.lua", "w"))
 f3:write('return { packages = { { repo = "flatpak", name = "org.gimp.GIMP" } } }')

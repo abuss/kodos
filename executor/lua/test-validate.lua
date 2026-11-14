@@ -106,4 +106,21 @@ return { services = { audio = { packages = { { repo = "base", name = "htop" } } 
 local ok, why = has("NO-SUBSTR")
 assert(ok == false, "should have no errors, got: " .. tostring(why))
 
-print("PASS: schema validation (clean configs + 14 seeded errors caught)")
+-- 6. repositories: valid file:// entry passes; wrong type / unknown key caught
+has = scratch_layer("_scratch_v6.lua", [[
+return { repositories = { mylocal = { url = "file:///var/kodos/repo" } } }
+]])
+local ok6, why6 = has("NO-SUBSTR")
+assert(ok6 == false, "repositories with valid file:// url must pass, got: " .. tostring(why6))
+
+has = scratch_layer("_scratch_v7.lua", [[
+return { repositories = { mylocal = { url = 42 } } }
+]])
+assert(has("$.repositories.mylocal.url: expected string"), "repositories url non-string not caught")
+
+has = scratch_layer("_scratch_v8.lua", [[
+return { repositories = { mylocal = { url = "file:///x", extra = "bad" } } }
+]])
+assert(has("$.repositories.mylocal.extra: unknown key"), "repositories unknown key not caught")
+
+print("PASS: schema validation (clean configs + 17 seeded errors caught)")

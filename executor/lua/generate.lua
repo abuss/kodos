@@ -36,11 +36,24 @@ local function act(op, f)
 end
 
 -- ====== 1. repos ======
-act("configure_repos", {
+local configure_repos_act = {
     type = conf.repos.base.type,
     mirror = conf.repos.base.mirror,
     branches = conf.repos.base.branches,
-})
+}
+if conf.repositories then
+    local rnames = {}
+    for n in pairs(conf.repositories) do rnames[#rnames + 1] = n end
+    table.sort(rnames)
+    if #rnames > 0 then
+        local repos_list = {}
+        for _, n in ipairs(rnames) do
+            repos_list[#repos_list + 1] = { name = n, url = conf.repositories[n].url }
+        end
+        configure_repos_act.repos = repos_list
+    end
+end
+act("configure_repos", configure_repos_act)
 
 -- ====== 2-5. storage: partition, format, swap, mount ======
 local dnames = {}

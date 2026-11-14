@@ -40,6 +40,7 @@ type executor struct {
 	arch     string
 	mirror   string // captured from configure_repos (#1 always precedes #7)
 	branches []string
+	localRepos []struct{ name, url string } // file:// repos from configure_repos
 
 	rootPart      string            // captured from mount / (bootloader needs UUID)
 	chrootMounted bool              // pseudo-fs mounted once
@@ -265,7 +266,24 @@ func (e *executor) configureRepos(act map[string]any) error {
 	for _, br := range e.branches {
 		b.WriteString(e.mirror + "/" + br + "\n")
 	}
-	return e.writeFileTo("/etc/apk/repositories", b.String(), 0o644)
+	if err := e.writeFileTo("/etc/apk/repositories", b.String(), 0o644); err != nil {
+		return err
+	}
+	// write per-name .list files for local file:// repos
+	e.localRepos = nil
+	repos, _ := act["repos"].([]any)
+	for _, r := range repos {
+		m, _ := r.(map[string]any)
+		name, url := field(m, "name"), field(m, "url")
+		if name == "" || url == "" {
+			continue
+		}
+		e.localRepos = append(e.localRepos, struct{ name, url string }{name, url})
+		if err := e.writeFileTo("/etc/apk/repositories.d/"+name+".list", url+"\n", 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *executor) writeFile(act map[string]any) error {
@@ -361,6 +379,9 @@ func (e *executor) apkSimulate(addArgs []string) (map[string]string, error) {
 	for _, b := range e.branches {
 		args = append(args, "-X", e.mirror+"/"+b)
 	}
+	for _, lr := range e.localRepos {
+		args = append(args, "-X", lr.url)
+	}
 	args = append(args, "add", "--simulate")
 	args = append(args, addArgs...)
 	out, err := runOut(e.apk, args...)
@@ -388,19 +409,32 @@ func (e *executor) fetchUnpack(name, version string) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	var body io.ReadCloser
 	var lastErr error
-	for _, br := range e.branches {
-		url := fmt.Sprintf("%s/%s/%s/%s-%s.apk", e.mirror, br, e.arch, name, version)
-		resp, err := client.Get(url)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if resp.StatusCode == 200 {
-			body = resp.Body
+	// try local file:// repos first
+	for _, lr := range e.localRepos {
+		apkPath := strings.TrimPrefix(lr.url, "file://") +
+			"/" + e.arch + "/" + name + "-" + version + ".apk"
+		f, err := os.Open(apkPath)
+		if err == nil {
+			body = f
 			break
 		}
-		resp.Body.Close()
-		lastErr = fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
+		lastErr = err
+	}
+	if body == nil {
+		for _, br := range e.branches {
+			url := fmt.Sprintf("%s/%s/%s/%s-%s.apk", e.mirror, br, e.arch, name, version)
+			resp, err := client.Get(url)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			if resp.StatusCode == 200 {
+				body = resp.Body
+				break
+			}
+			resp.Body.Close()
+			lastErr = fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
+		}
 	}
 	if body == nil {
 		return fmt.Errorf("fetch %s-%s: %w", name, version, lastErr)

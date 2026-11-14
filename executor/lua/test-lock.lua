@@ -88,4 +88,23 @@ os.remove("_scratch_lock.lua")
 assert(not bad, "missing package must abort the lock")
 assert(err:find("pkg-that-does-not-exist-xyz not found in indexes", 1, true))
 
+-- ====== local repo: dummy from vm/repo/x86_64/APKINDEX.tar.gz locks ======
+local vmrepo = "../../vm/repo/x86_64/APKINDEX.tar.gz"
+local rf = io.open(vmrepo)
+if rf then
+    rf:close()
+    local f_dummy = assert(io.open("_scratch_dummy.lua", "w"))
+    f_dummy:write('return { packages = { { repo = "base", name = "dummy" } } }')
+    f_dummy:close()
+    local dout, dok = run("0 " .. vmrepo .. " " .. IDX[1] .. " " .. IDX[2]
+                          .. " -- system.lua _scratch_dummy.lua")
+    os.remove("_scratch_dummy.lua")
+    assert(dok, "dummy lock failed:\n" .. dout)
+    assert(dout:find('"dummy": {', 1, true), "dummy not in lock output")
+    assert(dout:find('"version": "1.0-r0"', 1, true), "dummy version not 1.0-r0")
+    print("PASS: local repo lock (dummy 1.0-r0 pinned from vm/repo)")
+else
+    print("SKIP: vm/repo/x86_64/APKINDEX.tar.gz missing (run build/mkrepo.sh first)")
+end
+
 print("PASS: version lock (" .. n .. " pkgs pinned, deterministic, strict)")

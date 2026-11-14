@@ -132,6 +132,9 @@ M.schema = {
             } } },
         } },
 
+        -- optional local file:// repos; keyed by repo name, each entry {url=...}
+        repositories = { optional = { dict_of = { record = { url = "string" } } } },
+
         boot = { record = {
             bootloader = { record = {
                 type = "string", efi = "bool", timeout = "number",
