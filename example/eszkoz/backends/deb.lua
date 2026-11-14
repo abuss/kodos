@@ -70,8 +70,8 @@ M.services = {
         packages = { "network-manager" },
         service_name = "NetworkManager",
     },
-    -- systemd-udevd coldplugs =m modules unconditionally: nothing to do.
-    mdev = { service_name = false },
+    -- systemd-udevd coldplugs + tags links unconditionally: nothing to do.
+    udev = { service_name = false },
     -- journald is part of systemd and always logging: nothing to do.
     syslog = { service_name = false },
     ssh = {

@@ -99,6 +99,15 @@ if conf.system.serial_console then
     act("write_file", { path = "/etc/inittab", content = backend.inittab })
 end
 
+-- sudoers: Alpine's sudo ships the %wheel rule COMMENTED OUT (upstream
+-- default) and an empty sudoers.d; enabling it is the admin's job on a
+-- vanilla box. Our user model already uses wheel membership as admin,
+-- so declare the policy as a managed drop-in (sudoers.d is @includedir
+--ed by the stock sudoers).
+act("write_file", { path = "/etc/sudoers.d/60-kodos-admin",
+                    content = "# kodos: wheel members are administrators\n" ..
+                              "%wheel ALL=(ALL:ALL) ALL\n" })
+
 -- ====== 7. packages: one deduped install set, sorted for determinism ======
 -- (versions come from the lockfile / generation-N.json, see lockfile.lua;
 -- the executor installs EXACTLY those versions of these names)

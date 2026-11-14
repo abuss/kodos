@@ -201,7 +201,11 @@ func (e *executor) writeFile(act map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("write_file %s: %w", path, err)
 	}
-	return e.writeFileTo(path, content, 0o644)
+	mode := os.FileMode(0o644)
+	if path == "/etc/sudoers" || strings.HasPrefix(path, "/etc/sudoers.d/") {
+		mode = 0o440 // sudo silently ignores sudoers files it deems too open
+	}
+	return e.writeFileTo(path, content, mode)
 }
 
 func (e *executor) writeFileTo(path, content string, mode os.FileMode) error {
@@ -434,7 +438,13 @@ func (e *executor) configureNetwork(act map[string]any) error {
 			name, uuid, nmType, body)
 		p := filepath.Join(e.s.chroot, "/etc/NetworkManager/system-connections", name+".nmconnection")
 		os.Remove(p) // never append onto an existing 0600 file
-		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		// parent at vanilla mode 0755 (MkdirAll would otherwise stamp 0700
+		// onto /etc/NetworkManager itself); only system-connections is
+		// 0700, because it holds keyfiles with psks.
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.Chmod(filepath.Dir(p), 0o700); err != nil {
 			return err
 		}
 		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {

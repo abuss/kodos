@@ -134,7 +134,7 @@ return {
     -- A layer disables with enable = false.
     services = {
         networkmanager = { enable = true },
-        mdev = { enable = true }, -- cold-plug of =m modules (see modules/services.lua)
+        udev = { enable = true }, -- cold-plug device manager (see modules/services.lua)
         syslog = { enable = true }, -- /var/log/messages
         ssh = {
             enable = true,

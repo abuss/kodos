@@ -114,11 +114,15 @@ M.services = {
             "networkmanager-openrc", "ethtool", "iw" },
         service_name = "networkmanager", runlevel = "boot",
     },
-    -- busybox's mdev coldplugs =m modules via modalias (installer default:
-    -- rc-update add mdev boot). boot runlevel: alphabetically BEFORE
-    -- networkmanager, so devices exist when NM starts.
-    mdev = { packages = { "busybox-mdev-openrc" },
-        service_name = "mdev", runlevel = "boot" },
+    -- Device manager. With NetworkManager this MUST be eudev, not
+    -- busybox mdev: NM >=1.48 leaves links that udev never initialized/
+    -- tagged UNMANAGED (reason 71 UNMANAGED_LINK_NOT_INIT). eudev's udev
+    -- runs at sysinit so it coldplugs + tags (ID_NET_*) every link before
+    -- NM starts at boot ("udev" sorts after "networkmanager", so sysinit
+    -- is the only ordering that wins).
+    udev = { packages = { "eudev", "eudev-libs", "eudev-openrc",
+        "eudev-hwids", "udev-init-scripts-openrc" },
+        service_name = "udev", runlevel = "sysinit" },
     -- system logging (installer default): busybox-openrc ships the
     -- syslog/klogd init scripts for busybox's applets; without it there
     -- is no /var/log/messages and daemons like NM are undebuggable.

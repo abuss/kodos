@@ -6,11 +6,12 @@ local base = require("kodos").base
 
 local services = {
     networkmanager = { enable = true },
-    -- cold-plug: load =m kernel modules (NIC/storage drivers) from
-    -- modalias uevents at boot. Alpine kernels build virtio/ext4 etc as
-    -- modules and its installer enables mdev for exactly this; without
-    -- it a VM guest has NO network device at all.
-    mdev = { enable = true },
+    -- cold-plug device manager: loads =m modules from modalias uevents
+    -- AND tags net links. NM >=1.48 refuses to manage links udev has not
+    -- initialized (reason UNMANAGED_LINK_NOT_INIT); busybox mdev never
+    -- tags, so with NM the device manager MUST be udev. Alpine maps this
+    -- to eudev's udev service at sysinit (coldplug before NM at boot).
+    udev = { enable = true },
     -- system logging to /var/log/messages: without it the box is
     -- undebuggable (Alpine enables it from its installer too).
     syslog = { enable = true },
