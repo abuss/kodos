@@ -946,6 +946,21 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("bootloader: UUID of %s: %w", e.rootPart, err)
 	}
+	// init's "Loading boot drivers" step modprobes modules=<kopt> BEFORE
+	// mounting root; nothing in the Alpine initramfs chain guarantees the
+	// root filesystem driver (e.g. ext4 is =m on linux-virt) otherwise, and
+	// the mount then fails "No such file or directory".
+	fstype, _ := runOut("blkid", "-o", "value", "-s", "TYPE", e.rootPart)
+	args := append([]string{}, e.kernelArgs...)
+	hasModules := false
+	for _, a := range args {
+		if strings.HasPrefix(a, "modules=") {
+			hasModules = true
+		}
+	}
+	if !hasModules && fstype != "" {
+		args = append(args, "modules="+fstype)
+	}
 	// kver + guard against the GENERATION's boot tree (what was just
 	// built), not <chroot>/boot: that is the ESP mount and would let a
 	// stale image from an earlier run pass the check silently.
@@ -974,7 +989,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 		timeout = int(f)
 	}
 	genIdx := e.meta.Generation
-	cfg := renderGrubCfg(timeout, uuid, kver, e.kernelArgs, genIdx)
+	cfg := renderGrubCfg(timeout, uuid, kver, args, genIdx)
 	// ESP is mounted at <chroot>/boot: grub reads its config there
 	if err := os.WriteFile(filepath.Join(e.s.chroot, "boot/grub/grub.cfg"),
 		[]byte(cfg), 0o444); err != nil {
