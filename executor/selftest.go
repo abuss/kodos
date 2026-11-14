@@ -200,7 +200,10 @@ func selftestPure() {
 	} else {
 		check(false, "diskBusy failed to flag the host root disk")
 	}
-	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard)")
+	check(kodosUUIDRe.MatchString(connUUID("wired")) &&
+		connUUID("wired") == connUUID("wired") && connUUID("wired") != connUUID("home"),
+		"connUUID must be valid, deterministic per name, distinct, got %q", connUUID("wired"))
+	fmt.Println("PASS: executor selftest (planner/grub/keys/disk-guard/keyfile-uuid)")
 }
 
 // hostRootDisk: device of the host's / partition, e.g. /dev/nvme0n1p2 -> nvme0n1

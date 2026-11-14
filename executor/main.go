@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -405,6 +406,19 @@ func unpackApkStream(body io.Reader, dst, name string) error {
 // supported families). psk travels as a secret reference; the raw value is
 // read from the 0600 secrets store here and written ONLY into the 0600
 // keyfile. uuids derive from the profile name: reruns are byte-stable.
+var kodosUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+// connUUID renders a canonical RFC-4122 v4 UUID derived from the
+// connection name: same name => same UUID across installs (keyfile
+// profiles are declarative), but spelled the way UUID parsers expect.
+func connUUID(name string) string {
+	sum := sha256.Sum256([]byte("kodos-conn/" + name))
+	sum[6] = sum[6]&0x0f | 0x40 // version 4
+	sum[8] = sum[8]&0x3f | 0x80 // variant 10xx
+	u := hex.EncodeToString(sum[:16])
+	return u[0:8] + "-" + u[8:12] + "-" + u[12:16] + "-" + u[16:20] + "-" + u[20:32]
+}
+
 func (e *executor) configureNetwork(act map[string]any) error {
 	list, _ := act["connections"].([]any)
 	for _, item := range list {
@@ -431,9 +445,13 @@ func (e *executor) configureNetwork(act map[string]any) error {
 		default:
 			return fmt.Errorf("configure_network %s: unknown type %q", name, ctype)
 		}
-		sum := sha256.Sum256([]byte("kodos-conn/" + name))
-		u := hex.EncodeToString(sum[:16])
-		uuid := fmt.Sprintf("%s-%s-4%s-%x-%s", u[0:8], u[8:12], u[13:16], (0x80|int(sum[16]))&0xbf, u[20:32])
+		// Deterministic v4 UUID from the connection name (stable profile
+		// id across installs). Hand-splicing hex once produced a 2-char
+		// 4th segment; NM silently rejects such keyfiles (see selftest).
+		uuid := connUUID(name)
+		if !kodosUUIDRe.MatchString(uuid) {
+			return fmt.Errorf("configure_network %s: internal bug, bad uuid %q", name, uuid)
+		}
 		content := fmt.Sprintf("[connection]\nid=%s\nuuid=%s\ntype=%s\n\n[ipv4]\nmethod=auto\n\n[ipv6]\nmethod=auto\n%s",
 			name, uuid, nmType, body)
 		p := filepath.Join(e.s.chroot, "/etc/NetworkManager/system-connections", name+".nmconnection")
