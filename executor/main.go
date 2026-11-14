@@ -58,7 +58,7 @@ type executor struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: kodos [exec|selftest] ...")
+		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua] ...")
 		os.Exit(2)
 	}
 
@@ -79,6 +79,16 @@ func main() {
 		}
 	case "selftest":
 		cmdSelftest()
+	case "status":
+		if err := cmdStatus(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			os.Exit(1)
+		}
+	case "rollback":
+		if err := cmdRollback(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			os.Exit(1)
+		}
 	case "suitetest":
 		if err := cmdSuitetest(); err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR:", err)
@@ -90,7 +100,7 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: kodos [exec|selftest] ...")
+		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua] ...")
 		os.Exit(2)
 	}
 }
@@ -137,8 +147,15 @@ func cmdExec(args []string) error {
 	if meta.Distro != af.Distro || meta.Generation < 0 {
 		return fmt.Errorf("actions and metadata disagree (distro/generation)")
 	}
+	// system.chroot is used ABSOLUTE everywhere: chrootResolve turns host
+	// paths chroot-relative, so a relative -root would double the prefix and
+	// every host-side read through it would miss.
+	rootAbs, err := filepath.Abs(*root)
+	if err != nil {
+		return err
+	}
 
-	e := &executor{s: &system{chroot: *root}, meta: meta, arch: *arch, apk: *apkBin, metadataFileBytes: metaBytes, actionsFileBytes: afBytes}
+	e := &executor{s: &system{chroot: rootAbs}, meta: meta, arch: *arch, apk: *apkBin, metadataFileBytes: metaBytes, actionsFileBytes: afBytes}
 	if *secrets != "" {
 		if err := loadJSON(*secrets, &e.secrets); err != nil {
 			return err

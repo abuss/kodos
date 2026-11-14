@@ -149,11 +149,43 @@ func nextGeneration(genDir string) (int, error) {
 	return max, nil
 }
 
-// parseApplyArgs splits the apply CLI: Go's flag stops at the first
-// non-flag, but the documented form puts flags AFTER the DIR|FILE arg,
-// so that arg is lifted out first. Anything left over is a stray
-// positional (or a flag that landed after it): fail closed instead of
-// silently dropping it — that hazard meant a mutating apply against /.
+// splitPositional lifts the first positional arg (DIR|FILE.lua for apply, N
+// for rollback) out of args: Go's flag parser stops at the first non-flag,
+// but the documented form puts flags AFTER that arg. It is value-aware — a
+// declared non-boolean flag consumes its value, so "rollback -root DIR" (no
+// N) is not misread as N="DIR".
+func splitPositional(fs *flag.FlagSet, args []string) (string, []string) {
+	pos := ""
+	rest := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "-") {
+			rest = append(rest, a)
+			f := fs.Lookup(strings.TrimLeft(a, "-"))
+			if f != nil && !strings.Contains(a, "=") && !isBoolValue(f.Value) && i+1 < len(args) {
+				i++
+				rest = append(rest, args[i])
+			}
+			continue
+		}
+		if pos == "" {
+			pos = a
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return pos, rest
+}
+
+func isBoolValue(v flag.Value) bool {
+	bv, ok := v.(interface{ IsBoolFlag() bool })
+	return ok && bv.IsBoolFlag()
+}
+
+// parseApplyArgs splits the apply CLI (the DIR|FILE arg is lifted by
+// splitPositional). Anything left over is a stray positional (or a flag that
+// landed after it): fail closed instead of silently dropping it — that
+// hazard meant a mutating apply against /.
 func parseApplyArgs(args []string) (arg string, dryRun bool, root, apkBin string, err error) {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -161,14 +193,7 @@ func parseApplyArgs(args []string) (arg string, dryRun bool, root, apkBin string
 	fs.BoolVar(&dryRun, "dry-run", false, "run generate+lock, print the plan, change nothing")
 	fs.StringVar(&root, "root", "/", "target root filesystem (test passthrough, mirrors exec)")
 	fs.StringVar(&apkBin, "apk", "apk", "apk binary for closure resolution (test passthrough)")
-	flagArgs := make([]string, 0, len(args))
-	for _, a := range args {
-		if arg == "" && !(len(a) > 1 && a[0] == '-') {
-			arg = a
-			continue
-		}
-		flagArgs = append(flagArgs, a)
-	}
+	arg, flagArgs := splitPositional(fs, args)
 	if err := fs.Parse(flagArgs); err != nil {
 		return "", false, "", "", err
 	}
