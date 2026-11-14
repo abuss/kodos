@@ -41,6 +41,8 @@ func resolveConfig(arg string) (string, string, error) {
 		if _, err := os.Stat(entry); err != nil {
 			return "", "", fmt.Errorf("config not found: %s", entry)
 		}
+	} else if !strings.HasSuffix(entry, ".lua") {
+		return "", "", fmt.Errorf("config file must be *.lua: %s", entry)
 	}
 	// absolute: runLuaScript chdirs to the embedded lua dir, so the entry
 	// path handed to generate.lua/lockfile.lua must not be relative
@@ -147,15 +149,18 @@ func nextGeneration(genDir string) (int, error) {
 	return max, nil
 }
 
-func cmdApply(args []string) error {
+// parseApplyArgs splits the apply CLI: Go's flag stops at the first
+// non-flag, but the documented form puts flags AFTER the DIR|FILE arg,
+// so that arg is lifted out first. Anything left over is a stray
+// positional (or a flag that landed after it): fail closed instead of
+// silently dropping it — that hazard meant a mutating apply against /.
+func parseApplyArgs(args []string) (arg string, dryRun bool, root, apkBin string, err error) {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	fs.Usage = func() { fmt.Fprintln(fs.Output(), "usage: kodos apply [DIR|FILE.lua] [--dry-run]") }
-	dryRun := fs.Bool("dry-run", false, "run generate+lock, print the plan, change nothing")
-	root := fs.String("root", "/", "target root filesystem (test passthrough, mirrors exec)")
-	apkBin := fs.String("apk", "apk", "apk binary for closure resolution (test passthrough)")
-	// Go's flag stops at the first non-flag, but the documented form puts
-	// flags AFTER the DIR|FILE arg: lift that arg out, then parse the rest.
-	arg := ""
+	fs.BoolVar(&dryRun, "dry-run", false, "run generate+lock, print the plan, change nothing")
+	fs.StringVar(&root, "root", "/", "target root filesystem (test passthrough, mirrors exec)")
+	fs.StringVar(&apkBin, "apk", "apk", "apk binary for closure resolution (test passthrough)")
 	flagArgs := make([]string, 0, len(args))
 	for _, a := range args {
 		if arg == "" && !(len(a) > 1 && a[0] == '-') {
@@ -165,9 +170,20 @@ func cmdApply(args []string) error {
 		flagArgs = append(flagArgs, a)
 	}
 	if err := fs.Parse(flagArgs); err != nil {
+		return "", false, "", "", err
+	}
+	if fs.NArg() != 0 {
+		return "", false, "", "", fmt.Errorf("unexpected argument: %s", fs.Arg(0))
+	}
+	return arg, dryRun, root, apkBin, nil
+}
+
+func cmdApply(args []string) error {
+	arg, dryRun, root, apkBin, err := parseApplyArgs(args)
+	if err != nil {
 		return err
 	}
-	return apply(arg, *dryRun, *root, *apkBin)
+	return apply(arg, dryRun, root, apkBin)
 }
 
 func apply(configArg string, dryRun bool, root, apkBin string) error {
@@ -263,16 +279,19 @@ func apply(configArg string, dryRun bool, root, apkBin string) error {
 	if err := os.MkdirAll(actionsDir, 0o700); err != nil {
 		return err
 	}
-	staged := []struct{ path, content string }{
-		{filepath.Join(actionsDir, fmt.Sprintf("actions-%d.json", gen)), actionsOut},
-		{filepath.Join(actionsDir, fmt.Sprintf("generation-%d.json", gen)), lockOut},
+	if err := os.Chmod(actionsDir, 0o700); err != nil { // pre-existing wider dir gets tightened
+		return err
+	}
+	staged := []struct{ label, path, content string }{
+		{"stage actions", filepath.Join(actionsDir, fmt.Sprintf("actions-%d.json", gen)), actionsOut},
+		{"stage generation", filepath.Join(actionsDir, fmt.Sprintf("generation-%d.json", gen)), lockOut},
 	}
 	for _, s := range staged {
 		if err := os.WriteFile(s.path, []byte(s.content), 0o600); err != nil {
-			return err
+			return fmt.Errorf("%s: %w", s.label, err)
 		}
 		if err := os.Chmod(s.path, 0o600); err != nil { // re-runs keep old modes otherwise
-			return err
+			return fmt.Errorf("%s: %w", s.label, err)
 		}
 	}
 	fmt.Printf("apply: generation %d staged in %s (actions-%d.json, generation-%d.json, 0600)\n",
@@ -284,7 +303,10 @@ func apply(configArg string, dryRun bool, root, apkBin string) error {
 	if secrets := filepath.Join(confDir, "secrets.json"); lexists(secrets) {
 		execArgs = append(execArgs, "-secrets", secrets)
 	}
-	return cmdExec(execArgs)
+	if err := cmdExec(execArgs); err != nil {
+		return fmt.Errorf("exec: %w", err)
+	}
+	return nil
 }
 
 // printPlan summarizes generate+lock output for --dry-run: zero filesystem

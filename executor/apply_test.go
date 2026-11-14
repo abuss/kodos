@@ -66,6 +66,36 @@ func TestResolveConfig(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), filepath.Join(dir, "nope")) {
 		t.Fatalf("nonexistent: error %v must name the path", err)
 	}
+
+	// (f) FILE form must end in .lua
+	notlua := filepath.Join(dir, "config.txt")
+	if err := os.WriteFile(notlua, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = resolveConfig(notlua)
+	if err == nil || !strings.Contains(err.Error(), "must be *.lua") ||
+		!strings.Contains(err.Error(), notlua) {
+		t.Fatalf("non-.lua file: error %v must be %q naming the path", err, "config file must be *.lua: <path>")
+	}
+}
+
+func TestParseApplyArgs(t *testing.T) {
+	// canonical documented form: flags AFTER the positional arg
+	arg, dryRun, root, apkBin, err := parseApplyArgs([]string{"cfg.lua", "-root", "r", "-apk", "a"})
+	if err != nil || arg != "cfg.lua" || dryRun || root != "r" || apkBin != "a" {
+		t.Fatalf("canonical: got arg=%q dry=%v root=%q apk=%q err=%v", arg, dryRun, root, apkBin, err)
+	}
+	// flags before the arg work too
+	arg, dryRun, _, _, err = parseApplyArgs([]string{"--dry-run", "cfg.lua"})
+	if err != nil || arg != "cfg.lua" || !dryRun {
+		t.Fatalf("flags-first: got arg=%q dry=%v err=%v", arg, dryRun, err)
+	}
+	// stray positional: MUST error (fail closed) — silently stopping flag
+	// parsing here once meant a mutating apply against the default root /
+	_, _, _, _, err = parseApplyArgs([]string{"cfg.lua", "stray", "--dry-run"})
+	if err == nil || !strings.Contains(err.Error(), "stray") {
+		t.Fatalf("stray arg: error %v must reject \"stray\"", err)
+	}
 }
 
 // apkIndexTarGz builds an APKINDEX.tar.gz blob (one member named APKINDEX).
