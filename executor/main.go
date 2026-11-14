@@ -602,12 +602,30 @@ func (e *executor) configureNetwork(act map[string]any) error {
 }
 
 func (e *executor) createGeneration(act map[string]any) error {
-	// Extract generations_keep from action (default 5)
+	// Extract and validate generations_keep from action (default 5)
 	generationsKeep := 5
 	if k, ok := act["generations_keep"].(float64); ok {
+		if int(k) < 1 {
+			return fmt.Errorf("create_generation: generations_keep must be >= 1, got %d", int(k))
+		}
 		generationsKeep = int(k)
 	}
-	
+
+	// Resolve the LIVE current symlink to get its generation number.
+	// We protect BOTH the live current AND the new idx: current is boot-critical
+	// (still active until activate_generation runs), idx is the imminent target.
+	protect := []int{e.meta.Generation}
+	currentLink := filepath.Join(e.s.root(), "generation", "current")
+	if target, err := os.Readlink(currentLink); err == nil {
+		var liveCurrent int
+		if _, scanErr := fmt.Sscanf(filepath.Base(target), "%d", &liveCurrent); scanErr == nil {
+			if liveCurrent != e.meta.Generation {
+				protect = append(protect, liveCurrent)
+			}
+		}
+	}
+	// (if current doesn't exist yet — first install — only idx needs protection)
+
 	// Live /etc edits made after the last activation (shadow's
 	// groupadd/useradd rename the managed file away) must be captured into
 	// the current store before it is seeded forward into the new generation.
@@ -652,8 +670,8 @@ func (e *executor) createGeneration(act map[string]any) error {
 		return err
 	}
 	
-	// Prune old generations, preserving the current and newest `keep` gens
-	if err := e.s.pruneGenerations(generationsKeep, idx); err != nil {
+	// Prune old generations, protecting live current + new idx; GC store
+	if err := e.s.pruneGenerations(generationsKeep, protect); err != nil {
 		return err
 	}
 	

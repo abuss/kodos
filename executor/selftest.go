@@ -167,30 +167,41 @@ func selftest() {
 }
 
 // prunePlan returns the list of generation numbers that should SURVIVE,
-// given the cap and current. Sorted descending, current is always included
-// (never pruned), and at most `keep` newest gens survive (excluding current).
-func prunePlan(gens []int, keep int, current int) []int {
+// given the cap and a set of protected generations (never pruned regardless).
+// Sorted descending: newest-first; at most `keep` newest survive beyond protected set.
+func prunePlan(gens []int, keep int, protect []int) []int {
 	if keep < 1 {
 		keep = 1
 	}
 	if len(gens) == 0 {
 		return []int{}
 	}
-	// Filter out current, sort desc
-	var withoutCurrent []int
+	protectedSet := make(map[int]bool, len(protect))
+	for _, p := range protect {
+		protectedSet[p] = true
+	}
+	// Filter out protected, sort desc
+	var unprotected []int
 	for _, g := range gens {
-		if g != current {
-			withoutCurrent = append(withoutCurrent, g)
+		if !protectedSet[g] {
+			unprotected = append(unprotected, g)
 		}
 	}
-	slices.SortFunc(withoutCurrent, func(a, b int) int { return b - a })
+	slices.SortFunc(unprotected, func(a, b int) int { return b - a })
 	
-	// Keep the top `keep` and always add current
+	// Keep the top `keep` and always add all protected
 	var survivors []int
-	for i := 0; i < len(withoutCurrent) && i < keep; i++ {
-		survivors = append(survivors, withoutCurrent[i])
+	for i := 0; i < len(unprotected) && i < keep; i++ {
+		survivors = append(survivors, unprotected[i])
 	}
-	survivors = append(survivors, current)
+	for _, p := range protect {
+		if !func() bool {
+			for _, s := range survivors { if s == p { return true } }
+			return false
+		}() {
+			survivors = append(survivors, p)
+		}
+	}
 	slices.SortFunc(survivors, func(a, b int) int { return b - a })
 	return survivors
 }
@@ -199,27 +210,28 @@ func selftestPruneLogic() {
 	type testCase struct {
 		gens     []int
 		keep     int
-		current  int
+		protect  []int
 		expected []int
 	}
 	cases := []testCase{
-		// cap 2, gens 0..4, current=0 → survivors {0,4,3}
-		{[]int{0, 1, 2, 3, 4}, 2, 0, []int{4, 3, 0}},
-		// cap 2, gens 0..4, current=2 → survivors {2,4,3}
-		{[]int{0, 1, 2, 3, 4}, 2, 2, []int{4, 3, 2}},
-		// cap 5, gens 0..1 → {1,0}
-		{[]int{0, 1}, 5, 1, []int{1, 0}},
-		// cap 1, gens 0..2, current=0 → {0,2}
-		{[]int{0, 1, 2}, 1, 0, []int{2, 0}},
-		// current outside cap: cap 1, gens 0..2, current=0 (already tested)
-		// keep >= len: cap 10, gens 0..2, current=1 → all
-		{[]int{0, 1, 2}, 10, 1, []int{2, 1, 0}},
-		// single gen, current=0 → {0}
-		{[]int{0}, 5, 0, []int{0}},
+		// cap 2, gens 0..4, protect={0} → survivors {0,4,3}
+		{[]int{0, 1, 2, 3, 4}, 2, []int{0}, []int{4, 3, 0}},
+		// cap 2, gens 0..4, protect={2} → survivors {2,4,3}
+		{[]int{0, 1, 2, 3, 4}, 2, []int{2}, []int{4, 3, 2}},
+		// cap 5, gens 0..1, protect={1} → {1,0}
+		{[]int{0, 1}, 5, []int{1}, []int{1, 0}},
+		// cap 1, gens 0..2, protect={0} → {0,2}
+		{[]int{0, 1, 2}, 1, []int{0}, []int{2, 0}},
+		// keep >= len: cap 10, gens 0..2, protect={1} → all
+		{[]int{0, 1, 2}, 10, []int{1}, []int{2, 1, 0}},
+		// single gen, protect={0} → {0}
+		{[]int{0}, 5, []int{0}, []int{0}},
+		// CRITICAL: keep=1, gen 1 newly created, current→gen 0 still active
+		// protect both 0 and 1 → neither pruned even though keep=1
+		{[]int{0, 1}, 1, []int{0, 1}, []int{1, 0}},
 	}
 	for i, tc := range cases {
-		got := prunePlan(tc.gens, tc.keep, tc.current)
-		// check length and values match
+		got := prunePlan(tc.gens, tc.keep, tc.protect)
 		if len(got) != len(tc.expected) {
 			fmt.Printf("SELFTEST FAIL: prunePlan case %d length mismatch: expected %v, got %v\n",
 				i, tc.expected, got)
@@ -234,36 +246,70 @@ func selftestPruneLogic() {
 		}
 	}
 	
-	// fs-backed test: create multiple generations, prune, verify dirs removed
+	// fs-backed test: create multiple generations + store entries, prune, verify
 	chroot, err := os.MkdirTemp("", "kodos-prune-fs-")
 	check(err == nil, "tempdir for prune fs test: %v", err)
 	defer os.RemoveAll(chroot)
 	s := &system{chroot: chroot}
-	
-	// Create fake generations 0, 1, 2, 3, 4
-	for i := 0; i <= 4; i++ {
-		genDir := s.genDir(i)
-		check(os.MkdirAll(genDir, 0o755) == nil, "mkdir gen %d", i)
-		check(os.WriteFile(filepath.Join(genDir, "marker"), []byte(fmt.Sprintf("gen%d", i)), 0o644) == nil,
-			"write marker gen %d", i)
+
+	// Helper to write a minimal generation.json with package map
+	writeGenJSON := func(genDir string, pkgs map[string]string) {
+		pkgPins := map[string]pkgPin{}
+		for n, v := range pkgs {
+			pkgPins[n] = pkgPin{Version: v}
+		}
+		b, _ := json.Marshal(map[string]any{"packages": pkgPins})
+		check(os.WriteFile(filepath.Join(genDir, "generation.json"), b, 0o644) == nil,
+			"write generation.json in %s", genDir)
 	}
-	
-	// Prune with keep=2, current=0 → should keep 0,4,3 and delete 1,2
-	err = s.pruneGenerations(2, 0)
+
+	// Create store entries: sharedPkg is in gens 0 and 1; solePkg only in gen 1
+	mkStore := func(pkg, ver string) {
+		p := filepath.Join(s.store(), pkg, ver, "bin", pkg)
+		check(os.MkdirAll(filepath.Dir(p), 0o755) == nil, "mkdir store %s", pkg)
+		check(os.WriteFile(p, []byte(pkg+ver), 0o644) == nil, "write store %s", pkg)
+	}
+	mkStore("sharedPkg", "1.0")
+	mkStore("solePkg", "1.0")
+
+	// Gen 0: sharedPkg only
+	g0 := s.genDir(0)
+	check(os.MkdirAll(g0, 0o755) == nil, "mkdir gen 0")
+	writeGenJSON(g0, map[string]string{"sharedPkg": "1.0"})
+
+	// Gen 1: sharedPkg + solePkg (this will be pruned)
+	g1 := s.genDir(1)
+	check(os.MkdirAll(g1, 0o755) == nil, "mkdir gen 1")
+	writeGenJSON(g1, map[string]string{"sharedPkg": "1.0", "solePkg": "1.0"})
+
+	// Also create gens 2,3,4 (empty generation.json = no packages)
+	for i := 2; i <= 4; i++ {
+		gd := s.genDir(i)
+		check(os.MkdirAll(gd, 0o755) == nil, "mkdir gen %d", i)
+		writeGenJSON(gd, map[string]string{})
+	}
+
+	// Prune with keep=2, protect={0} (live current=0, new idx=5 not yet created)
+	// → survivors {4,3,0}; pruned {1,2}; gen1's solePkg sole ref → store GC'd; sharedPkg kept
+	err = s.pruneGenerations(2, []int{0})
 	check(err == nil, "pruneGenerations: %v", err)
-	
-	// Verify survivors exist and pruned are gone
-	survivors := []int{0, 3, 4}
-	deleted := []int{1, 2}
-	for _, g := range survivors {
+
+	// Verify generation dirs
+	for _, g := range []int{0, 3, 4} {
 		check(lexists(s.genDir(g)), "gen %d should survive", g)
 	}
-	for _, g := range deleted {
+	for _, g := range []int{1, 2} {
 		check(!lexists(s.genDir(g)), "gen %d should be pruned", g)
 	}
-	
+	// sharedPkg referenced by survivor gen 0 → must NOT be deleted
+	check(lexists(filepath.Join(s.store(), "sharedPkg", "1.0")),
+		"sharedPkg/1.0 shared with survivor: must not be GC'd")
+	// solePkg only in pruned gen 1 → must be deleted
+	check(!lexists(filepath.Join(s.store(), "solePkg", "1.0")),
+		"solePkg/1.0 sole ref was pruned gen: must be GC'd")
+
 	fmt.Println("PASS: prunePlan table-driven tests")
-	fmt.Println("PASS: pruneGenerations fs-backed (keep=2, current=0, deleted 1..2)")
+	fmt.Println("PASS: pruneGenerations fs-backed (keep=2, protect={0}, gen1+2 deleted, store GC sole refs, preserve shared)")
 }
 
 func selftestPure() {

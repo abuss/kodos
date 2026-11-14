@@ -10,6 +10,7 @@ package main
 // host but resolve once this tree is used as /. None of this needs root.
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -637,23 +638,22 @@ func (s *system) createGeneration(toInstall map[string]string, idx int, prevGene
 }
 
 // pruneGenerations removes old generation directories based on keep cap,
-// preserving current. Only survivors (from prunePlan) are kept; the rest
-// are removed entirely (generation dir + store dirs for their packages).
-func (s *system) pruneGenerations(keep int, current int) error {
+// protecting all generations in protect (live current + newly created idx).
+// For each pruned generation, GCs store entries not referenced by any survivor.
+func (s *system) pruneGenerations(keep int, protect []int) error {
 	if keep < 1 {
 		keep = 1
 	}
-	
-	// List all existing generation directories (0, 1, 2, ...)
+
 	genRoot := filepath.Join(s.root(), "generation")
 	entries, err := os.ReadDir(genRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // nothing to prune
+			return nil
 		}
 		return err
 	}
-	
+
 	var existingGens []int
 	for _, e := range entries {
 		if e.Name() == "current" || e.Name() == "etc" {
@@ -667,22 +667,92 @@ func (s *system) pruneGenerations(keep int, current int) error {
 	if len(existingGens) == 0 {
 		return nil
 	}
-	
-	survivors := prunePlan(existingGens, keep, current)
+
+	survivors := prunePlan(existingGens, keep, protect)
 	survivorMap := make(map[int]bool)
 	for _, g := range survivors {
 		survivorMap[g] = true
 	}
-	
-	// Remove generation dirs NOT in survivors
+
+	// Build set of pkg@version referenced by ALL survivors (for store GC)
+	survivorRefs := map[string]bool{}
+	for _, g := range survivors {
+		refs, ok := readGenPackages(s.genDir(g))
+		if !ok {
+			// No generation.json: conservatively keep everything this gen might reference
+			// by skipping GC entirely (we cannot know what it owns)
+			return s.pruneGenDirs(existingGens, survivorMap)
+		}
+		for ref := range refs {
+			survivorRefs[ref] = true
+		}
+	}
+
+	// Collect pkg@version refs owned by pruned gens (but not survivors)
+	pruneRefs := map[string]bool{}
+	for _, g := range existingGens {
+		if survivorMap[g] {
+			continue
+		}
+		refs, ok := readGenPackages(s.genDir(g))
+		if !ok {
+			continue // conservative: skip store GC for this gen
+		}
+		for ref := range refs {
+			if !survivorRefs[ref] {
+				pruneRefs[ref] = true
+			}
+		}
+	}
+
+	// Remove pruned generation dirs
+	if err := s.pruneGenDirs(existingGens, survivorMap); err != nil {
+		return err
+	}
+
+	// GC store entries only referenced by pruned gens
+	for ref := range pruneRefs {
+		pkg, ver, ok := strings.Cut(ref, "@")
+		if !ok {
+			continue
+		}
+		storeDir := filepath.Join(s.store(), pkg, ver)
+		if err := os.RemoveAll(storeDir); err != nil {
+			return fmt.Errorf("store GC %s: %w", ref, err)
+		}
+	}
+
+	return nil
+}
+
+// pruneGenDirs removes generation directories not in survivorMap.
+func (s *system) pruneGenDirs(existingGens []int, survivorMap map[int]bool) error {
 	for _, g := range existingGens {
 		if !survivorMap[g] {
-			genDir := s.genDir(g)
-			if err := os.RemoveAll(genDir); err != nil {
+			if err := os.RemoveAll(s.genDir(g)); err != nil {
 				return fmt.Errorf("remove generation %d: %w", g, err)
 			}
 		}
 	}
-	
 	return nil
+}
+
+// readGenPackages reads generation.json from a gen dir and returns "pkg@ver" set.
+// Returns (nil, false) if generation.json is missing or unparseable.
+func readGenPackages(genDir string) (map[string]bool, bool) {
+	b, err := os.ReadFile(filepath.Join(genDir, "generation.json"))
+	if err != nil {
+		return nil, false
+	}
+	var manifest struct {
+		Packages map[string]struct{ Version string } `json:"packages"`
+	}
+	if err := json.Unmarshal(b, &manifest); err != nil {
+		return nil, false
+	}
+	refs := make(map[string]bool, len(manifest.Packages))
+	for name, pin := range manifest.Packages {
+		refs[name+"@"+pin.Version] = true
+	}
+	return refs, true
 }
