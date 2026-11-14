@@ -12,7 +12,7 @@ local function load_modular()
 end
 
 local function load_monolithic()
-    return dofile("configuration.lua")
+    return dofile("../../example/eszkoz/configuration.lua")
 end
 
 local function same(a, b, path)

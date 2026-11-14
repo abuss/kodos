@@ -108,9 +108,9 @@ do_install() {
         echo "wrote vm/secrets.json (test passwords: kodos-root-test / kodos-user-test)"
     fi
 
-    cd "$REPO/example/eszkoz"
-    lua generate.lua system.lua ../../vm/vm-layer.lua layers/machine.lua \
-        layers/user.lua > "$VMDIR/actions.json"
+    cd "$REPO/executor/lua"
+    lua generate.lua system.lua "$REPO/vm/vm-layer.lua" ../../example/eszkoz/layers/machine.lua \
+        ../../example/eszkoz/layers/user.lua > "$VMDIR/actions.json"
     # actions carry the config's nbd0 device names; swap in the index we
     # actually attached (foreign/wedged nbd0 may have forced us higher)
     if [ "${NBD#/dev/nbd}" != 0 ]; then
@@ -128,7 +128,7 @@ do_install() {
         }
     done
     lua lockfile.lua 0 "$D/main-324.apkindex" "$D/community-324.apkindex" -- \
-        system.lua ../../vm/vm-layer.lua layers/machine.lua layers/user.lua \
+        system.lua "$REPO/vm/vm-layer.lua" ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua \
         > "$VMDIR/generation-0.json"
 
     mkdir -p "$MNT"

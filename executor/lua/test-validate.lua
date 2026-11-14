@@ -14,16 +14,16 @@ end
 
 -- 1. the real configs, both forms, layered
 must_pass({ "system.lua" }, "modular base")
-must_pass({ "configuration.lua" }, "monolithic")
-must_pass({ "system.lua", "layers/machine.lua", "layers/user.lua" }, "layered")
+must_pass({ "../../example/eszkoz/configuration.lua" }, "monolithic")
+must_pass({ "system.lua", "../../example/eszkoz/layers/machine.lua", "../../example/eszkoz/layers/user.lua" }, "layered")
 
 -- helper: validate base + scratch layer, assert error substrings appear
 local function scratch_layer(name, body)
-    local f = assert(io.open("layers/" .. name, "w"))
+    local f = assert(io.open(name, "w"))
     f:write(body)
     f:close()
-    local errs = validate.validate(resolve.load({ "system.lua", "layers/" .. name }))
-    os.remove("layers/" .. name)
+    local errs = validate.validate(resolve.load({ "system.lua", name }))
+    os.remove(name)
     local function has(sub)
         for _, e in ipairs(errs) do
             if e:find(sub, 1, true) then return true end

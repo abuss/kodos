@@ -23,7 +23,7 @@ assert(pos(base, '"timeout": 10') > 0, "base bootloader timeout")
 assert(pos(base, '"shell": "/usr/bin/zsh"') > 0, "base abuss shell")
 
 -- ====== layered: machine + user overlays change exactly what they say ======
-local out = run("system.lua layers/machine.lua layers/user.lua")
+local out = run("system.lua ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua")
 
 -- backend resolution happened (distro names, not canonical)
 assert(pos(out, '"clang20"') and not out:find("clang19", 1, true))
@@ -90,12 +90,12 @@ for _, s in ipairs(order) do
 end
 
 -- determinism: two runs byte-identical
-local again = run("system.lua layers/machine.lua layers/user.lua")
+local again = run("system.lua ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua")
 assert(out == again, "generator output is not deterministic")
 
 -- flatpak: repos.flatpak + {repo="flatpak"} tags -> backend tool package,
 -- remote config, and system + per-user install actions (scratch layer)
-local f2 = assert(io.open("layers/_scratch_flatpak.lua", "w"))
+local f2 = assert(io.open("_scratch_flatpak.lua", "w"))
 f2:write([[
 return {
     repos = { flatpak = { type = "flatpak", name = "flathub",
@@ -106,7 +106,7 @@ return {
 }
 ]])
 f2:close()
-local fp = run("system.lua", "layers/_scratch_flatpak.lua")
+local fp = run("system.lua", "_scratch_flatpak.lua")
 assert(pos(fp, '"flatpak"') < pos(fp, '"op": "install_packages"'),
        "backend flatpak tool package must be in the install set")
 assert(pos(fp, '"op": "install_packages"') < pos(fp, '"op": "configure_flatpak_remote"'),
@@ -122,27 +122,27 @@ assert(pos(fp, '"com.spotify.Client"') > pos(fp, '"org.gimp.GIMP"'),
 assert(fp:find('"user": "abuss"', s2), "per-user scope carries the login")
 assert(not fp:sub(1, pos(fp, '"op": "install_packages"')):find("gimp", 1, true),
        "app ids must never enter the distro install set")
-os.remove("layers/_scratch_flatpak.lua")
+os.remove("_scratch_flatpak.lua")
 
 -- flatpak ids without repos.flatpak: hard error, same strictness rule
-local f3 = assert(io.open("layers/_scratch_flatpak2.lua", "w"))
+local f3 = assert(io.open("_scratch_flatpak2.lua", "w"))
 f3:write('return { packages = { { repo = "flatpak", name = "org.gimp.GIMP" } } }')
 f3:close()
-local h2 = assert(io.popen("lua generate.lua system.lua layers/_scratch_flatpak2.lua 2>&1"))
+local h2 = assert(io.popen("lua generate.lua system.lua _scratch_flatpak2.lua 2>&1"))
 local err2 = h2:read("a")
 h2:close()
-os.remove("layers/_scratch_flatpak2.lua")
+os.remove("_scratch_flatpak2.lua")
 assert(err2:find("repos.flatpak is missing", 1, true),
        "flatpak packages without a declared remote must abort generation")
 
 -- unofferable kernel variant aborts generation (no silent fallback)
-local f = assert(io.open("layers/_scratch.lua", "w"))
+local f = assert(io.open("_scratch.lua", "w"))
 f:write('return { boot = { kernel = { variant = "hardened" } } }')
 f:close()
-local h = assert(io.popen("lua generate.lua system.lua layers/_scratch.lua 2>&1"))
+local h = assert(io.popen("lua generate.lua system.lua _scratch.lua 2>&1"))
 local err = h:read("a")
 h:close()
-os.remove("layers/_scratch.lua")
+os.remove("_scratch.lua")
 assert(err:find("not offered by backend", 1, true),
        "kernel variant the backend cannot offer must be a hard error")
 

@@ -69,6 +69,11 @@ func main() {
 		}
 	case "selftest":
 		cmdSelftest()
+	case "lua":
+		if err := cmdLua(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintln(os.Stderr, "usage: kodos [exec|selftest] ...")
 		os.Exit(2)

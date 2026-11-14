@@ -2,7 +2,7 @@
 -- base (system.lua) <- machine layer <- user layer. Run: lua test-merge.lua
 local resolve = require("resolve")
 
-local conf = resolve.load({ "system.lua", "layers/machine.lua", "layers/user.lua" })
+local conf = resolve.load({ "system.lua", "../../example/eszkoz/layers/machine.lua", "../../example/eszkoz/layers/user.lua" })
 
 local function find(list, want)
     for _, v in ipairs(list) do

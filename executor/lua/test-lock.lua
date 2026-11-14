@@ -22,7 +22,7 @@ end
 
 -- ====== positive: layered eszkoz, generation 7 ======
 local out, ok = run("7 " .. IDX[1] .. " " .. IDX[2]
-                    .. " -- system.lua layers/machine.lua layers/user.lua")
+                    .. " -- system.lua ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua")
 assert(ok, "lockfile failed:\n" .. out)
 
 assert(out:find('"generation": 7', 1, true))
@@ -57,18 +57,18 @@ assert(out:find('"linux-firmware": {', 1, true))
 
 -- ====== determinism: same index -> byte-identical lock ======
 local again = run("7 " .. IDX[1] .. " " .. IDX[2]
-                  .. " -- system.lua layers/machine.lua layers/user.lua")
+                  .. " -- system.lua ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua")
 assert(out == again, "lock output is not deterministic")
 
 -- ====== negative: a name the index does not have must abort ======
-local f = assert(io.open("layers/_scratch_lock.lua", "w"))
+local f = assert(io.open("_scratch_lock.lua", "w"))
 f:write('return { packages = { { repo = "base", name = "pkg-that-does-not-exist-xyz" } } }')
 f:close()
 local h = assert(io.popen("lua lockfile.lua 0 " .. IDX[1] .. " " .. IDX[2]
-                          .. " -- system.lua layers/_scratch_lock.lua 2>&1"))
+                          .. " -- system.lua _scratch_lock.lua 2>&1"))
 local err = h:read("a")
 local bad = h:close()
-os.remove("layers/_scratch_lock.lua")
+os.remove("_scratch_lock.lua")
 assert(not bad, "missing package must abort the lock")
 assert(err:find("pkg-that-does-not-exist-xyz not found in indexes", 1, true))
 
