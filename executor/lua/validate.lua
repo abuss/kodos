@@ -132,7 +132,9 @@ M.schema = {
             } } },
         } },
 
-        -- optional local file:// repos; keyed by repo name, each entry {url=...}
+        -- optional local file:// repos; keyed by repo name, each entry {url=...}.
+        -- Same dict_of override semantics as all other sections: a later layer
+        -- with the same repo name overwrites the earlier entry (last-write-wins).
         repositories = { optional = { dict_of = { record = { url = "string" } } } },
 
         boot = { record = {
@@ -203,6 +205,13 @@ function M.validate(conf)
     local errs = {}
     check(conf, M.schema, "$", errs)
     -- cross-field rules the shape checker cannot express
+    for rname, r in pairs(conf.repositories or {}) do
+        if type(r) == "table" and type(r.url) == "string"
+           and not r.url:match("^file:///") then
+            errs[#errs + 1] = "$.repositories." .. rname
+                .. ": url must start with file:/// (got " .. r.url .. ")"
+        end
+    end
     for sname, s in pairs(conf.services or {}) do
         if type(s) == "table" then
             for cname, c in pairs(s.connections or {}) do

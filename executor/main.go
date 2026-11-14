@@ -276,7 +276,7 @@ func (e *executor) configureRepos(act map[string]any) error {
 		m, _ := r.(map[string]any)
 		name, url := field(m, "name"), field(m, "url")
 		if name == "" || url == "" {
-			continue
+			return fmt.Errorf("configureRepos: malformed repos entry (name=%q url=%q) — generator bug", name, url)
 		}
 		e.localRepos = append(e.localRepos, struct{ name, url string }{name, url})
 		if err := e.writeFileTo("/etc/apk/repositories.d/"+name+".list", url+"\n", 0o644); err != nil {

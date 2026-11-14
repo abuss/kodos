@@ -118,9 +118,19 @@ return { repositories = { mylocal = { url = 42 } } }
 ]])
 assert(has("$.repositories.mylocal.url: expected string"), "repositories url non-string not caught")
 
+has = scratch_layer("_scratch_v7b.lua", [[
+return { repositories = { mylocal = { url = "https://example.com" } } }
+]])
+assert(has("$.repositories.mylocal: url must start with file:///"), "https:// url not rejected")
+
+has = scratch_layer("_scratch_v7c.lua", [[
+return { repositories = { mylocal = { url = "file:/abs" } } }
+]])
+assert(has("$.repositories.mylocal: url must start with file:///"), "file:/abs url not rejected")
+
 has = scratch_layer("_scratch_v8.lua", [[
 return { repositories = { mylocal = { url = "file:///x", extra = "bad" } } }
 ]])
 assert(has("$.repositories.mylocal.extra: unknown key"), "repositories unknown key not caught")
 
-print("PASS: schema validation (clean configs + 17 seeded errors caught)")
+print("PASS: schema validation (clean configs + 19 seeded errors caught)")
