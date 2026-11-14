@@ -15,6 +15,35 @@ for _, v in ipairs(arg) do
 end
 arg = filtered_args
 
+-- Track provenance: for each layer file, capture its own repositories table
+-- (before merge) so we can resolve relative src paths against that layer's dir.
+-- Last declaration of a name wins (mirrors the merge order).
+local repo_src_provenance = {} -- name -> absolute src path
+do
+    -- capture cwd once; layer paths relative to it or to their own dir
+    local cwd_h = io.popen("pwd")
+    local cwd = cwd_h:read("*l")
+    cwd_h:close()
+    for _, p in ipairs(arg) do
+        local layer = dofile(p)
+        if type(layer) == "table" and type(layer.repositories) == "table" then
+            local layer_dir = p:match("^(.*)/[^/]+$") or "."
+            if layer_dir:sub(1,1) ~= "/" then
+                layer_dir = cwd .. "/" .. layer_dir
+            end
+            for name, entry in pairs(layer.repositories) do
+                if type(entry) == "table" and entry.src then
+                    local src = entry.src
+                    if src:sub(1, 1) ~= "/" then
+                        src = layer_dir .. "/" .. src
+                    end
+                    repo_src_provenance[name] = src
+                end
+            end
+        end
+    end
+end
+
 local conf = resolve.load(arg)
 
 -- schema-validate the MERGED config before anything generates
@@ -36,6 +65,8 @@ local function act(op, f)
 end
 
 -- ====== 1. repos ======
+-- copy_tree (op #23): emit BEFORE configure_repos so the repo tree exists
+-- before apk resolves it. One per local repo entry that declares src.
 local configure_repos_act = {
     type = conf.repos.base.type,
     mirror = conf.repos.base.mirror,
@@ -49,6 +80,12 @@ if conf.repositories then
         local repos_list = {}
         for _, n in ipairs(rnames) do
             repos_list[#repos_list + 1] = { name = n, url = conf.repositories[n].url }
+            -- emit copy_tree before configure_repos if src was declared
+            if repo_src_provenance[n] then
+                local url = conf.repositories[n].url
+                local dst = url:gsub("^file://", "")
+                act("copy_tree", { name = n, src = repo_src_provenance[n], dst = dst })
+            end
         end
         configure_repos_act.repos = repos_list
     end

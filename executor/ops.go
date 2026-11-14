@@ -298,6 +298,46 @@ func settingsKey(k string) string {
 	return b.String()
 }
 
+// copyTree copies the host directory src into chroot-mapped dst.
+// Dirs: 0755; regular files: 0644; symlinks: verbatim (Readlink→Symlink).
+// Idempotent: existing files are overwritten, existing links recreated.
+func (e *executor) copyTree(act map[string]any) error {
+	src := field(act, "src")
+	dst := field(act, "dst")
+	if src == "" || dst == "" {
+		return fmt.Errorf("copy_tree: missing src or dst")
+	}
+	// map dst (target-rooted) into the actual host path under chroot
+	hostDst := filepath.Join(e.s.chroot, dst)
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		target := filepath.Join(hostDst, rel)
+		switch {
+		case d.IsDir():
+			return os.MkdirAll(target, 0o755)
+		case d.Type()&fs.ModeSymlink != 0:
+			link, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			os.Remove(target)
+			return os.Symlink(link, target)
+		default:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(target, b, 0o644)
+		}
+	})
+}
+
 // ---- op handlers ----
 
 func (e *executor) partitionDisk(act map[string]any) error {

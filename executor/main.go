@@ -190,6 +190,8 @@ func cmdSuitetest() error {
 func (e *executor) run(act map[string]any) error {
 	op, _ := act["op"].(string)
 	switch op {
+	case "copy_tree":
+		return e.copyTree(act)
 	case "configure_repos":
 		return e.configureRepos(act)
 	case "partition_disk":
@@ -245,6 +247,8 @@ func (e *executor) run(act map[string]any) error {
 
 func summarize(act map[string]any) string {
 	switch act["op"] {
+	case "copy_tree":
+		return fmt.Sprintf("%s -> %s", act["src"], act["dst"])
 	case "install_packages":
 		return fmt.Sprintf("(%d packages)", len(strList(act, "names")))
 	case "configure_repos":

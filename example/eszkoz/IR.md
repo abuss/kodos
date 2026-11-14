@@ -57,6 +57,7 @@ Rules:
 | 20 | `enable_service` | `name`, `unit`, `runlevel` | service plan, `unit` ≠ nil | packages-only entries (backend `service_name = false`) produce no action |
 | 21 | `enable_home_service` | `user`, `name`, `mechanism`, `packages[]`, `settings{}` | `users{}.environment.services` | OpenRC has no user services; backend picks `mechanism` (TODO: user-daemon runner); executor defers to first login |
 | 22 | `install_bootloader` | `type`, `efi`, `timeout` | `boot.bootloader` | packages already installed at #7 |
+| 23 | `copy_tree` | `name`, `src` (absolute host dir), `dst` (target-rooted absolute path) | `repositories.<n>.src` (local repo entries) | copies src INTO chroot-mapped dst: dirs 0755, files 0644, symlinks verbatim; idempotent (overwrite); **must precede `configure_repos`** so the repo tree exists before apk resolves it |
 
 A variant the backend cannot offer (kernel variant, bootloader type) makes
 the generator **fail, not fall back** — same rule as the checker. Flatpak

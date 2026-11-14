@@ -37,6 +37,7 @@ type actionsFile struct {
 // at the same rank, ranks never go backwards). #18 activation precedes
 // #19-22 because those run inside the activated chroot.
 var opRank = map[string]int{
+	"copy_tree": 0,
 	"configure_repos": 1, "partition_disk": 2, "format": 3, "create_swap": 4,
 	"mount": 5, "write_file": 6, "install_packages": 7,
 	"configure_flatpak_remote": 8, "install_flatpak": 9,

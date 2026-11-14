@@ -149,6 +149,26 @@ os.remove("_scratch_localrepo.lua")
 -- without repositories section: repos field absent (byte-identity)
 assert(not base:find('"repos"', 1, true), "configure_repos must NOT carry repos field when no repositories")
 
+-- ====== copy_tree: local repo with src emits copy_tree BEFORE configure_repos ======
+local f_ct = assert(io.open("_scratch_copytree.lua", "w"))
+f_ct:write([[
+return { repositories = { myrepo = { url = "file:///var/kodos/repo", src = "vm/repo" } } }
+]])
+f_ct:close()
+local ct = run("system.lua _scratch_copytree.lua")
+local ct_pos = ct:find('"op": "copy_tree"', 1, true)
+local cr_pos = ct:find('"op": "configure_repos"', 1, true)
+assert(ct_pos, "copy_tree op must be present when repository has src")
+assert(ct_pos < cr_pos, "copy_tree must precede configure_repos")
+assert(ct:find('"dst": "/var/kodos/repo"', 1, true), "copy_tree dst must be url minus file://")
+-- src must be absolute (provenance resolved against layer dir = ".")
+local src_m = ct:match('"src": "([^"]+)"')
+assert(src_m and src_m:sub(1,1) == "/", "copy_tree src must be absolute, got: " .. tostring(src_m))
+assert(src_m:find("vm/repo", 1, true), "copy_tree src must contain the relative path")
+-- no copy_tree when src absent
+assert(not lr:find('"op": "copy_tree"', 1, true), "copy_tree must NOT appear when src is absent")
+os.remove("_scratch_copytree.lua")
+
 -- flatpak ids without repos.flatpak: hard error, same strictness rule
 local f3 = assert(io.open("_scratch_flatpak2.lua", "w"))
 f3:write('return { packages = { { repo = "flatpak", name = "org.gimp.GIMP" } } }')

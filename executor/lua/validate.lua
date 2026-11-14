@@ -135,7 +135,7 @@ M.schema = {
         -- optional local file:// repos; keyed by repo name, each entry {url=...}.
         -- Same dict_of override semantics as all other sections: a later layer
         -- with the same repo name overwrites the earlier entry (last-write-wins).
-        repositories = { optional = { dict_of = { record = { url = "string" } } } },
+        repositories = { optional = { dict_of = { record = { url = "string", src = { optional = "string" } } } } },
 
         boot = { record = {
             bootloader = { record = {
