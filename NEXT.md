@@ -73,7 +73,10 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 
    **Canonical scratch E2E recipe** (Task 9+): pre-mount stubs so the 3
    `mount` actions in the `--inplace` stream all hit the skip-if-mounted
-   guard; run ends at the expected fake-grub ERROR:
+   guard (the `/` skip prints `config names … but live device is …` and
+   takes the live device, here `tmpfs`); run ends at the expected
+   `bootloader: UUID of tmpfs: …` ERROR — the root-UUID lookup now runs
+   BEFORE the ESP grub trees are wiped (fail-closed, no half-boot):
    ```sh
    rm -rf scratch/root && mkdir -p scratch/root
    unshare -Urm sh -c "

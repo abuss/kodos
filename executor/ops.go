@@ -511,10 +511,16 @@ func (e *executor) mount(act map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("cannot read /proc/mounts, refusing to mount %s: %w", target, err)
 	}
-	if _, ok := mountedTargetAt(target, mounts); ok {
+	if dev, ok := mountedTargetAt(target, mounts); ok {
 		fmt.Printf("mount %s: already mounted, skipping\n", target)
 		if point == "/" {
-			e.rootPart = part // R2: rootPart must be set even on skip (bootloader UUID path)
+			// R2: rootPart must be set even on skip (bootloader UUID path);
+			// use the LIVE device from /proc/mounts, not the config's name:
+			// stale config device names are not blkid-resolvable.
+			if dev != part {
+				fmt.Printf("mount /: config names %s but live device is %s — using the live one\n", part, dev)
+			}
+			e.rootPart = dev
 		}
 		return nil
 	}
@@ -582,6 +588,9 @@ func dirExists(p string) bool {
 }
 
 func (e *executor) umountChroot() {
+	if e.s.chroot == "/" {
+		return // on-machine run: ensureChrootMounts created no new mounts (all four already mountpoints), so unmount nothing
+	}
 	for _, name := range []string{"run", "dev", "sys", "proc"} {
 		mp := filepath.Join(e.s.chroot, name)
 		// NEVER propagate unmounts outward: systemd shares /, and an rbind
@@ -1077,6 +1086,15 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if e.rootPart == "" {
 		return fmt.Errorf("install_bootloader: root partition unknown (no mount / action?)")
 	}
+	// Resolve the root UUID BEFORE touching anything: a stale config device
+	// name (rootPart not blkid-resolvable) must fail here, not after the
+	// ESP bootloader trees are wiped and current has flipped (half-boot
+	// state). fstype (best-effort) feeds the modules= kopt below.
+	uuid, err := runOut("blkid", "-o", "value", "-s", "UUID", e.rootPart)
+	if err != nil {
+		return fmt.Errorf("bootloader: UUID of %s: %w", e.rootPart, err)
+	}
+	fstype, _ := runOut("blkid", "-o", "value", "-s", "TYPE", e.rootPart)
 	gen := e.s.genDir(e.meta.Generation)
 
 	// Alpine makes initramfs via apk TRIGGERS (which we bypass): for each
@@ -1162,15 +1180,10 @@ func (e *executor) installBootloader(act map[string]any) error {
 		"--efi-directory=/boot --boot-directory=/boot"); err != nil {
 		return err
 	}
-	uuid, err := runOut("blkid", "-o", "value", "-s", "UUID", e.rootPart)
-	if err != nil {
-		return fmt.Errorf("bootloader: UUID of %s: %w", e.rootPart, err)
-	}
 	// init's "Loading boot drivers" step modprobes modules=<kopt> BEFORE
 	// mounting root; nothing in the Alpine initramfs chain guarantees the
 	// root filesystem driver (e.g. ext4 is =m on linux-virt) otherwise, and
 	// the mount then fails "No such file or directory".
-	fstype, _ := runOut("blkid", "-o", "value", "-s", "TYPE", e.rootPart)
 	args := append([]string{}, e.kernelArgs...)
 	hasModules := false
 	for _, a := range args {

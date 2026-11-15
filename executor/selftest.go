@@ -513,9 +513,35 @@ func selftestPure() {
 		check(isMounted("/dev/nbd0", m), "isMounted whole disk via partition nbd0p1")
 		check(!isMounted("/dev/nbd1", m), "isMounted nbd1 not a false positive for nbd0")
 		check(isMounted("/dev/sda", m), "isMounted whole disk via partition sda1")
+		// mountedTargetAt must hand back the LIVE device: mount /'s skip
+		// branch sets rootPart from it (config names may not be blkid-resolvable)
+		dev, ok := mountedTargetAt("/home", m)
+		check(ok && dev == "/dev/sda2", "mountedTargetAt device, got %q %v", dev, ok)
+		_, ok = mountedTargetAt("/nope", m)
+		check(!ok, "mountedTargetAt on unmounted point")
 	}
 
-	fmt.Println("PASS: executor selftest (parseMounts/isMounted guards)")
+	// installBootloader must resolve the root UUID BEFORE wiping the ESP:
+	// an unresolvable rootPart fails with "UUID of" and leaves the staged
+	// grub tree intact (no half-boot state after a failed wipe).
+	{
+		dir, err := os.MkdirTemp("", "kodos-bootwipe-")
+		check(err == nil, "mkdtemp: %v", err)
+		defer os.RemoveAll(dir)
+		staged := filepath.Join(dir, "boot/grub", "staged.cfg")
+		check(os.MkdirAll(filepath.Dir(staged), 0o755) == nil, "mkdir staged grub")
+		check(os.WriteFile(staged, []byte("x"), 0o644) == nil, "write staged grub")
+		re := &executor{s: &system{chroot: dir},
+			meta:     &metadata{Generation: 0, Distro: "alpine"},
+			rootPart: "/dev/kodos-selftest-no-such-disk"}
+		err = re.installBootloader(map[string]any{"op": "install_bootloader"})
+		check(err != nil && strings.Contains(err.Error(), "UUID of"),
+			"bootloader must fail at UUID lookup, got %v", err)
+		_, serr := os.Stat(staged)
+		check(serr == nil, "ESP grub tree wiped despite early UUID failure")
+	}
+
+	fmt.Println("PASS: executor selftest (parseMounts/isMounted/mountedTargetAt guards, bootloader fail-before-ESP-wipe)")
 }
 
 // cpioRec builds one newc record (header hex + NUL-terminated name, then
