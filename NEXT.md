@@ -199,14 +199,18 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   management-design.md` (single Go binary embedding the Lua toolchain via
   gopher-lua + go:embed; apply/status/rollback verbs; live lock via
   net/http + system apk; in-place generate mode; `copy_tree` IR op ships a
-  file:// local repo carrying kodos.apk; generations_keep cap). Awaiting
-  written-spec review, then implementation plan.
+  file:// local repo carrying kodos.apk; generations_keep cap). Implemented
+  via `docs/superpowers/plans/2026-11-14-kodos-self-management.md` (13 tasks;
+  SDD ledger `.superpowers/sdd/2026-11-14-kodos-self-management/`).
   **Implemented + host-proven (Tasks 10-13, this tree):** the single binary
   embeds the Lua toolchain and runs `apply`/`status`/`rollback`; `kodos.apk`
   ships in the local file:// repo (`build/mkapk.sh`); the machine's own
   `/etc/kodos/config.lua` + 0600 secrets are written by the bootstrap stream.
   The definition-of-done round on the VM is the paste sequence in "Self-
   management on the VM (Task 13)" below — machinery DONE, run it next.
+  GUIDANCE (Task-13 review): the config `files` section must NOT carry real
+  secrets — write_file content rides the (host-side 0644) generated actions
+  stream; secrets belong in the out-of-band 0600 secrets.json only.
 
 - **Initramfs store debris** — FIXED (2026-11-14, 2nd attempt): mkinitfs
   chrooted into the gen tree copies our etc symlinks (etc/modprobe.d/
