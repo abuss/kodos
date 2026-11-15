@@ -105,7 +105,7 @@ for _, m in ipairs(mounts) do
 end
 
 -- ====== 5. repos: copy_tree* + configure_repos, AFTER the storage mounts ======
--- Both write INTO the target root (<root>/var/kodos/repo, <root>/etc/apk/
+-- Both write INTO the target root (<root>/kod/repo, <root>/etc/apk/
 -- repositories + repos.d): at bootstrap they must land on the MOUNTED root,
 -- otherwise the root mount covers whatever they wrote into the unmounted
 -- root dir (live-VM paste round 2026-11-14: repo tree + repos.d vanished

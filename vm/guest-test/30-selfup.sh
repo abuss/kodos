@@ -7,7 +7,7 @@
 # kodos while every older generation's binary stays intact on disk.
 PATH=/sbin:/bin:/usr/sbin:/usr/bin:$PATH
 G=/kod/generation
-R=/var/kodos/repo/x86_64
+R=/kod/repo/x86_64
 fails=0
 line() { echo "GUEST-TEST: $1 $2${3:+ $3}"; [ "$2" = FAIL ] && fails=$((fails + 1)); return 0; }
 cur() { basename "$(readlink "$G/current" 2>/dev/null)"; }

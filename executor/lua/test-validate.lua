@@ -108,7 +108,7 @@ assert(ok == false, "should have no errors, got: " .. tostring(why))
 
 -- 6. repositories: valid file:// entry passes; wrong type / unknown key caught
 has = scratch_layer("_scratch_v6.lua", [[
-return { repositories = { mylocal = { url = "file:///var/kodos/repo" } } }
+return { repositories = { mylocal = { url = "file:///kod/repo" } } }
 ]])
 local ok6, why6 = has("NO-SUBSTR")
 assert(ok6 == false, "repositories with valid file:// url must pass, got: " .. tostring(why6))

@@ -37,9 +37,9 @@ conf = resolve.deep_merge(conf, {
         ssh = { permit_root_login = true },
     },
     -- the kodos repo, shipped into this image by copy_tree at bootstrap. src
-    -- ABSOLUTE = this machine's own /var/kodos/repo: the copy self-skips and
+    -- ABSOLUTE = this machine's own /kod/repo: the copy self-skips and
     -- apk/fetch read the repo straight off the local disk.
-    repositories = { kodos = { url = "file:///var/kodos/repo", src = "/var/kodos/repo" } },
+    repositories = { kodos = { url = "file:///kod/repo", src = "/kod/repo" } },
     packages = { { repo = "kodos", name = "kodos" } },
 })
 

@@ -300,11 +300,15 @@ What the bootstrap now ships into the image (host proof: regenerating
 - `/etc/kodos/secrets.json`, mode 0600 — apply's secrets sidecar, read from the
   config's own directory (the default `/etc/kodos/secrets.json`). Test creds,
   already public in this repo.
-- `repositories.kodos.src = "/var/kodos/repo"` (absolute, i.e. the machine's own
+- `repositories.kodos.src = "/kod/repo"` (absolute, i.e. the machine's own
   copy of the repo): `copy_tree` self-skips (src == the chroot-mapped dst) and
   apk/fetchUnpack read the repo off the local disk. Bootstrap keeps
-  `src = "repo"` — host-path provenance — and its lock is unchanged (868 pins,
-  `kodos` 0.1.0-r0, no `dummy`).
+  `src = "repo"` — host-path provenance — and its lock needs no config drift
+  (893 pins incl. the util-linux closure, `kodos` 0.1.0-r0, no `dummy`).
+  PASTE ROUND 2 RULING (2026-11-14): the repo lives at **`/kod/repo`**, root
+  level next to `/kod/store` — `/var` is per-generation (flips at activation,
+  pruning-unsafe), so a repo under `/var/kodos` would vanish at the next
+  activation and the self-copy guard would never re-ship it.
 - Guest disk identity: `qemu -drive ...,if=virtio` ⇒ the guest's disk is
   **/dev/vda** (bootstrap's /dev/nbdX is the host's view; fstab mounts by UUID).
 - `services.ssh.permit_root_login = true` in vm-layer AND the guest config: the

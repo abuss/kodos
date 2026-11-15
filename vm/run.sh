@@ -192,7 +192,7 @@ do_guest() {
 do_guest_file() {
     [ $# -ge 1 ] || { echo "usage: vm/run.sh guest-file LOCAL [REMOTE]"; exit 2; }
     [ -r "$1" ] || { echo "no such file: $1"; exit 1; }
-    rem=${2:-/var/kodos/repo/x86_64/}
+    rem=${2:-/kod/repo/x86_64/}
     case $rem in */) rem="$rem$(basename "$1")";; esac
     guest_ssh "cat > '$rem'" < "$1"
     echo "sent $1 -> $GUEST_USER@$GUEST_HOST:$rem"

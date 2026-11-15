@@ -139,13 +139,13 @@ os.remove("_scratch_flatpak.lua")
 -- ====== local repositories: configure_repos gains repos list ======
 local f_lr = assert(io.open("_scratch_localrepo.lua", "w"))
 f_lr:write([[
-return { repositories = { mylocal = { url = "file:///var/kodos/repo" } } }
+return { repositories = { mylocal = { url = "file:///kod/repo" } } }
 ]])
 f_lr:close()
 local lr = run("system.lua _scratch_localrepo.lua")
 assert(lr:find('"repos"', 1, true), "configure_repos must carry repos list when repositories present")
 assert(lr:find('"name": "mylocal"', 1, true), "repo name must appear in repos list")
-assert(lr:find('"url": "file:///var/kodos/repo"', 1, true), "repo url must appear in repos list")
+assert(lr:find('"url": "file:///kod/repo"', 1, true), "repo url must appear in repos list")
 os.remove("_scratch_localrepo.lua")
 
 -- without repositories section: repos field absent (byte-identity)
@@ -154,7 +154,7 @@ assert(not base:find('"repos"', 1, true), "configure_repos must NOT carry repos 
 -- ====== copy_tree: local repo with src emits copy_tree BEFORE configure_repos ======
 local f_ct = assert(io.open("_scratch_copytree.lua", "w"))
 f_ct:write([[
-return { repositories = { myrepo = { url = "file:///var/kodos/repo", src = "vm/repo" } } }
+return { repositories = { myrepo = { url = "file:///kod/repo", src = "vm/repo" } } }
 ]])
 f_ct:close()
 local ct = run("system.lua _scratch_copytree.lua")
@@ -177,7 +177,7 @@ assert(ct_pos > last_mount and cr_pos > last_mount,
 assert(cr_pos < ct:find('"op": "write_file"', 1, true)
        and cr_pos < ct:find('"op": "install_packages"', 1, true),
        "configure_repos must precede write_file and install_packages")
-assert(ct:find('"dst": "/var/kodos/repo"', 1, true), "copy_tree dst must be url minus file://")
+assert(ct:find('"dst": "/kod/repo"', 1, true), "copy_tree dst must be url minus file://")
 -- repos entry must carry src (host-abs) when copy_tree was declared
 assert(ct:find('"src":', 1, true), "configure_repos repos entry must carry src when copy_tree declared")
 -- src must be absolute (provenance resolved against layer dir = ".")

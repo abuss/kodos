@@ -40,7 +40,7 @@ return {
                  -- paste rounds drive the guest over ssh as root (vm/run.sh
                  -- guest); throwaway test creds only, see vm/run.sh
                  ssh = { permit_root_login = true } },
-    repositories = { kodos = { url = "file:///var/kodos/repo", src = "repo" } },
+    repositories = { kodos = { url = "file:///kod/repo", src = "repo" } },
     packages = { { repo = "kodos", name = "kodos" } },
     -- ====== the guest's self-management material, shipped at bootstrap ======
     -- The kodos binary embeds the Lua toolchain but NOT the machine's config:
