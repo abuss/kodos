@@ -608,13 +608,65 @@ func (e *executor) umountChroot() {
 	}
 }
 
-// chrootSh / chrootExecScript run in an EXPLICIT root dir. When that is the
-// live chroot we mirror its pseudo-fs mounts first; a RAW generation tree is
-// used bare — apk itself runs package hooks in bare --root trees, and the
-// base hook set (busybox --install, addgroup/adduser, rc-update, kernel
-// depmod) is file-level.
-// ponytail: no /proc,/dev,/sys binds into gen trees; if a hook ever needs
-// live kernel interfaces, reuse genChrootSh's bind dance.
+// ensureGenChrootMounts binds the kernel API filesystems into a raw generation
+// tree for the duration of the hook sweep. The gen tree may not have all
+// target dirs (baselayout creates /dev etc via its own hook), so we SKIP any
+// that are not yet real directories. We also skip any that are already
+// mountpoints (live-machine apply where the gen may be the previous gen with
+// live mounts already in place). /run gets a fresh tmpfs (hooks write to it).
+// Call umountGenChroot(genDir) in a defer immediately after this returns nil
+// (both on success AND error paths).
+func ensureGenChrootMounts(genDir string) error {
+	// proc
+	if isRealDir(filepath.Join(genDir, "proc")) && !isMountpoint(filepath.Join(genDir, "proc")) {
+		run("mount", "--make-rprivate", filepath.Join(genDir, "proc"))
+		if err := run("mount", "-t", "proc", "proc", filepath.Join(genDir, "proc")); err != nil {
+			return fmt.Errorf("gen-chroot mount proc: %w", err)
+		}
+	}
+	// sys + dev: rbind + make-rslave
+	for _, src := range []string{"/sys", "/dev"} {
+		target := filepath.Join(genDir, strings.TrimPrefix(src, "/"))
+		if !isRealDir(target) || isMountpoint(target) {
+			continue
+		}
+		run("mount", "--make-rprivate", target)
+		if err := run("mount", "--rbind", src, target); err != nil {
+			return fmt.Errorf("gen-chroot rbind %s: %w", src, err)
+		}
+		run("mount", "--make-rslave", target)
+	}
+	// run: fresh tmpfs (hooks may write pid files etc.)
+	if isRealDir(filepath.Join(genDir, "run")) && !isMountpoint(filepath.Join(genDir, "run")) {
+		if err := run("mount", "-t", "tmpfs", "tmpfs", filepath.Join(genDir, "run")); err != nil {
+			return fmt.Errorf("gen-chroot mount run: %w", err)
+		}
+	}
+	return nil
+}
+
+// umountGenChroot tears down the API mounts ensureGenChrootMounts created.
+// Called unconditionally (defer) after the hook sweep — same rprivate-first,
+// -R-after discipline as umountChroot to avoid propagating unmounts outward.
+func umountGenChroot(genDir string) {
+	for _, name := range []string{"run", "dev", "sys", "proc"} {
+		mp := filepath.Join(genDir, name)
+		if !isMountpoint(mp) {
+			continue // not mounted by us (dir absent or already-live mount)
+		}
+		run("mount", "--make-rprivate", mp)
+		exec.Command("umount", "-R", mp).Run() // best-effort
+	}
+}
+
+// chrootSh / chrootExecScript run in an EXPLICIT root dir. When dir is the
+// live chroot, the kernel API filesystems are mirrored first via
+// ensureChrootMounts. When dir is a raw generation tree, the caller
+// (runPostInstalls) has already called ensureGenChrootMounts + deferred
+// umountGenChroot: hooks get a proper chroot with /proc,/dev,/sys,/run so
+// that boot-critical post-install steps (busybox --install creates /sbin/init
+// + all applets; openrc rc-update links; kernel depmod) have the kernel
+// interfaces they need.
 func (e *executor) chrootSh(dir, script string) error {
 	if dir == e.s.chroot {
 		if err := e.ensureChrootMounts(); err != nil {
@@ -701,15 +753,17 @@ func (e *executor) genChrootSh(script string) error {
 }
 
 // runPostInstalls executes package .pre-install/.post-install scripts
-// chrooted into the RAW generation tree, at CREATE time (main.go): running
-// them after the flip needs the very tools the incomplete tree is missing —
-// Alpine 3.24 busybox creates /bin/sh etc ONLY via its own hook
-// (`#!/bin/busybox sh; /bin/busybox --install -s`), so busybox runs FIRST and
-// scripts are exec'd through their SHEBANG, not wrapped in /bin/sh (which may
-// not exist yet). Deterministic order. The scripts live in the store (OUTSIDE
-// the gen tree), so stage a copy at <genDir>/tmp/.kodos-hook-<pkg>-<kind>.sh,
-// run it, remove it. baselayout-seeded trees carry tmp/; on a store without a
-// tmp dir the MkdirAll'd dir persists in the tree (harmless, baselayout-legal).
+// chrooted into the generation tree, at CREATE time (main.go). The gen
+// tree gets proper API filesystem mounts (/proc,/dev,/sys,/run) for the
+// duration of the hook sweep: busybox's post-install calls
+// `/bin/busybox --install -s` which creates all applet symlinks including
+// /sbin/init, /bin/sh, etc.; openrc's post-install uses /bin/sh; kernel
+// hooks use depmod. Without these mounts some hooks silently skip steps,
+// leaving an unrunnable generation. Mounts are torn down unconditionally
+// after the sweep (rprivate-first, umount -R, same discipline as
+// umountChroot). The scripts live in the store (outside the gen tree),
+// so each is staged at <genDir>/tmp/.kodos-hook-<pkg>-<kind>.sh (0755),
+// executed, then removed.
 func (e *executor) runPostInstalls(genDir string, toInstall map[string]string) error {
 	names := make([]string, 0, len(toInstall))
 	for p := range toInstall {
@@ -722,6 +776,11 @@ func (e *executor) runPostInstalls(genDir string, toInstall map[string]string) e
 	if err := os.MkdirAll(filepath.Join(genDir, "tmp"), 0o755); err != nil {
 		return err
 	}
+	if err := ensureGenChrootMounts(genDir); err != nil {
+		return fmt.Errorf("gen-chroot mounts: %w", err)
+	}
+	defer umountGenChroot(genDir)
+
 	before := e.snapshotRunlevels(genDir) // hooks may rc-update add: protect those entries
 	for _, p := range names {
 		// apk runs .pre-install before a package's files land and
@@ -779,7 +838,20 @@ func (e *executor) runPostInstalls(genDir string, toInstall map[string]string) e
 	return nil
 }
 
-// syncMutatedEtc reconciles mutated etc files back into the generation's
+// checkGenRunnable asserts the generation tree has the minimum boot-critical
+// entries: /sbin/init and /bin/sh. Missing either means a package post-install
+// hook silently failed to create it (busybox's --install -s creates both).
+// Hard-error here — before activation can ever expose the incomplete tree.
+func checkGenRunnable(genDir string, n int) error {
+	for _, p := range []string{"sbin/init", "bin/sh"} {
+		if _, err := os.Lstat(filepath.Join(genDir, p)); err != nil {
+			return fmt.Errorf("generation %d incomplete: /%s missing after hooks"+
+				" (package post-install failure?)", n, p)
+		}
+	}
+	return nil
+}
+
 // store. walkEtc is the generation's etc tree to scan; srcEtc is the
 // MUTATION-SOURCE side: the LIVE root's etc (hooks used to run there) or —
 // create-time contract — walkEtc itself (hooks now run chrooted into the raw

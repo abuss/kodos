@@ -256,7 +256,11 @@ func (e *executor) run(act map[string]any) error {
 		// missing mid-apply, current left pointing at a broken generation).
 		// e.lastGen = the closure of the generation JUST created (rerun-
 		// everything, idempotent-enough for base pkgs, same as bootstrap).
-		return e.runPostInstalls(e.s.genDir(e.meta.Generation), e.lastGen)
+		genDir := e.s.genDir(e.meta.Generation)
+		if err := e.runPostInstalls(genDir, e.lastGen); err != nil {
+			return err
+		}
+		return checkGenRunnable(genDir, e.meta.Generation)
 	case "activate_generation":
 		// just the flip: hooks already ran on this tree at create time;
 		// rollback streams carry no create_generation op, so they run none

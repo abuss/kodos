@@ -463,6 +463,35 @@ func selftestPure() {
 		connUUID("wired") == connUUID("wired") && connUUID("wired") != connUUID("home"),
 		"connUUID must be valid, deterministic per name, distinct, got %q", connUUID("wired"))
 
+	// checkGenRunnable: generation completeness guard — missing /sbin/init or
+	// /bin/sh means a post-install hook silently failed (busybox's hook creates
+	// both via --install -s). The bind-mount path (ensureGenChrootMounts) that
+	// makes real hooks work is validated by the scratch E2E (runs inside
+	// unshare -Urm where mounts are allowed; selftest runs without that
+	// privilege, so hooks themselves can't run real binaries here).
+	{
+		dir, err := os.MkdirTemp("", "kodos-rnbl")
+		check(err == nil, "mkdtemp runnable: %v", err)
+		// complete tree: has both entries
+		check(os.MkdirAll(filepath.Join(dir, "sbin"), 0o755) == nil, "mkdir sbin")
+		check(os.MkdirAll(filepath.Join(dir, "bin"), 0o755) == nil, "mkdir bin")
+		check(os.WriteFile(filepath.Join(dir, "bin", "sh"), []byte{}, 0o755) == nil, "write bin/sh")
+		check(os.Symlink("/bin/busybox", filepath.Join(dir, "sbin", "init")) == nil, "symlink sbin/init")
+		check(checkGenRunnable(dir, 99) == nil, "complete gen must pass runnable check")
+		// missing /sbin/init → hard error
+		os.Remove(filepath.Join(dir, "sbin", "init"))
+		err = checkGenRunnable(dir, 99)
+		check(err != nil && strings.Contains(err.Error(), "incomplete"),
+			"missing sbin/init must hard-error, got: %v", err)
+		// missing /bin/sh → hard error
+		check(os.Symlink("/bin/busybox", filepath.Join(dir, "sbin", "init")) == nil, "restore init")
+		os.Remove(filepath.Join(dir, "bin", "sh"))
+		err = checkGenRunnable(dir, 99)
+		check(err != nil && strings.Contains(err.Error(), "incomplete"),
+			"missing bin/sh must hard-error, got: %v", err)
+		os.RemoveAll(dir)
+	}
+
 	// runlevel reconciliation: sweep stale enables; protect declared and
 	// hook-added entries; streams without services touch nothing.
 	{
