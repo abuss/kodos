@@ -175,6 +175,7 @@ func sameContent(a, b string) bool {
 
 // cowCopy: copy src -> dst preserving mode. ponytail: plain copy; these are
 // small etc config files. If ever huge, reflink via unix.CopyFileRange.
+// Removes the partial dst on any failure — no 0-byte relics.
 func cowCopy(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -187,9 +188,11 @@ func cowCopy(src, dst string) error {
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
+		os.Remove(dst)
 		return err
 	}
 	if err := out.Close(); err != nil {
+		os.Remove(dst)
 		return err
 	}
 	if st, err := in.Stat(); err == nil {
@@ -409,60 +412,138 @@ func (s *system) hardlink(target, dst string) error {
 	return nil
 }
 
-// storeEntry: the store path behind a generation/etc link, without chasing
-// the entry's own final target: hardlinking THAT inode (a real file, or a
-// verbatim package symlink like ssl1.1/certs -> /etc/ssl/certs) is what
-// materializes the entry in live /etc.
+// storeEntry: the store path behind a generation/etc entry, resolved
+// STRUCTURALLY by rel path so it works regardless of whether the gen/etc
+// entry is a /kod-rooted symlink (old shape) or a hardlink to the store
+// file (current shape from seedEtc). etc_store wins; falls back to
+// etc_default. Returns "" when neither exists (hook-created unmanaged file).
 func (s *system) storeEntry(src string) string {
-	if t, err := os.Readlink(src); err == nil && strings.HasPrefix(t, "/") {
-		return filepath.Join(s.chroot, strings.TrimPrefix(t, "/"))
+	// Derive the generation root: src is <gen>/etc/<rel>; split on "/etc/"
+	// taking the left side as the gen root (rel itself never starts with
+	// "/etc/" because it is relative).
+	idx := strings.LastIndex(src, "/etc/")
+	if idx < 0 {
+		return "" // unexpected path shape
 	}
-	return s.chrootResolve(src)
+	gen := src[:idx]
+	rel := src[idx+len("/etc/"):]
+	for _, base := range []string{"etc_store", "etc_default"} {
+		if c := filepath.Join(gen, base, rel); lexists(c) {
+			return c
+		}
+	}
+	return "" // hook-created file, no store candidate
 }
 
-// installEtc activates one etc entry as a hardlink into the generation's
-// store copy. Live /etc entries must be real files: shadow 4.18 opens
-// /etc/passwd & friends via openat2(RESOLVE_NO_SYMLINKS) and refuses to
-// even follow a symlink chain there (ELOOP "Symbolic link loop"), while
-// the real kodos machine (and every package post-install) treats /etc as
-// plain mutable files inside the generation's rootfs snapshot. Hardlinks
-// keep that behavior while preserving the shared-inode rollback bookkeeping.
-func (s *system) installEtc(src, dst, rel string) {
-	newP := s.storeEntry(src) // the store entry (real file or verbatim link)
-	ls, lerr := os.Lstat(dst)
-	if lerr != nil {
-		s.hardlink(newP, dst) // fresh entry
-		return
+// installEtc activates one etc entry into the live /etc tree.
+//
+// Real-file store entries: materialized as a hardlink sharing the
+// store inode (rollback bookkeeping, shadow RESOLVE_NO_SYMLINKS compat).
+//
+// Symlink store entries (openrc's functions.sh -> /usr/libexec/…,
+// ssl1.1/certs -> /etc/ssl/certs, mtab -> /proc/self/mounts…): kept
+// verbatim as symlinks — the target need not exist at activation time
+// (etc merges before top-level dirs like usr/libexec are linked).
+//
+// Ordering: CREATE-BEFORE-DELETE — we establish the new entry at a tmp
+// path first, then rename over; if the tmp creation fails, the existing
+// live entry is never touched (atomic-ish replacement on the same fs).
+// Hardlink/symlink creation errors are returned (path-annotated) and
+// propagated up through activateEtc → activateGeneration.
+func (s *system) installEtc(src, dst, rel string) error {
+	newP := s.storeEntry(src) // structural store path (etc_store > etc_default)
+	if newP == "" {
+		return nil // hook-created unmanaged file; activation leaves it
 	}
-	if ls.Mode()&os.ModeSymlink != 0 {
-		os.Remove(dst) // old-style managed symlink: migrate to hardlink
-		s.hardlink(newP, dst)
-		return
+
+	// Determine what to materialize: symlink store entries stay symlinks;
+	// real files become hardlinks (shadow RESOLVE_NO_SYMLINKS compat).
+	stSrc, err := os.Lstat(newP)
+	if err != nil {
+		return fmt.Errorf("installEtc %s: stat store entry: %w", rel, err)
 	}
-	if !ls.Mode().IsRegular() {
-		return // dir/fifo/socket: not ours to replace
-	}
-	if sameInode(dst, newP) {
-		return // already hardlinked to this generation
-	}
-	if sameContent(newP, dst) {
-		os.Remove(dst)
-		s.hardlink(newP, dst) // byte-identical: hand it back to the generations
-		return
-	}
-	base := filepath.Base(dst)
+	isLink := stSrc.Mode()&os.ModeSymlink != 0
+
+	// CREATE-BEFORE-DELETE: build the new entry at a sibling tmp path,
+	// then rename over. If creation fails, the existing dst is untouched.
 	dir := filepath.Dir(dst)
-	n := 1
-	conflict := filepath.Join(dir, fmt.Sprintf("%s.apknew-%d", base, n))
-	for lexists(conflict) {
-		n++
-		conflict = filepath.Join(dir, fmt.Sprintf("%s.apknew-%d", base, n))
+	tmp := dst + ".kodos-new"
+	os.Remove(tmp) // clean up any leftover from a previous half-run
+
+	if isLink {
+		target, _ := os.Readlink(newP)
+		if err := os.Symlink(target, tmp); err != nil {
+			return fmt.Errorf("installEtc %s: symlink: %w", rel, err)
+		}
+	} else {
+		if err := s.hardlink(newP, tmp); err != nil {
+			return fmt.Errorf("installEtc %s: hardlink: %w", rel, err)
+		}
 	}
-	if st, err := os.Lstat(newP); err == nil && st.Mode().IsRegular() {
-		cowCopy(newP, conflict)
+
+	// Check the existing entry.
+	ls, lerr := os.Lstat(dst)
+	if lerr == nil {
+		if ls.Mode()&os.ModeSymlink != 0 {
+			// old-style managed symlink: replace it (rename-over)
+			if err := os.Rename(tmp, dst); err != nil {
+				os.Remove(tmp)
+				return fmt.Errorf("installEtc %s: rename: %w", rel, err)
+			}
+			return nil
+		}
+		if !ls.Mode().IsRegular() {
+			os.Remove(tmp)
+			return nil // dir/fifo/socket: not ours to replace
+		}
+		if isLink {
+			// Store entry is a symlink; existing live entry is a regular
+			// file — replace unconditionally (pre-hardlink legacy shape
+			// may have content-copied it; now we restore the proper link).
+			if err := os.Rename(tmp, dst); err != nil {
+				os.Remove(tmp)
+				return fmt.Errorf("installEtc %s: rename: %w", rel, err)
+			}
+			return nil
+		}
+		// Both are regular files.
+		if sameInode(dst, newP) {
+			os.Remove(tmp)
+			return nil // already hardlinked to this generation
+		}
+		if sameContent(newP, dst) {
+			// Byte-identical: hand it back to the generations.
+			if err := os.Rename(tmp, dst); err != nil {
+				os.Remove(tmp)
+				return fmt.Errorf("installEtc %s: rename: %w", rel, err)
+			}
+			return nil
+		}
+		// Content conflict: keep the local version; drop tmp and place
+		// the new default as .apknew.
+		os.Remove(tmp)
+		base := filepath.Base(dst)
+		n := 1
+		conflict := filepath.Join(dir, fmt.Sprintf("%s.apknew-%d", base, n))
+		for lexists(conflict) {
+			n++
+			conflict = filepath.Join(dir, fmt.Sprintf("%s.apknew-%d", base, n))
+		}
+		if err := s.hardlink(newP, conflict); err != nil {
+			return fmt.Errorf("installEtc %s: apknew hardlink: %w", rel, err)
+		}
+		fmt.Printf("config conflict: kept local %s; new default in %s\n",
+			strings.TrimPrefix(dst, s.chroot+"/"),
+			strings.TrimPrefix(conflict, s.chroot+"/"))
+		return nil
 	}
-	fmt.Printf("config conflict: kept local %s; new default in %s\n",
-		strings.TrimPrefix(dst, s.chroot+"/"), strings.TrimPrefix(conflict, s.chroot+"/"))
+
+	// No existing entry: simple rename.
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("installEtc %s: rename (fresh): %w", rel, err)
+	}
+	return nil
 }
 
 func (s *system) activateEtc(generationEtc, etc string) error {
@@ -481,7 +562,9 @@ func (s *system) activateEtc(generationEtc, etc string) error {
 			os.MkdirAll(dst, 0o755)
 		} else {
 			os.MkdirAll(filepath.Dir(dst), 0o755)
-			s.installEtc(src, dst, rel)
+			if err := s.installEtc(src, dst, rel); err != nil {
+				return err
+			}
 		}
 	}
 

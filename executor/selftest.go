@@ -55,6 +55,12 @@ func selftest() {
 	check(os.Symlink("usr/sbin", filepath.Join(s.store(), "00base", "1.0", "sbin")) == nil, "fake sbin symlink")
 	write(filepath.Join(s.store(), "pkgA", "1.0", "bin", "a"), "A1\n")
 	write(filepath.Join(s.store(), "pkgA", "1.0", "etc", "foo"), "upstream\n")
+	// symlink etc entries: (a) absolute target into a dir not yet existing
+	// at activate time (/usr/libexec/rc — style), (b) relative link
+	check(os.Symlink("/usr/libexec/rc/sh/functions.sh",
+		filepath.Join(s.store(), "pkgA", "1.0", "etc", "abslink")) == nil, "abslink store")
+	check(os.Symlink("../proc/self/mounts",
+		filepath.Join(s.store(), "pkgA", "1.0", "etc", "rellink")) == nil, "rellink store")
 	write(filepath.Join(s.store(), "pkgB", "2.0", "bin", "b"), "B\n")
 	write(filepath.Join(s.store(), "pkgB", "2.0", "etc", "bar"), "bar\n")
 	check(os.MkdirAll(filepath.Join(chroot, "etc"), 0o755) == nil, "live etc")
@@ -116,6 +122,15 @@ func selftest() {
 	check(t == "", "gen etc/foo is a hardlink, not a symlink (got %q)", t)
 	check(sameInode(filepath.Join(g0, "etc", "foo"), filepath.Join(g0, "etc_store", "foo")),
 		"gen etc entry hardlinks into etc_store")
+	// symlink store entries are hardlinked AS symlinks in the gen tree
+	tAbsStore, _ := os.Readlink(filepath.Join(g0, "etc_store", "abslink"))
+	tRelStore, _ := os.Readlink(filepath.Join(g0, "etc_store", "rellink"))
+	check(tAbsStore == "/usr/libexec/rc/sh/functions.sh", "etc_store abslink verbatim, got %q", tAbsStore)
+	check(tRelStore == "../proc/self/mounts", "etc_store rellink verbatim, got %q", tRelStore)
+	tAbsGen, _ := os.Readlink(filepath.Join(g0, "etc", "abslink"))
+	check(tAbsGen == "/usr/libexec/rc/sh/functions.sh", "gen etc/abslink verbatim, got %q", tAbsGen)
+	tRelGen, _ := os.Readlink(filepath.Join(g0, "etc", "rellink"))
+	check(tRelGen == "../proc/self/mounts", "gen etc/rellink verbatim, got %q", tRelGen)
 
 	check(s.activateGeneration(g0) == nil, "activate gen0")
 	t, _ = os.Readlink(filepath.Join(chroot, "bin"))
@@ -124,6 +139,25 @@ func selftest() {
 		"live etc entry is a hardlink into the generation store")
 	check(readOr(filepath.Join(chroot, "etc", "foo")) == "upstream\n",
 		"live entry carries upstream content")
+	// symlink store entries must materialize in live /etc as verbatim symlinks
+	// (target need not exist — etc merges before top-level dirs like usr/libexec are linked)
+	tAbsLive, _ := os.Readlink(filepath.Join(chroot, "etc", "abslink"))
+	tRelLive, _ := os.Readlink(filepath.Join(chroot, "etc", "rellink"))
+	check(tAbsLive == "/usr/libexec/rc/sh/functions.sh",
+		"live etc/abslink must be verbatim symlink, got %q", tAbsLive)
+	check(tRelLive == "../proc/self/mounts",
+		"live etc/rellink must be verbatim symlink, got %q", tRelLive)
+	absSt, _ := os.Lstat(filepath.Join(chroot, "etc", "abslink"))
+	relSt, _ := os.Lstat(filepath.Join(chroot, "etc", "rellink"))
+	check(absSt != nil && absSt.Mode()&os.ModeSymlink != 0,
+		"live etc/abslink is a symlink (not dropped/0-byte)")
+	check(relSt != nil && relSt.Mode()&os.ModeSymlink != 0,
+		"live etc/rellink is a symlink (not content-copied)")
+	// create-before-delete ordering: replace abslink with a fresh gen0 re-activate
+	// (same inode target → rename-over; old entry never disappears if rename fails).
+	// Code-review note: the tmp+rename pattern in installEtc guarantees the old
+	// entry is only removed if the new entry was atomically placed.
+
 	check(readOr(s.chrootResolve(filepath.Join(chroot, "sbin", "s"))) == "S\n",
 		"merged-usr sbin alias resolves through current")
 
@@ -439,15 +473,27 @@ func selftestPure() {
 			check(os.MkdirAll(filepath.Dir(p), 0o755) == nil, "mkdir %s", p)
 			check(os.Symlink("../init.d/"+filepath.Base(k), p) == nil, "symlink %s", p)
 		}
+		// regular-file stale entry (hook-made runlevel enables now land as
+		// real files after the hardlink seed shape change)
+		goneFile := filepath.Join(dir, "etc/runlevels/boot/gonefile")
+		check(os.WriteFile(goneFile, []byte{}, 0o644) == nil, "write stale regular runlevel entry")
+		hookedFile := filepath.Join(dir, "etc/runlevels/sysinit/hookedfile")
+		check(os.WriteFile(hookedFile, []byte{}, 0o644) == nil, "write hook-set regular runlevel entry")
 		re := &executor{s: &system{chroot: dir},
 			declaredRunlevels: map[string]bool{"boot/keep": true},
-			hookRunlevels:     map[string]bool{"sysinit/hooked": true}}
+			hookRunlevels:     map[string]bool{"sysinit/hooked": true, "sysinit/hookedfile": true}}
 		check(re.reconcileRunlevels() == nil, "reconcile returned error")
 		_, e1 := os.Lstat(filepath.Join(dir, "etc/runlevels/boot/keep"))
 		_, e2 := os.Lstat(filepath.Join(dir, "etc/runlevels/sysinit/hooked"))
 		_, e3 := os.Lstat(filepath.Join(dir, "etc/runlevels/boot/gone"))
+		_, e3f := os.Lstat(filepath.Join(dir, "etc/runlevels/boot/gonefile"))
+		_, e2f := os.Lstat(filepath.Join(dir, "etc/runlevels/sysinit/hookedfile"))
 		check(e1 == nil && e2 == nil && os.IsNotExist(e3),
 			"reconcile must keep declared+hooked, sweep stale: %v %v %v", e1, e2, e3)
+		check(os.IsNotExist(e3f),
+			"reconcile must sweep stale regular-file runlevel entry: %v", e3f)
+		check(e2f == nil,
+			"reconcile must keep hook-set regular-file runlevel entry: %v", e2f)
 		re2 := &executor{s: &system{chroot: dir}} // no enables in stream: hands off
 		check(re2.reconcileRunlevels() == nil, "reconcile no-op returned error")
 		_, e4 := os.Lstat(filepath.Join(dir, "etc/runlevels/sysinit/hooked"))

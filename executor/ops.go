@@ -836,6 +836,9 @@ func (e *executor) syncMutatedEtc(walkEtc, srcEtc string) error {
 			continue
 		}
 		tgt := e.s.storeEntry(src) // the store entry behind the gen link
+		if tgt == "" {
+			continue // hook-created unmanaged entry
+		}
 		if ss, err := os.Lstat(tgt); err != nil || ss.Mode()&os.ModeSymlink != 0 {
 			continue // verbatim alias link (e.g. ssl1.1/certs): never mutates
 		}
@@ -1139,8 +1142,13 @@ func (e *executor) reconcileRunlevels() error {
 				continue
 			}
 			p := filepath.Join(rlRoot, rl.Name(), u.Name())
-			if _, err := os.Readlink(p); err != nil {
-				continue // only rc-update's symlinks are ours to sweep
+			st, err := os.Lstat(p)
+			if err != nil {
+				continue
+			}
+			isSymlink := st.Mode()&os.ModeSymlink != 0
+			if !isSymlink && !st.Mode().IsRegular() {
+				continue // dirs/fifos: not ours to sweep
 			}
 			if err := os.Remove(p); err != nil {
 				return fmt.Errorf("reconcile runlevels %s: %w", key, err)
