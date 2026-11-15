@@ -1,7 +1,7 @@
 package main
 
 // ops_test.go — the copy_tree self-copy guard (ops.go): the guest's own config
-// declares repositories.kodos.src = "/var/kodos/repo", i.e. the SAME directory
+// declares repositories.kodos.src = "/kod/repo", i.e. the SAME directory
 // the mapped dst resolves to, so every in-guest `kodos apply` walks straight
 // into it. Walking a tree onto itself must be a no-op, and a genuine copy must
 // still land (dirs 0755, files 0644).
@@ -29,13 +29,49 @@ func TestCopyTreeSelfCopySkip(t *testing.T) {
 	}
 
 	if err := e.copyTree(map[string]any{
-		"op": "copy_tree", "name": "kodos", "src": src, "dst": "/var/kodos/repo",
+		"op": "copy_tree", "name": "kodos", "src": src, "dst": "/kod/repo",
 	}); err != nil {
 		t.Fatalf("copy to a different dst: %v", err)
 	}
-	b, err := os.ReadFile(filepath.Join(root, "var/kodos/repo/x86_64/kodos-0.1.0-r0.apk"))
+	b, err := os.ReadFile(filepath.Join(root, "kod/repo/x86_64/kodos-0.1.0-r0.apk"))
 	if err != nil || string(b) != "apk" {
 		t.Fatalf("copied content missing/wrong: %q %v", string(b), err)
+	}
+}
+
+// paste round 2 (2026-11-14): a REAL installed root ships top-level dirs as
+// chroot-rooted symlinks into /kod/generation/... (e.g. <chroot>/var ->
+// /kod/generation/current/var, meaningful only under the chroot). copy_tree
+// must resolve such links (like every other target-root-touching op does via
+// s.chrootResolve) — a raw Join dies at MkdirAll with "file exists".
+func TestCopyTreeChrootRootedSymlinkDst(t *testing.T) {
+	root := t.TempDir()
+	realVar := filepath.Join(root, "kod/generation/current/var")
+	if err := os.MkdirAll(realVar, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/kod/generation/current/var", filepath.Join(root, "var")); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(root, "hostrepo")
+	if err := os.MkdirAll(filepath.Join(src, "x86_64"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "x86_64", "kodos-0.1.0-r0.apk"), []byte("apk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := &executor{s: &system{chroot: root}}
+	if err := e.copyTree(map[string]any{
+		"op": "copy_tree", "name": "kodos", "src": src, "dst": "/var/repo",
+	}); err != nil {
+		t.Fatalf("copy under a symlinked top dir: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(realVar, "repo/x86_64/kodos-0.1.0-r0.apk"))
+	if err != nil || string(b) != "apk" {
+		t.Fatalf("content missing at the link's real target: %q %v", string(b), err)
+	}
+	if fi, err := os.Lstat(filepath.Join(root, "var")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("<chroot>/var must still be the symlink, not a materialized dir: %v %v", fi, err)
 	}
 }
 

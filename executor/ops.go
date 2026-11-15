@@ -318,7 +318,14 @@ func (e *executor) copyTree(act map[string]any) error {
 			return err
 		}
 		rel, _ := filepath.Rel(src, p)
-		target := filepath.Join(hostDst, rel)
+		// resolve chroot-rooted managed links first (same rule as writeFileTo):
+		// a real installed root ships top-level dirs as symlinks into
+		// /kod/generation/... whose targets are meaningful ONLY rooted at the
+		// chroot — a raw Join MkdirAlls onto the symlink ("file exists") and
+		// file writes would dangle to the host's /kod. Scratch tmpfs roots
+		// never carry such links; that masked this until ordering put copy
+		// after a populated-root mount (paste round 2, 2026-11-14).
+		target := e.s.chrootResolve(filepath.Join(hostDst, rel))
 		switch {
 		case d.IsDir():
 			return os.MkdirAll(target, 0o755)
