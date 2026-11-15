@@ -16,11 +16,11 @@ before=$(gens); curbefore=$(cur)
 echo "== before: generations=$before current=$curbefore"
 kodos status
 
-if kodos rollback > /tmp/gt-rollback.log 2>&1; then
+if kodos rollback > /kod/gt-rollback.log 2>&1; then
     line rollback PASS
-    grep -E 'rollback:|reboot to boot' /tmp/gt-rollback.log
+    grep -E 'rollback:|reboot to boot' /kod/gt-rollback.log
 else
-    line rollback FAIL; tail -25 /tmp/gt-rollback.log
+    line rollback FAIL; tail -25 /kod/gt-rollback.log
 fi
 
 kodos status

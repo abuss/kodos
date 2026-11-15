@@ -24,8 +24,8 @@ func init() {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".lua") {
 			return err
 		}
-		rel := strings.TrimPrefix(path, "lua/")        // "resolve.lua"
-		modSlash := strings.TrimSuffix(rel, ".lua")    // "resolve" or "modules/users"
+		rel := strings.TrimPrefix(path, "lua/")          // "resolve.lua"
+		modSlash := strings.TrimSuffix(rel, ".lua")      // "resolve" or "modules/users"
 		modDot := strings.ReplaceAll(modSlash, "/", ".") // "modules.users"
 		content, err := luaFS.ReadFile(path)
 		if err != nil {

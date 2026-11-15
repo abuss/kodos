@@ -608,12 +608,21 @@ func (e *executor) umountChroot() {
 	}
 }
 
-func (e *executor) chrootSh(script string) error {
-	if err := e.ensureChrootMounts(); err != nil {
-		return err
+// chrootSh / chrootExecScript run in an EXPLICIT root dir. When that is the
+// live chroot we mirror its pseudo-fs mounts first; a RAW generation tree is
+// used bare — apk itself runs package hooks in bare --root trees, and the
+// base hook set (busybox --install, addgroup/adduser, rc-update, kernel
+// depmod) is file-level.
+// ponytail: no /proc,/dev,/sys binds into gen trees; if a hook ever needs
+// live kernel interfaces, reuse genChrootSh's bind dance.
+func (e *executor) chrootSh(dir, script string) error {
+	if dir == e.s.chroot {
+		if err := e.ensureChrootMounts(); err != nil {
+			return err
+		}
 	}
-	cmd := exec.Command("chroot", e.s.chroot, "/bin/sh", "-l", "-c", script)
-	cmd.Dir = e.s.chroot // the inode becomes "/" after chroot(2)
+	cmd := exec.Command("chroot", dir, "/bin/sh", "-l", "-c", script)
+	cmd.Dir = dir // the inode becomes "/" after chroot(2)
 	// NOT the host's PATH: it lacks /bin,/sbin,/usr/sbin (Arch host) and
 	// points at host-only dirs — chrooted scripts must resolve against the
 	// target's own layout (busybox applets live in /bin,/sbin).
@@ -642,8 +651,9 @@ func (e *executor) chrootShOut(script string) (string, error) {
 // (/usr/lib/libblkid.so.1 -> libblkid.so.1.1.0) DANGLING inside the
 // initramfs -> "Error loading shared library" panic path. Inside the
 // generation tree every dir is real and files are hardlinks, so paths
-// resolve like a vanilla root. Its /etc entries symlink into
-// /kod/generation/N/etc_store, so bind the kod tree in to resolve them.
+// resolve like a vanilla root. Its /etc entries hardlink into the gen's
+// etc_store; the kod bind keeps /kod-rooted paths (current aliases, cpio
+// staging) resolvable inside the tree.
 func (e *executor) genChrootSh(script string) error {
 	// NOT ".../current": that symlink targets /kod/generation/N which is
 	// chroot-rooted and would resolve against the HOST from out here.
@@ -691,11 +701,16 @@ func (e *executor) genChrootSh(script string) error {
 }
 
 // runPostInstalls executes package .pre-install/.post-install scripts
-// INSIDE the activated generation. Alpine 3.24 busybox creates /bin/sh etc
-// only via its own hook (`#!/bin/busybox sh; /bin/busybox --install -s`),
-// so: busybox runs FIRST and scripts are exec'd through their SHEBANG, not
-// wrapped in /bin/sh (which may not exist yet). Deterministic order.
-func (e *executor) runPostInstalls(toInstall map[string]string) error {
+// chrooted into the RAW generation tree, at CREATE time (main.go): running
+// them after the flip needs the very tools the incomplete tree is missing —
+// Alpine 3.24 busybox creates /bin/sh etc ONLY via its own hook
+// (`#!/bin/busybox sh; /bin/busybox --install -s`), so busybox runs FIRST and
+// scripts are exec'd through their SHEBANG, not wrapped in /bin/sh (which may
+// not exist yet). Deterministic order. The scripts live in the store (OUTSIDE
+// the gen tree), so stage a copy at <genDir>/tmp/.kodos-hook-<pkg>-<kind>.sh,
+// run it, remove it. baselayout-seeded trees carry tmp/; on a store without a
+// tmp dir the MkdirAll'd dir persists in the tree (harmless, baselayout-legal).
+func (e *executor) runPostInstalls(genDir string, toInstall map[string]string) error {
 	names := make([]string, 0, len(toInstall))
 	for p := range toInstall {
 		names = append(names, p)
@@ -704,33 +719,45 @@ func (e *executor) runPostInstalls(toInstall map[string]string) error {
 	if i := slices.Index(names, "busybox"); i > 0 { // provides /bin/sh for the rest
 		names = append([]string{"busybox"}, append(names[:i:i], names[i+1:]...)...)
 	}
-	before := e.snapshotRunlevels() // hooks may rc-update add: protect those entries
+	if err := os.MkdirAll(filepath.Join(genDir, "tmp"), 0o755); err != nil {
+		return err
+	}
+	before := e.snapshotRunlevels(genDir) // hooks may rc-update add: protect those entries
 	for _, p := range names {
 		// apk runs .pre-install before a package's files land and
 		// .post-install after; Alpine's pre-install hooks only need
 		// busybox adduser/addgroup (landed first), so running both in
-		// one sweep after activation is fine — and system users like
-		// dbus's messagebus are created ONLY there, nothing else in
-		// the package metadata declares them.
+		// one sweep is fine — and system users like dbus's messagebus
+		// are created ONLY there, nothing else in the package metadata
+		// declares them.
 		for _, kind := range []string{".pre-install", ".post-install"} {
 			script := filepath.Join(e.s.store(), p, toInstall[p], kind)
 			if !lexists(script) {
 				continue
 			}
-			rel := "/" + mustRel(e.s.chroot, script)
+			content, err := os.ReadFile(script)
+			if err != nil {
+				return err
+			}
+			name := ".kodos-hook-" + p + "-" + strings.TrimPrefix(kind, ".") + ".sh"
+			staged := filepath.Join(genDir, "tmp", name)
+			if err := os.WriteFile(staged, content, 0o755); err != nil {
+				return err
+			}
 			fmt.Printf("%s: %s\n", kind[1:], p)
-			err := e.chrootExecScript(rel)
+			err = e.chrootExecScript(genDir, "/tmp/"+name)
 			if err != nil {
 				// shebang-less or non-exec script: plain sh fallback (/bin/sh
 				// exists by now if busybox ran)
-				err2 := e.chrootSh(rel)
-				if err2 != nil {
+				if err2 := e.chrootSh(genDir, "/tmp/"+name); err2 != nil {
+					os.Remove(staged)
 					return fmt.Errorf("%s %s: %w", kind[1:], p, err)
 				}
 			}
+			os.Remove(staged)
 		}
 	}
-	hooked := e.snapshotRunlevels()
+	hooked := e.snapshotRunlevels(genDir)
 	if e.hookRunlevels == nil {
 		e.hookRunlevels = map[string]bool{}
 	}
@@ -740,33 +767,72 @@ func (e *executor) runPostInstalls(toInstall map[string]string) error {
 		}
 	}
 	// Post-install hooks (busybox addgroup, openrc, pam...) and machine ops
-	// (shadow groupadd/useradd) rewrite /etc files: rename-over tools detach
-	// the hardlink, leaving a standalone real file whose content would drift
-	// out of the generation's store. Copy such mutated files back into the
-	// generation's mutable etc_store and re-hardlink, so /etc stays
-	// store-backed after hooks.
-	if err := e.syncMutatedEtc(); err != nil {
+	// (shadow groupadd/useradd) rewrite /etc files INSIDE the gen tree:
+	// rename-over tools detach the seeded store link, leaving a standalone
+	// real file whose content would drift out of the generation's store.
+	// Copy such mutated files back into the generation's mutable etc_store
+	// and re-seed the link, so /etc stays store-backed before activation.
+	if err := e.syncMutatedEtc(filepath.Join(genDir, "etc"),
+		filepath.Join(genDir, "etc")); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (e *executor) syncMutatedEtc() error {
+// syncMutatedEtc reconciles mutated etc files back into the generation's
+// store. walkEtc is the generation's etc tree to scan; srcEtc is the
+// MUTATION-SOURCE side: the LIVE root's etc (hooks used to run there) or —
+// create-time contract — walkEtc itself (hooks now run chrooted into the raw
+// gen tree, so detached seeded links show up as real files inside it).
+func (e *executor) syncMutatedEtc(walkEtc, srcEtc string) error {
 	gen := e.s.genDir(e.meta.Generation)
-	genEtc := filepath.Join(gen, "etc")
-	liveEtc := filepath.Join(e.s.chroot, "etc")
+	genSide := walkEtc == srcEtc
 	var paths []string
-	filepath.WalkDir(genEtc, func(p string, d fs.DirEntry, err error) error {
+	filepath.WalkDir(walkEtc, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			paths = append(paths, p)
 		}
 		return nil
 	})
 	for _, src := range paths {
-		rel, _ := filepath.Rel(genEtc, src)
-		live := filepath.Join(liveEtc, rel)
+		rel, _ := filepath.Rel(walkEtc, src)
+		live := filepath.Join(srcEtc, rel)
 		st, err := os.Lstat(live)
 		if err != nil {
+			continue
+		}
+		if genSide {
+			if st.Mode()&os.ModeSymlink != 0 || !st.Mode().IsRegular() {
+				continue // seeded link intact (writes through it land in the store)
+			}
+			// A real file at a seeded path = the rename-over detached the
+			// store hardlink: cow-copy its content into the store copy and
+			// re-hardlink. Hook-created etc files with no store candidate
+			// stay unmanaged (activation materializes them).
+			cand := ""
+			for _, base := range []string{"etc_store", "etc_default"} {
+				if c := filepath.Join(gen, base, rel); lexists(c) {
+					cand = c
+					break
+				}
+			}
+			if cand == "" || sameInode(live, cand) {
+				continue
+			}
+			if !sameContent(cand, live) {
+				b, err := os.ReadFile(live)
+				if err != nil {
+					return fmt.Errorf("etc read %s: %w", rel, err)
+				}
+				if err := os.WriteFile(cand, b, st.Mode().Perm()); err != nil {
+					return fmt.Errorf("etc write store %s: %w", rel, err)
+				}
+				fmt.Printf("etc re-managed after hooks: %s\n", rel)
+			}
+			os.Remove(live)
+			if err := e.s.hardlink(cand, live); err != nil {
+				return fmt.Errorf("etc re-hardlink %s (cand=%s): %w", rel, cand, err)
+			}
 			continue
 		}
 		tgt := e.s.storeEntry(src) // the store entry behind the gen link
@@ -826,12 +892,14 @@ func mustRel(base, target string) string {
 	return r
 }
 
-func (e *executor) chrootExecScript(relPath string) error {
-	if err := e.ensureChrootMounts(); err != nil {
-		return err
+func (e *executor) chrootExecScript(dir, relPath string) error {
+	if dir == e.s.chroot {
+		if err := e.ensureChrootMounts(); err != nil {
+			return err
+		}
 	}
-	cmd := exec.Command("chroot", e.s.chroot, relPath)
-	cmd.Dir = e.s.chroot
+	cmd := exec.Command("chroot", dir, relPath)
+	cmd.Dir = dir
 	cmd.Env = []string{"PATH=/sbin:/bin:/usr/sbin:/usr/bin", "HOME=/", "TERM=dumb"}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
@@ -988,14 +1056,14 @@ func (e *executor) createUser(act map[string]any) error {
 			flags, shellQuote(field(act, "home_directory")), shellQuote(field(act, "shell")),
 			shellQuote(field(act, "group")), shellQuote(strings.Join(strList(act, "supplementary_groups"), ",")),
 			shellQuote(field(act, "name")), shellQuote(login))
-		if err := e.chrootSh(script); err != nil {
+		if err := e.chrootSh(e.s.chroot, script); err != nil {
 			return fmt.Errorf("create_user %s: %w", login, err)
 		}
 	}
 	if hash := e.secrets["users."+login+".hashed_password"]; hash != "" {
 		script := fmt.Sprintf("echo %s | chpasswd -e",
 			shellQuote(login+":"+hash))
-		if err := e.chrootSh(script); err != nil {
+		if err := e.chrootSh(e.s.chroot, script); err != nil {
 			return fmt.Errorf("create_user %s: password: %w", login, err)
 		}
 		fmt.Printf("password set for %s (from secrets)\n", login)
@@ -1017,10 +1085,12 @@ func (e *executor) enableService(act map[string]any) error {
 	return nil
 }
 
-// snapshotRunlevels indexes live /etc/runlevels entries as "runlevel/unit".
-func (e *executor) snapshotRunlevels() map[string]bool {
+// snapshotRunlevels indexes <root>/etc/runlevels entries as "runlevel/unit"
+// (rootDir = where the hooks/ops write: the raw gen tree at create time, the
+// live chroot everywhere else).
+func (e *executor) snapshotRunlevels(rootDir string) map[string]bool {
 	set := map[string]bool{}
-	roots, err := os.ReadDir(filepath.Join(e.s.chroot, "etc/runlevels"))
+	roots, err := os.ReadDir(filepath.Join(rootDir, "etc/runlevels"))
 	if err != nil {
 		return set
 	}
@@ -1028,7 +1098,7 @@ func (e *executor) snapshotRunlevels() map[string]bool {
 		if !rl.IsDir() {
 			continue
 		}
-		units, err := os.ReadDir(filepath.Join(e.s.chroot, "etc/runlevels", rl.Name()))
+		units, err := os.ReadDir(filepath.Join(rootDir, "etc/runlevels", rl.Name()))
 		if err != nil {
 			continue
 		}
@@ -1142,7 +1212,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 			// fs/IO incident (truncated by fsck) then silently boots a
 			// skeleton initramfs into "No working init" panics. Rebuilding
 			// costs seconds; activation is rare.
-			if err := e.chrootSh("depmod " + shellQuote(abi)); err != nil {
+			if err := e.chrootSh(e.s.chroot, "depmod "+shellQuote(abi)); err != nil {
 				return fmt.Errorf("bootloader depmod %s: %w", abi, err)
 			}
 			if err := e.genChrootSh("mkinitfs -o /boot/initramfs" + suffix + " " + shellQuote(abi)); err != nil {
@@ -1197,7 +1267,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 			return fmt.Errorf("bootloader: clearing old %s: %w (fs damaged: run vm/run.sh fresh)", old, err)
 		}
 	}
-	if err := e.chrootSh("grub-install --removable --target=x86_64-efi " +
+	if err := e.chrootSh(e.s.chroot, "grub-install --removable --target=x86_64-efi "+
 		"--efi-directory=/boot --boot-directory=/boot"); err != nil {
 		return err
 	}

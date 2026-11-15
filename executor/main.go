@@ -35,12 +35,12 @@ import (
 )
 
 type executor struct {
-	s        *system
-	meta     *metadata
-	secrets  map[string]string
-	arch     string
-	mirror   string // captured from configure_repos (#6 always precedes #8)
-	branches []string
+	s          *system
+	meta       *metadata
+	secrets    map[string]string
+	arch       string
+	mirror     string // captured from configure_repos (#6 always precedes #8)
+	branches   []string
 	localRepos []struct{ name, url, hostSrc string } // file:// repos from configure_repos
 
 	rootPart      string            // captured from mount / (bootloader needs UUID)
@@ -52,7 +52,7 @@ type executor struct {
 
 	declaredRunlevels map[string]bool // "runlevel/unit" this stream's enable_service set
 	hookRunlevels     map[string]bool // "runlevel/unit" package hooks enabled this run
-	
+
 	metadataFileBytes []byte // raw -metadata file for config_hash if provided
 	actionsFileBytes  []byte // raw actions file for config_hash fallback
 }
@@ -245,14 +245,23 @@ func (e *executor) run(act map[string]any) error {
 	case "configure_network":
 		return e.configureNetwork(act)
 	case "create_generation":
-		return e.createGeneration(act)
-	case "activate_generation":
-		if err := e.s.activateGeneration(e.s.genDir(e.meta.Generation)); err != nil {
+		if err := e.createGeneration(act); err != nil {
 			return err
 		}
-		// post-install hooks belong to the activated tree (kernel hook =
-		// mkinitfs); running them is part of making the generation real
-		return e.runPostInstalls(e.lastGen)
+		// Package hooks run at CREATE time, chrooted into the RAW generation
+		// tree: activation must never expose an unhooked tree. busybox's
+		// applet links (/bin/sh, cat, chroot...) are created BY its own hook,
+		// so a hook executed after the flip needs tools the incomplete tree
+		// no longer ships (live-machine apply round 3: chroot(8) itself went
+		// missing mid-apply, current left pointing at a broken generation).
+		// e.lastGen = the closure of the generation JUST created (rerun-
+		// everything, idempotent-enough for base pkgs, same as bootstrap).
+		return e.runPostInstalls(e.s.genDir(e.meta.Generation), e.lastGen)
+	case "activate_generation":
+		// just the flip: hooks already ran on this tree at create time;
+		// rollback streams carry no create_generation op, so they run none
+		// (spec amendment 969b171)
+		return e.s.activateGeneration(e.s.genDir(e.meta.Generation))
 	case "create_user":
 		return e.createUser(act)
 	case "enable_service":
@@ -668,7 +677,11 @@ func (e *executor) createGeneration(act map[string]any) error {
 	// Live /etc edits made after the last activation (shadow's
 	// groupadd/useradd rename the managed file away) must be captured into
 	// the current store before it is seeded forward into the new generation.
-	if err := e.syncMutatedEtc(); err != nil {
+	// (live mode: walk the NEW gen's etc if it exists from a rerun, mutation
+	// source = the LIVE root's etc; create-time hook sync gets the gen-side
+	// mode via runPostInstalls.)
+	if err := e.syncMutatedEtc(filepath.Join(e.s.genDir(e.meta.Generation), "etc"),
+		filepath.Join(e.s.chroot, "etc")); err != nil {
 		return err
 	}
 	names := strList(act, "packages")
@@ -708,12 +721,12 @@ func (e *executor) createGeneration(act map[string]any) error {
 	if err := e.writeGenerationManifest(genDir); err != nil {
 		return err
 	}
-	
+
 	// Prune old generations, protecting live current + new idx; GC store
 	if err := e.s.pruneGenerations(generationsKeep, protect); err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("generation %d created (%d packages)\n", idx, len(toInstall))
 	return nil
 }
@@ -733,18 +746,18 @@ func stampGeneration(genDir string, meta *metadata, kernelArgs []string, metadat
 		h := sha256.Sum256(actionsFileBytes)
 		configHash = hex.EncodeToString(h[:])
 	}
-	
+
 	// Stamp the metadata with manifest fields
 	meta.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	meta.ConfigHash = configHash
 	meta.KernelArgs = kernelArgs
-	
+
 	// Marshal metadata struct directly (now has the extra fields)
 	manifestJSON, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("marshal generation manifest: %w", err)
 	}
-	
+
 	manifestPath := filepath.Join(genDir, "generation.json")
 	if err := os.WriteFile(manifestPath, manifestJSON, 0o644); err != nil {
 		return fmt.Errorf("write generation.json: %w", err)

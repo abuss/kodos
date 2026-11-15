@@ -17,28 +17,28 @@ cur() { basename "$(readlink "$G/current" 2>/dev/null)"; }
 before=$(gens); curbefore=$(cur)
 echo "== before: generations=$before current=$curbefore"
 
-if kodos apply /etc/kodos --dry-run > /tmp/gt-apply-dry.log 2>&1; then
+if kodos apply /etc/kodos --dry-run > /kod/gt-apply-dry.log 2>&1; then
     line apply-dry PASS
-    cat /tmp/gt-apply-dry.log
+    cat /kod/gt-apply-dry.log
 else
-    line apply-dry FAIL; tail -20 /tmp/gt-apply-dry.log
+    line apply-dry FAIL; tail -20 /kod/gt-apply-dry.log
 fi
-if grep -q dummy /tmp/gt-apply-dry.log; then
+if grep -q dummy /kod/gt-apply-dry.log; then
     line dry-names-dummy PASS "(the plan already shows it)"
 else
     line dry-names-dummy FAIL "(dry-run plan does not name dummy)"
 fi
 
 # the real round takes minutes: full closure, activation, hooks, mkinitfs, grub
-if kodos apply /etc/kodos > /tmp/gt-apply.log 2>&1; then
+if kodos apply /etc/kodos > /kod/gt-apply.log 2>&1; then
     line apply PASS
-    grep -E 'install_packages:|generation [0-9]+ created' /tmp/gt-apply.log
+    grep -E 'install_packages:|generation [0-9]+ created' /kod/gt-apply.log
 else
-    line apply FAIL; tail -25 /tmp/gt-apply.log
+    line apply FAIL; tail -25 /kod/gt-apply.log
 fi
 
-if kodos status > /tmp/gt-status.log 2>&1; then line status PASS; else line status FAIL; fi
-cat /tmp/gt-status.log
+if kodos status > /kod/gt-status.log 2>&1; then line status PASS; else line status FAIL; fi
+cat /kod/gt-status.log
 
 after=$(gens); curafter=$(cur)
 if [ "$after" -gt "$before" ] && [ "$curafter" != "$curbefore" ]; then

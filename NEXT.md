@@ -184,7 +184,7 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   OpenRC runlevels declarative. It records every (runlevel,unit) its
   enable_service actions declare, snapshots live runlevels around the
   package-hook sweep to also protect hook-enabled units (dbus etc. —
-  hooks re-run every activation, so protection re-arms every round),
+  hooks re-run at every create_generation (every apply), so protection re-arms every round),
   and after a fully successful stream removes any runlevel symlink in
   neither set ("runlevel reconcile: removed stale <rl>/<unit>").
   Partial (failed) streams never sweep. Boundary: runlevels are

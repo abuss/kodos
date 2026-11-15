@@ -4,12 +4,12 @@
 # kodos's own test verbs, on the machine they are meant to run on.
 PATH=/sbin:/bin:/usr/sbin:/usr/bin:$PATH
 
-run() { # run() <case-name> <cmd...>  -> GUEST-TEST line + log under /tmp
+run() { # run() <case-name> <cmd...>  -> GUEST-TEST line + log under /kod
     name=$1; shift
-    if "$@" > "/tmp/gt-$name.log" 2>&1; then
+    if "$@" > "/kod/gt-$name.log" 2>&1; then
         echo "GUEST-TEST: $name PASS"
     else
-        rc=$?; echo "GUEST-TEST: $name FAIL (exit $rc)"; tail -15 "/tmp/gt-$name.log"
+        rc=$?; echo "GUEST-TEST: $name FAIL (exit $rc)"; tail -15 "/kod/gt-$name.log"
     fi
 }
 
@@ -24,14 +24,14 @@ run selftest kodos selftest
 # layers/machine.lua: open ...: no such file or directory`. Known fixture
 # coupling (fix-forward), not an executor fault: SKIP here; the same suites run
 # green on the host.
-if kodos suitetest > /tmp/gt-suitetest.log 2>&1; then
+if kodos suitetest > /kod/gt-suitetest.log 2>&1; then
     echo "GUEST-TEST: suitetest PASS"
-elif grep -qE "dofile .*\.lua" /tmp/gt-suitetest.log &&
-     grep -q "no such file or directory" /tmp/gt-suitetest.log; then
+elif grep -qE "dofile .*\.lua" /kod/gt-suitetest.log &&
+     grep -q "no such file or directory" /kod/gt-suitetest.log; then
     echo "GUEST-TEST: suitetest SKIP (Lua fixtures want repo files the apk does not ship; the host round covers them)"
-    grep -m1 "dofile " /tmp/gt-suitetest.log
+    grep -m1 "dofile " /kod/gt-suitetest.log
 else
-    echo "GUEST-TEST: suitetest FAIL"; tail -15 /tmp/gt-suitetest.log
+    echo "GUEST-TEST: suitetest FAIL"; tail -15 /kod/gt-suitetest.log
 fi
 
 # the generation store the bootstrap left behind must be readable by the

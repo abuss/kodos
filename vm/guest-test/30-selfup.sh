@@ -35,11 +35,11 @@ else
 fi
 
 before=$(cur)
-if kodos apply /etc/kodos > /tmp/gt-selfup.log 2>&1; then
+if kodos apply /etc/kodos > /kod/gt-selfup.log 2>&1; then
     line apply PASS
-    grep -E 'install_packages:|generation [0-9]+ created' /tmp/gt-selfup.log
+    grep -E 'install_packages:|generation [0-9]+ created' /kod/gt-selfup.log
 else
-    line apply FAIL; tail -25 /tmp/gt-selfup.log
+    line apply FAIL; tail -25 /kod/gt-selfup.log
 fi
 after=$(cur)
 echo "current: $before -> $after"
@@ -62,10 +62,10 @@ if [ -x "$G/$before/usr/bin/kodos" ] && ls -d /kod/store/kodos/*/ >/dev/null 2>&
 else
     line old-binary-intact FAIL "(generation $before's binary is gone)"
 fi
-if kodos selftest > /tmp/gt-selfup-self.log 2>&1; then
+if kodos selftest > /kod/gt-selfup-self.log 2>&1; then
     line new-binary-runs PASS "(the kodos of generation $after passes its own selftest)"
 else
-    line new-binary-runs FAIL; tail -10 /tmp/gt-selfup-self.log
+    line new-binary-runs FAIL; tail -10 /kod/gt-selfup-self.log
 fi
 
 echo "GUEST-TEST: 30-selfup done (current=$after pins kodos $newver, failures=$fails)"

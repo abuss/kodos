@@ -339,7 +339,14 @@ func (s *system) seedEtc(generation string, toInstall map[string]string, prevGen
 		// else: shipped by nobody, never edited -> activation prunes it
 	}
 
-	// generation/etc: one chroot-rooted link per entry, etc_store first
+	// generation/etc: one entry per seed entry, HARDLINKED into the private
+	// trees (etc_store wins on collision). Not /kod-rooted symlinks: package
+	// hooks run chrooted into the RAW gen tree at create time, where a
+	// /kod-rooted link would dangle (there is no /kod under the gen dir);
+	// hardlinks make each etc file a real file whose inode IS the store copy
+	// — hooks read/write it directly, rename-over tools detach it and
+	// syncMutatedEtc re-cows it (same shape activation materializes in
+	// live /etc).
 	etc := filepath.Join(generation, "etc")
 	for _, tree := range []string{etcStore, etcDefault} {
 		paths, err := walkTree(tree)
@@ -352,7 +359,8 @@ func (s *system) seedEtc(generation string, toInstall map[string]string, prevGen
 			if lexists(link) {
 				continue // etc_store already linked (it wins)
 			}
-			if err := symlinkChroot(link, f, s.chroot); err != nil {
+			os.MkdirAll(filepath.Dir(link), 0o755)
+			if err := s.hardlink(f, link); err != nil {
 				return err
 			}
 		}
