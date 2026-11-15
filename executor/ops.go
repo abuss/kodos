@@ -1094,6 +1094,13 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("bootloader: UUID of %s: %w", e.rootPart, err)
 	}
+	// busybox blkid silently IGNORES -o value -s UUID: exit 0, empty output
+	// on bogus devices (no error path) or the full "/dev/x: UUID=... TYPE=..."
+	// line on real ones. We depend on util-linux's blkid (kodos apk
+	// depends=util-linux) — never parse busybox formats; fail closed here.
+	if uuid == "" {
+		return fmt.Errorf("bootloader: UUID of %s: blkid produced no UUID (util-linux blkid required?)", e.rootPart)
+	}
 	fstype, _ := runOut("blkid", "-o", "value", "-s", "TYPE", e.rootPart)
 	gen := e.s.genDir(e.meta.Generation)
 

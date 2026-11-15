@@ -211,6 +211,12 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   `/etc/kodos/config.lua` + 0600 secrets are written by the bootstrap stream.
   The definition-of-done round on the VM is the paste sequence in "Self-
   management on the VM (Task 13)" below — machinery DONE, run it next.
+  ON-MACHINE FACT (paste round 1, 2026-11-14): Alpine's base `blkid` is a
+  busybox applet that silently IGNORES `-o value -s UUID` (exit 0: empty on
+  a bogus device, full `/dev/x: UUID=... TYPE=...` line on a real one) —
+  on-machine kodos needs util-linux's real blkid: the kodos apk declares
+  `depend = util-linux`, and install_bootloader fails closed on an empty
+  UUID before any ESP wipe.
   GUIDANCE (Task-13 review): the config `files` section must NOT carry real
   secrets — write_file content rides the (host-side 0644) generated actions
   stream; secrets belong in the out-of-band 0600 secrets.json only.

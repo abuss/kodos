@@ -28,6 +28,7 @@ arch = x86_64
 size = ${BINSIZE}
 pkgdesc = Kodos declarative system manager
 url = https://github.com/kodos
+depend = util-linux
 builddate = $(date +%s 2>/dev/null || echo 0)
 packager = kodos
 PKGINFO

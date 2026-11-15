@@ -53,7 +53,10 @@ else
     line dummy-live-add FAIL "(dummy missing from the current manifest or the store)"
 fi
 
-if grep -qE '"op": "(partition_disk|format|create_swap)"' "/kod/actions/actions-$curafter.json"; then
+staged="/kod/actions/actions-$curafter.json"
+if [ ! -f "$staged" ]; then
+    line no-storage-ops FAIL "(staged actions-$curafter.json missing)"
+elif grep -qE '"op": "(partition_disk|format|create_swap)"' "$staged"; then
     line no-storage-ops FAIL "(storage ops in the staged stream — --inplace lost?)"
 else
     line no-storage-ops PASS "(staged actions-$curafter.json has no partition/format/swap ops)"

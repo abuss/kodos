@@ -57,7 +57,7 @@ Rules:
 | 20 | `create_user` | `user`, `name`, `group`, `supplementary_groups[]`, `home_directory`, `shell`, `create_home` | `users{}` (key = login; `name` = real-name/gecos) | password: if `users.<login>.hashed_password` is in the secrets store, executor sets it (out-of-band like all secrets) |
 | 21 | `enable_service` | `name`, `unit`, `runlevel` | service plan, `unit` ≠ nil | packages-only entries (backend `service_name = false`) produce no action |
 | 22 | `enable_home_service` | `user`, `name`, `mechanism`, `packages[]`, `settings{}` | `users{}.environment.services` | OpenRC has no user services; backend picks `mechanism` (TODO: user-daemon runner); executor defers to first login |
-| 23 | `install_bootloader` | `type`, `efi`, `timeout` | `boot.bootloader` | packages already installed at #8 |
+| 23 | `install_bootloader` | `type`, `efi`, `timeout` | `boot.bootloader` | packages already installed at #8; the root-UUID lookup needs the REAL blkid (kodos apk depends on util-linux — busybox blkid silently ignores `-o value -s UUID`, and an empty UUID fails closed before the ESP wipe) |
 
 A variant the backend cannot offer (kernel variant, bootloader type) makes
 the generator **fail, not fall back** — same rule as the checker. Flatpak
