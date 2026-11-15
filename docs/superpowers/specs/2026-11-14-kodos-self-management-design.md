@@ -112,10 +112,16 @@ config itself (existing requirement).
    `format` when the target filesystem/device is already mounted. `mount` ops
    become skip-if-already-mounted (general hardening; host mode benefits).
 5. **Exec `-root /`.** The executor is chroot-rooted by construction;
-   chrooting into `/` is a no-op. Post-install hooks re-run for the new
-   generation (existing behavior), initramfs clean/deref runs, bootloader leg
+   chrooting into `/` is a no-op. Post-install hooks run at
+   `create_generation`, chrooted into the RAW generation tree — never
+   after activation, which would expose an unhooked (busybox-link-less)
+   tree to the live machine (amended 2026-11-15 after paste-round-3:
+   Alpine 3.24 busybox applet links exist only after busybox's own hook,
+   so the flip-then-hook order stranded the live system's own tools).
+   Initramfs clean/deref runs, bootloader leg
    re-runs (grub-install + ESP copy proven idempotent while live), runlevel
-   reconciliation sweeps stale enables.
+   reconciliation sweeps stale enables (symlinks AND regular files, since
+   hook-created enables are hardlink-shaped now).
 6. **Generations.** Apply = next number = max(existing)+1; metadata
    generation-N.json stored with the generation (timestamp/config_hash
    stamped, as today). **Cap:** `boot.generations_keep = 5` default in the
