@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -661,4 +662,104 @@ func hostRootDisk() string {
 	}
 	check(false, "host / not on a /dev/ device")
 	return ""
+}
+
+// selftestHookSweep wraps selftestHookSweepNS in a user namespace so
+// chroot(2) is permitted without real root. Skips gracefully if unshare
+// is unavailable (CI without user-ns support).
+func selftestHookSweep() {
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Println("SKIP: hook-sweep NS fixture (can't find self executable)")
+		return
+	}
+	cmd := exec.Command("unshare", "-r", self, "selftest-hook-ns")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		check(false, "hook-sweep NS fixture failed: %v", err)
+	}
+}
+
+// It runs inside a user namespace (called via unshare -r) so that chroot(2)
+// is permitted. It builds a minimal real gen tree with a real busybox binary,
+// writes fixture hook scripts, calls runPostInstalls, and asserts:
+//   - sbin/init and bin/sh created by the busybox-style hook
+//   - etc/bmarker written by pkgB's #!/bin/sh hook (proves /bin/sh available
+//     in-sweep before pkgB's hook runs — busybox hook creates it first)
+//   - checkGenRunnable passes
+//   - negative: without the busybox link-hook, pkgB's #!/bin/sh exec fails
+//     and runPostInstalls returns an error
+func selftestHookSweepNS() {
+	dir, err := os.MkdirTemp("", "kodos-hookns")
+	check(err == nil, "mkdtemp hookns: %v", err)
+	defer os.RemoveAll(dir)
+
+	// Locate a real busybox binary on the host.
+	bbHost := ""
+	for _, c := range []string{"/bin/busybox", "/usr/bin/busybox"} {
+		if st, err := os.Stat(c); err == nil && st.Mode().IsRegular() {
+			bbHost = c
+			break
+		}
+	}
+	check(bbHost != "", "busybox not found on host — cannot run hook sweep NS fixture")
+
+	// Build a fake store + gen tree under dir.
+	chroot := filepath.Join(dir, "chroot")
+	storeDir := filepath.Join(chroot, "kod", "store")
+	check(os.MkdirAll(filepath.Join(storeDir, "busybox", "1.0"), 0o755) == nil, "mkdir store/busybox")
+	check(os.MkdirAll(filepath.Join(storeDir, "pkgB", "1.0"), 0o755) == nil, "mkdir store/pkgB")
+
+	// busybox: ship a real /bin/busybox, hook creates /sbin/init and /bin/sh
+	check(os.MkdirAll(filepath.Join(storeDir, "busybox", "1.0", "bin"), 0o755) == nil, "mkdir busybox/bin")
+	bbDst := filepath.Join(storeDir, "busybox", "1.0", "bin", "busybox")
+	src, err2 := os.ReadFile(bbHost)
+	check(err2 == nil, "read busybox: %v", err2)
+	check(os.WriteFile(bbDst, src, 0o755) == nil, "write busybox binary")
+
+	bbHook := "#!/bin/busybox sh\nmkdir -p /sbin /bin\nln -sf /bin/busybox /sbin/init\nln -sf /bin/busybox /bin/sh\nexit 0\n"
+	check(os.WriteFile(filepath.Join(storeDir, "busybox", "1.0", ".post-install"), []byte(bbHook), 0o755) == nil, "write busybox hook")
+
+	// pkgB: hook uses #!/bin/sh (depends on busybox hook running first)
+	pkgBHook := "#!/bin/sh\nmkdir -p /etc\necho bmarker > /etc/bmarker\nexit 0\n"
+	check(os.WriteFile(filepath.Join(storeDir, "pkgB", "1.0", ".post-install"), []byte(pkgBHook), 0o755) == nil, "write pkgB hook")
+
+	// Create a minimal system + generation directory.
+	s := &system{chroot: chroot}
+	genDir := filepath.Join(chroot, "kod", "generation", "0")
+	check(os.MkdirAll(filepath.Join(genDir, "bin"), 0o755) == nil, "mkdir gen/bin")
+	check(os.MkdirAll(filepath.Join(genDir, "sbin"), 0o755) == nil, "mkdir gen/sbin")
+	check(os.MkdirAll(filepath.Join(genDir, "etc"), 0o755) == nil, "mkdir gen/etc")
+	check(os.MkdirAll(filepath.Join(genDir, "tmp"), 0o755) == nil, "mkdir gen/tmp")
+	// Copy busybox into gen/bin so hook's shebang #!/bin/busybox sh resolves.
+	check(os.WriteFile(filepath.Join(genDir, "bin", "busybox"), src, 0o755) == nil, "gen busybox")
+
+	meta := &metadata{Generation: 0}
+	e := &executor{s: s, meta: meta, hookRunlevels: map[string]bool{}}
+	toInstall := map[string]string{"busybox": "1.0", "pkgB": "1.0"}
+
+	// POSITIVE: busybox hook runs first → /bin/sh exists → pkgB hook succeeds.
+	err = e.runPostInstalls(genDir, toInstall)
+	check(err == nil, "positive sweep must succeed: %v", err)
+	_, initErr := os.Lstat(filepath.Join(genDir, "sbin", "init"))
+	check(initErr == nil, "sbin/init must exist after sweep")
+	_, shErr := os.Lstat(filepath.Join(genDir, "bin", "sh"))
+	check(shErr == nil, "bin/sh must exist after sweep")
+	bmarker, _ := os.ReadFile(filepath.Join(genDir, "etc", "bmarker"))
+	check(strings.TrimSpace(string(bmarker)) == "bmarker", "pkgB bmarker content, got %q", string(bmarker))
+	check(checkGenRunnable(genDir, 0) == nil, "positive sweep: checkGenRunnable must pass")
+
+	// NEGATIVE: remove the busybox-style link hook; pkgB's #!/bin/sh exec
+	// will fail (ENOENT for /bin/sh interpreter) → sweep error.
+	check(os.Remove(filepath.Join(storeDir, "busybox", "1.0", ".post-install")) == nil, "remove busybox hook")
+	// Also clean up artifacts from the positive run so the negative path starts fresh.
+	os.Remove(filepath.Join(genDir, "sbin", "init"))
+	os.Remove(filepath.Join(genDir, "bin", "sh"))
+	os.Remove(filepath.Join(genDir, "etc", "bmarker"))
+	e2 := &executor{s: s, meta: meta, hookRunlevels: map[string]bool{}}
+	err = e2.runPostInstalls(genDir, toInstall)
+	check(err != nil, "negative sweep (no busybox hook) must fail — pkgB's #!/bin/sh exec errors")
+
+	fmt.Println("PASS: executor selftest (hook-sweep intra-/bin/sh dependency, positive+negative)")
 }

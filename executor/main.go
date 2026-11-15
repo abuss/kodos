@@ -80,6 +80,10 @@ func main() {
 		}
 	case "selftest":
 		cmdSelftest()
+	case "selftest-hook-ns":
+		// Inner body of the intra-sweep fixture — called via unshare -r
+		// by selftestHookSweep(); requires CAP_SYS_CHROOT (user namespace root).
+		selftestHookSweepNS()
 	case "status":
 		if err := cmdStatus(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR:", err)
@@ -188,6 +192,7 @@ func cmdExec(args []string) error {
 
 func cmdSelftest() {
 	selftest()
+	selftestHookSweep()
 }
 
 func cmdSuitetest() error {

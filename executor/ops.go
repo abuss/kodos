@@ -613,32 +613,34 @@ func (e *executor) umountChroot() {
 // target dirs (baselayout creates /dev etc via its own hook), so we SKIP any
 // that are not yet real directories. We also skip any that are already
 // mountpoints (live-machine apply where the gen may be the previous gen with
-// live mounts already in place). /run gets a fresh tmpfs (hooks write to it).
-// Call umountGenChroot(genDir) in a defer immediately after this returns nil
-// (both on success AND error paths).
+// live mounts already in place). On partial failure, already-established
+// mounts are torn down before returning (umountGenChroot is idempotent via its
+// isMountpoint guard), so the caller's defer is only needed for the success path.
 func ensureGenChrootMounts(genDir string) error {
-	// proc
+	// proc: mount first, then demote (mirror ensureChrootMounts' order)
 	if isRealDir(filepath.Join(genDir, "proc")) && !isMountpoint(filepath.Join(genDir, "proc")) {
-		run("mount", "--make-rprivate", filepath.Join(genDir, "proc"))
 		if err := run("mount", "-t", "proc", "proc", filepath.Join(genDir, "proc")); err != nil {
+			umountGenChroot(genDir) // roll back any earlier mounts
 			return fmt.Errorf("gen-chroot mount proc: %w", err)
 		}
+		run("mount", "--make-rprivate", filepath.Join(genDir, "proc"))
 	}
-	// sys + dev: rbind + make-rslave
+	// sys + dev: rbind, then make-rslave
 	for _, src := range []string{"/sys", "/dev"} {
 		target := filepath.Join(genDir, strings.TrimPrefix(src, "/"))
 		if !isRealDir(target) || isMountpoint(target) {
 			continue
 		}
-		run("mount", "--make-rprivate", target)
 		if err := run("mount", "--rbind", src, target); err != nil {
+			umountGenChroot(genDir)
 			return fmt.Errorf("gen-chroot rbind %s: %w", src, err)
 		}
 		run("mount", "--make-rslave", target)
 	}
-	// run: fresh tmpfs (hooks may write pid files etc.)
+	// run: fresh tmpfs (private by default — no --make-rprivate needed)
 	if isRealDir(filepath.Join(genDir, "run")) && !isMountpoint(filepath.Join(genDir, "run")) {
 		if err := run("mount", "-t", "tmpfs", "tmpfs", filepath.Join(genDir, "run")); err != nil {
+			umountGenChroot(genDir)
 			return fmt.Errorf("gen-chroot mount run: %w", err)
 		}
 	}
@@ -779,7 +781,7 @@ func (e *executor) runPostInstalls(genDir string, toInstall map[string]string) e
 	if err := ensureGenChrootMounts(genDir); err != nil {
 		return fmt.Errorf("gen-chroot mounts: %w", err)
 	}
-	defer umountGenChroot(genDir)
+	defer umountGenChroot(genDir) // success path: tear down after the full sweep
 
 	before := e.snapshotRunlevels(genDir) // hooks may rc-update add: protect those entries
 	for _, p := range names {
