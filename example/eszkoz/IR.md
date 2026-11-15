@@ -35,29 +35,29 @@ Rules:
 
 | # | op | fields | fed by | notes |
 |---|----|--------|--------|-------|
-| 1 | `configure_repos` | `type`, `mirror`, `branches[]` | `repos.base` | executor renders per-family file format |
-| 2 | `partition_disk` | `device`, `table`, `efi`, `partitions[]`: `{index, name, size, type}` | `storage.devices` | skip if table already present; executor parses sizes ("512MB"/"64GB"/"100%"; "100%" = remainder minus later explicit sizes when not last) |
-| 3 | `format` | `partition`, `filesystem` | partitions | skip if a filesystem exists |
-| 4 | `create_swap` | `partition` | swap partitions | `mkswap` |
-| 5 | `mount` | `partition`, `point`, `options` | partitions with `mountpoint` | emitted deepest-path-last so `/` mounts first |
-| 6 | `write_file` | `path`, `content`, `mode` (optional octal string, e.g. `"0600"`; default 0644, sudoers 0440) | derived: `/etc/fstab`, `/etc/hostname`, `/etc/inittab`, `/etc/sudoers.d/*` + the config's `files` section (`name -> {path, content, mode?}`, emitted sorted) | generic single-file write; the mode is applied with `chmod` so re-runs cannot inherit a stale one |
-| 7 | `install_packages` | `names[]` | all package sources: config (mapped), backend base, kernel variant, service plans (baseline+additive), bootloader, locale, flatpak tool | fetch into the generation store + link; deduped, sorted |
-| 8 | `configure_flatpak_remote` | `name`, `url` | `repos.flatpak` | `flatpak remote-add --if-not-exists` |
-| 9 | `install_flatpak` | `ids[]`, `user?` | `{repo="flatpak"}` tags; system scope, or one action per user (`user` = login) when tagged inside that user's `environment` | flatpak tool comes from backend `flatpak_packages` via #7; per-user installs the executor defers to first login (needs the user session) |
-| 10 | `configure_locale` | `default` | `system.locale` | Alpine: env.d + rc.conf unicode (backend facts) |
-| 11 | `configure_keyboard` | `layout`, `console_keymap` | `system` | setup-keymap equivalent |
-| 12 | `configure_timezone` | `timezone` | `system.timezone` | |
-| 13 | `load_kernel_modules` | `modules[]` | `boot.kernel.modules` | Alpine: `/etc/modules` + mkinitfs |
-| 14 | `set_kernel_arguments` | `arguments[]` | `boot.kernel.arguments` | bootloader cmdline |
-| 15 | `configure_service` | `name`, `settings{}`, `settings_file` | service entries with settings (e.g. ssh) | settings = the config keys on the service entry |
-| 16 | `configure_network` | `connections[]`: `{service, name, type, ssid?, psk?={secret}}` | `services.*.connections` (enabled services only) | executor renders NetworkManager keyfiles (same format on all 3 families); `psk` = secret REFERENCE, resolved from the secrets store, written only into the 0600 keyfile |
-| 17 | `create_generation` | `packages[]`, `root`, `generations_keep` | `generations` + resolved set + `generation-N.json` metadata | cf. `create_generation`/`seed_etc` in install-apks.py; exact versions per metadata |
-| 18 | `activate_generation` | `root` | `generations.root` | flip symlink + prune to `generations_keep`; rollback = re-run with older metadata. **Everything from #19 on runs inside the activated chroot** — busybox and `/etc/init.d` scripts only exist after activation |
-| 19 | `create_user` | `user`, `name`, `group`, `supplementary_groups[]`, `home_directory`, `shell`, `create_home` | `users{}` (key = login; `name` = real-name/gecos) | password: if `users.<login>.hashed_password` is in the secrets store, executor sets it (out-of-band like all secrets) |
-| 20 | `enable_service` | `name`, `unit`, `runlevel` | service plan, `unit` ≠ nil | packages-only entries (backend `service_name = false`) produce no action |
-| 21 | `enable_home_service` | `user`, `name`, `mechanism`, `packages[]`, `settings{}` | `users{}.environment.services` | OpenRC has no user services; backend picks `mechanism` (TODO: user-daemon runner); executor defers to first login |
-| 22 | `install_bootloader` | `type`, `efi`, `timeout` | `boot.bootloader` | packages already installed at #7 |
-| 23 | `copy_tree` | `name`, `src` (absolute host dir), `dst` (target-rooted absolute path) | `repositories.<n>.src` (local repo entries) | copies src INTO chroot-mapped dst: dirs 0755, files 0644, symlinks verbatim; idempotent (overwrite); **must precede `configure_repos`** so the repo tree exists before apk resolves it |
+| 1 | `partition_disk` | `device`, `table`, `efi`, `partitions[]`: `{index, name, size, type}` | `storage.devices` | skip if table already present; executor parses sizes ("512MB"/"64GB"/"100%"; "100%" = remainder minus later explicit sizes when not last) |
+| 2 | `format` | `partition`, `filesystem` | partitions | skip if a filesystem exists |
+| 3 | `create_swap` | `partition` | swap partitions | `mkswap` |
+| 4 | `mount` | `partition`, `point`, `options` | partitions with `mountpoint` | emitted deepest-path-last so `/` mounts first |
+| 5 | `copy_tree` | `name`, `src` (absolute host dir), `dst` (target-rooted absolute path) | `repositories.<n>.src` (local repo entries) | copies src INTO chroot-mapped dst: dirs 0755, files 0644, symlinks verbatim; idempotent (overwrite); **emitted AFTER the mounts and immediately before `configure_repos`**: both write into the target root, so a bootstrap stream that emitted them before the storage ops would have their output covered by the root mount (live-VM paste round 2026-11-14); the repo tree must exist before apk resolves it |
+| 6 | `configure_repos` | `type`, `mirror`, `branches[]`, optional `repos[]`: `{name, url, src?}` | `repos.base` + `repositories` | executor renders per-family file format; like `copy_tree` it lands after the mounts (its writes go INTO the mounted root) |
+| 7 | `write_file` | `path`, `content`, `mode` (optional octal string, e.g. `"0600"`; default 0644, sudoers 0440) | derived: `/etc/fstab`, `/etc/hostname`, `/etc/inittab`, `/etc/sudoers.d/*` + the config's `files` section (`name -> {path, content, mode?}`, emitted sorted) | generic single-file write; the mode is applied with `chmod` so re-runs cannot inherit a stale one |
+| 8 | `install_packages` | `names[]` | all package sources: config (mapped), backend base, kernel variant, service plans (baseline+additive), bootloader, locale, flatpak tool | fetch into the generation store + link; deduped, sorted |
+| 9 | `configure_flatpak_remote` | `name`, `url` | `repos.flatpak` | `flatpak remote-add --if-not-exists` |
+| 10 | `install_flatpak` | `ids[]`, `user?` | `{repo="flatpak"}` tags; system scope, or one action per user (`user` = login) when tagged inside that user's `environment` | flatpak tool comes from backend `flatpak_packages` via #8; per-user installs the executor defers to first login (needs the user session) |
+| 11 | `configure_locale` | `default` | `system.locale` | Alpine: env.d + rc.conf unicode (backend facts) |
+| 12 | `configure_keyboard` | `layout`, `console_keymap` | `system` | setup-keymap equivalent |
+| 13 | `configure_timezone` | `timezone` | `system.timezone` | |
+| 14 | `load_kernel_modules` | `modules[]` | `boot.kernel.modules` | Alpine: `/etc/modules` + mkinitfs |
+| 15 | `set_kernel_arguments` | `arguments[]` | `boot.kernel.arguments` | bootloader cmdline |
+| 16 | `configure_service` | `name`, `settings{}`, `settings_file` | service entries with settings (e.g. ssh) | settings = the config keys on the service entry |
+| 17 | `configure_network` | `connections[]`: `{service, name, type, ssid?, psk?={secret}}` | `services.*.connections` (enabled services only) | executor renders NetworkManager keyfiles (same format on all 3 families); `psk` = secret REFERENCE, resolved from the secrets store, written only into the 0600 keyfile |
+| 18 | `create_generation` | `packages[]`, `root`, `generations_keep` | `generations` + resolved set + `generation-N.json` metadata | cf. `create_generation`/`seed_etc` in install-apks.py; exact versions per metadata |
+| 19 | `activate_generation` | `root` | `generations.root` | flip symlink + prune to `generations_keep`; rollback = re-run with older metadata. **Everything from #20 on runs inside the activated chroot** — busybox and `/etc/init.d` scripts only exist after activation |
+| 20 | `create_user` | `user`, `name`, `group`, `supplementary_groups[]`, `home_directory`, `shell`, `create_home` | `users{}` (key = login; `name` = real-name/gecos) | password: if `users.<login>.hashed_password` is in the secrets store, executor sets it (out-of-band like all secrets) |
+| 21 | `enable_service` | `name`, `unit`, `runlevel` | service plan, `unit` ≠ nil | packages-only entries (backend `service_name = false`) produce no action |
+| 22 | `enable_home_service` | `user`, `name`, `mechanism`, `packages[]`, `settings{}` | `users{}.environment.services` | OpenRC has no user services; backend picks `mechanism` (TODO: user-daemon runner); executor defers to first login |
+| 23 | `install_bootloader` | `type`, `efi`, `timeout` | `boot.bootloader` | packages already installed at #8 |
 
 A variant the backend cannot offer (kernel variant, bootloader type) makes
 the generator **fail, not fall back** — same rule as the checker. Flatpak

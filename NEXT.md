@@ -109,7 +109,7 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 
 - ~~**Networking**~~ **DONE 2026-11-12**: `services.<nm>.connections` dict
   (wifi/ethernet, wifi requires psk secret ref, literal psk = schema error),
-  `configure_network` IR op (#16). Static-IP connections still TODO.
+  `configure_network` IR op (#17). Static-IP connections still TODO.
 - **Mounts** (`configs.mount` pattern from kodos testvm) — fstab today is
   implied by `storage.devices` only.
 - **Desktop/display-manager**: dropped from the neutral dialect (only

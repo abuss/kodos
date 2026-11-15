@@ -83,14 +83,16 @@ local cs_count = 0
 for _ in out:gmatch('"op": "configure_service"') do cs_count = cs_count + 1 end
 assert(cs_count == 1, "only ssh gets configure_service; connections are not settings")
 
--- canonical ordering (IR.md): storage -> install -> generation -> activate
--- -> users/services (they run INSIDE the activated chroot) -> bootloader
+-- canonical ordering (IR.md): storage -> repos (ON the mounted root: the
+-- repo tree + repos.d must survive the root mount) -> files -> install
+-- -> generation -> activate -> users/services (they run INSIDE the
+-- activated chroot) -> bootloader
 local order = {
-    '"op": "configure_repos"', '"op": "partition_disk"', '"op": "format"',
-    '"op": "mount"', '"op": "write_file"', '"op": "install_packages"',
-    '"op": "create_generation"', '"op": "activate_generation"',
-    '"op": "create_user"', '"op": "enable_service"',
-    '"op": "install_bootloader"',
+    '"op": "partition_disk"', '"op": "format"', '"op": "create_swap"',
+    '"op": "mount"', '"op": "configure_repos"', '"op": "write_file"',
+    '"op": "install_packages"', '"op": "create_generation"',
+    '"op": "activate_generation"', '"op": "create_user"',
+    '"op": "enable_service"', '"op": "install_bootloader"',
 }
 local last = 0
 for _, s in ipairs(order) do
@@ -160,6 +162,21 @@ local ct_pos = ct:find('"op": "copy_tree"', 1, true)
 local cr_pos = ct:find('"op": "configure_repos"', 1, true)
 assert(ct_pos, "copy_tree op must be present when repository has src")
 assert(ct_pos < cr_pos, "copy_tree must precede configure_repos")
+-- storage-first contract (live-VM paste round 2026-11-14): copy_tree AND
+-- configure_repos emit AFTER the LAST mount (repo tree + repos.d land on the
+-- mounted root, never under it) and before the writes/install that consume them
+local last_mount = 0
+while true do
+    local nxt = ct:find('"op": "mount"', last_mount + 1, true)
+    if not nxt then break end
+    last_mount = nxt
+end
+assert(last_mount > 0, "system.lua storage must emit mount ops")
+assert(ct_pos > last_mount and cr_pos > last_mount,
+       "copy_tree and configure_repos must follow the storage mounts")
+assert(cr_pos < ct:find('"op": "write_file"', 1, true)
+       and cr_pos < ct:find('"op": "install_packages"', 1, true),
+       "configure_repos must precede write_file and install_packages")
 assert(ct:find('"dst": "/var/kodos/repo"', 1, true), "copy_tree dst must be url minus file://")
 -- repos entry must carry src (host-abs) when copy_tree was declared
 assert(ct:find('"src":', 1, true), "configure_repos repos entry must carry src when copy_tree declared")
@@ -188,7 +205,7 @@ assert(ft:find('"mode": "0600"', 1, true), "a files entry's mode must reach the 
 assert(ft:find('"path": "/etc/kodos/config.lua"', 1, true)
        < ft:find('"path": "/etc/kodos/secrets.json"', 1, true),
        "files entries emit sorted by name (determinism)")
--- write_file is rank 6: the machine's own config must exist before the
+-- write_file is rank 7: the machine's own config must exist before the
 -- generation/user ops that assume it (IR.md order)
 assert(ft:find('"path": "/etc/kodos/secrets.json"', 1, true)
        < ft:find('"op": "install_packages"', 1, true),
@@ -254,8 +271,9 @@ assert(not ip:find('"op": "create_swap"', 1, true),
     "--inplace must omit create_swap ops")
 assert(ip:find('"op": "mount"', 1, true),
     "--inplace must KEEP mount ops (skip-if-mounted guard fires on live machine)")
-assert(ip:find('"op": "configure_repos"', 1, true),
-    "--inplace must keep configure_repos")
+assert(ip:find('"op": "configure_repos"', 1, true)
+       > ip:find('"op": "mount"', 1, true),
+    "--inplace must keep configure_repos, still AFTER the mounts")
 assert(ip:find('"op": "install_packages"', 1, true),
     "--inplace must keep install_packages")
 assert(ip:find('"op": "create_generation"', 1, true),

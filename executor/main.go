@@ -39,7 +39,7 @@ type executor struct {
 	meta     *metadata
 	secrets  map[string]string
 	arch     string
-	mirror   string // captured from configure_repos (#1 always precedes #7)
+	mirror   string // captured from configure_repos (#6 always precedes #8)
 	branches []string
 	localRepos []struct{ name, url, hostSrc string } // file:// repos from configure_repos
 

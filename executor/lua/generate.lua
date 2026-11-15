@@ -65,37 +65,7 @@ local function act(op, f)
     actions[#actions + 1] = f
 end
 
--- ====== 1. repos ======
--- copy_tree (op #23): emit BEFORE configure_repos so the repo tree exists
--- before apk resolves it. One per local repo entry that declares src.
-local configure_repos_act = {
-    type = conf.repos.base.type,
-    mirror = conf.repos.base.mirror,
-    branches = conf.repos.base.branches,
-}
-if conf.repositories then
-    local rnames = {}
-    for n in pairs(conf.repositories) do rnames[#rnames + 1] = n end
-    table.sort(rnames)
-    if #rnames > 0 then
-        local repos_list = {}
-        for _, n in ipairs(rnames) do
-            local entry = { name = n, url = conf.repositories[n].url }
-            -- emit copy_tree before configure_repos if src was declared
-            if repo_src_provenance[n] then
-                local url = conf.repositories[n].url
-                local dst = url:gsub("^file://", "")
-                act("copy_tree", { name = n, src = repo_src_provenance[n], dst = dst })
-                entry.src = repo_src_provenance[n] -- host-abs path for executor apk resolution
-            end
-            repos_list[#repos_list + 1] = entry
-        end
-        configure_repos_act.repos = repos_list
-    end
-end
-act("configure_repos", configure_repos_act)
-
--- ====== 2-5. storage: partition, format, swap, mount ======
+-- ====== 1-4. storage: partition, format, swap, mount ======
 local dnames = {}
 for k in pairs(conf.storage.devices) do dnames[#dnames + 1] = k end
 table.sort(dnames)
@@ -134,7 +104,42 @@ for _, m in ipairs(mounts) do
     act("mount", { partition = m.part, point = m.point, options = m.options })
 end
 
--- ====== 6. derived files: fstab, hostname ======
+-- ====== 5. repos: copy_tree* + configure_repos, AFTER the storage mounts ======
+-- Both write INTO the target root (<root>/var/kodos/repo, <root>/etc/apk/
+-- repositories + repos.d): at bootstrap they must land on the MOUNTED root,
+-- otherwise the root mount covers whatever they wrote into the unmounted
+-- root dir (live-VM paste round 2026-11-14: repo tree + repos.d vanished
+-- under the fresh /; the scratch tmpfs pre-mounts masked this). One copy_tree
+-- per local repo entry that declares src; copy_tree (#5) stays BEFORE
+-- configure_repos (#6) so the repo tree exists before apk resolves it.
+local configure_repos_act = {
+    type = conf.repos.base.type,
+    mirror = conf.repos.base.mirror,
+    branches = conf.repos.base.branches,
+}
+if conf.repositories then
+    local rnames = {}
+    for n in pairs(conf.repositories) do rnames[#rnames + 1] = n end
+    table.sort(rnames)
+    if #rnames > 0 then
+        local repos_list = {}
+        for _, n in ipairs(rnames) do
+            local entry = { name = n, url = conf.repositories[n].url }
+            -- emit copy_tree before configure_repos if src was declared
+            if repo_src_provenance[n] then
+                local url = conf.repositories[n].url
+                local dst = url:gsub("^file://", "")
+                act("copy_tree", { name = n, src = repo_src_provenance[n], dst = dst })
+                entry.src = repo_src_provenance[n] -- host-abs path for executor apk resolution
+            end
+            repos_list[#repos_list + 1] = entry
+        end
+        configure_repos_act.repos = repos_list
+    end
+end
+act("configure_repos", configure_repos_act)
+
+-- ====== 7. derived files: fstab, hostname ======
 -- Device names are install-time identities (nbd under the installer); the
 -- executor expands {UUID:<device>} placeholders via blkid at write_file
 -- time, so the guest fstab uses stable UUID= sources.
@@ -172,7 +177,7 @@ act("write_file", { path = "/etc/sudoers.d/60-kodos-admin",
                     content = "# kodos: wheel members are administrators\n" ..
                               "%wheel ALL=(ALL:ALL) ALL\n" })
 
--- ====== 6b. managed files: the config's `files` section -> write_file ops ======
+-- ====== 7b. managed files: the config's `files` section -> write_file ops ======
 -- name -> {path, content, mode?}; sorted by name for determinism. This is how
 -- a config ships files no package owns (Task 13: the machine's own
 -- /etc/kodos/config.lua + secrets sidecar, so `kodos apply` has its config
@@ -189,7 +194,7 @@ if conf.files then
     end
 end
 
--- ====== 7. packages: one deduped install set, sorted for determinism ======
+-- ====== 8. packages: one deduped install set, sorted for determinism ======
 -- (versions come from the lockfile / generation-N.json, see lockfile.lua;
 -- the executor installs EXACTLY those versions of these names)
 local plan = resolve.service_plan(conf, backend)
@@ -197,7 +202,7 @@ local hplan = resolve.home_service_plan(conf, backend)
 local all, dropped = resolve.install_set(conf, backend)
 act("install_packages", { names = all })
 
--- ====== 8-9. flatpak (needs the flatpak tool, so after install_packages;
+-- ====== 9-10. flatpak (needs the flatpak tool, so after install_packages;
 -- app ids are Flathub-native: no backend mapping involved) ======
 local fp = resolve.flatpak_plan(conf)
 if (#fp.system > 0 or #fp.users > 0) and not fp.remote then
@@ -216,7 +221,7 @@ for _, scope in ipairs(fp.users) do
     act("install_flatpak", { user = scope.user, ids = scope.ids })
 end
 
--- ====== 8-13. system settings + service settings ======
+-- ====== 11-16. system settings + service settings ======
 if conf.system.locale then
     act("configure_locale", { default = conf.system.locale.default })
 end
@@ -257,7 +262,7 @@ table.sort(nets, function(a, b)
 end)
 if #nets > 0 then act("configure_network", { connections = nets }) end
 
--- ====== 14. generation + activation (users/services run INSIDE the chroot:
+-- ====== 18-19. generation + activation (users/services run INSIDE the chroot:
 -- busybox + init.d scripts only exist once the generation is activated,
 -- so this must precede them) ======
 act("create_generation", { packages = all, root = conf.generations.root,

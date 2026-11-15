@@ -256,7 +256,7 @@ func rollback(chroot string, n *int, apkBin string) error {
 	if meta.Distro != "alpine" {
 		return fmt.Errorf("cannot roll back to generation %d: distro %q (this build runs the alpine/apk family only)", target, meta.Distro)
 	}
-	// activate_generation (IR rank 18) runs BEFORE install_bootloader (22), so a
+	// activate_generation (IR rank 19) runs BEFORE install_bootloader (23), so a
 	// generation the bootloader would fail on must never become current on the
 	// way there. Same convention the op itself enforces: <gen>/boot/vmlinuz-<kver>
 	// and the initramfs named after that exact kver.

@@ -34,19 +34,22 @@ type actionsFile struct {
 }
 
 // canonical emission order per IR.md (op -> minimum rank; ops may repeat
-// at the same rank, ranks never go backwards). #18 activation precedes
-// #19-22 because those run inside the activated chroot.
+// at the same rank, ranks never go backwards). copy_tree + configure_repos
+// sit AFTER the mounts: they write into the target root, so a bootstrap
+// stream that emitted them earlier would have their output covered by the
+// root mount. #19 activation precedes #20-23 because those run inside the
+// activated chroot.
 var opRank = map[string]int{
-	"copy_tree": 0,
-	"configure_repos": 1, "partition_disk": 2, "format": 3, "create_swap": 4,
-	"mount": 5, "write_file": 6, "install_packages": 7,
-	"configure_flatpak_remote": 8, "install_flatpak": 9,
-	"configure_locale": 10, "configure_keyboard": 11, "configure_timezone": 12,
-	"load_kernel_modules": 13, "set_kernel_arguments": 14,
-	"configure_service": 15, "configure_network": 16,
-	"create_generation": 17, "activate_generation": 18,
-	"create_user": 19, "enable_service": 20, "enable_home_service": 21,
-	"install_bootloader": 22,
+	"partition_disk": 1, "format": 2, "create_swap": 3, "mount": 4,
+	"copy_tree": 5, "configure_repos": 6, "write_file": 7,
+	"install_packages": 8,
+	"configure_flatpak_remote": 9, "install_flatpak": 10,
+	"configure_locale": 11, "configure_keyboard": 12, "configure_timezone": 13,
+	"load_kernel_modules": 14, "set_kernel_arguments": 15,
+	"configure_service": 16, "configure_network": 17,
+	"create_generation": 18, "activate_generation": 19,
+	"create_user": 20, "enable_service": 21, "enable_home_service": 22,
+	"install_bootloader": 23,
 }
 
 func loadJSON(path string, v any) error {
