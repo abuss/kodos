@@ -33,7 +33,7 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
    semantics; layered configs pass `check-packages.lua` on all three
    distros.
 2. ~~**No generator.**~~ **DONE 2026-11-11 (reference)**: `IR.md` is the
-   Lua↔executor contract (22 ops, strict order, idempotent); `generate.lua`
+   Lua↔executor contract (23 ops, strict order, idempotent); `generate.lua`
    emits the JSON action stream for any backend (alpine: 30 actions from
    the layered eszkoz config); `test-generate.lua` pins shape, order,
    layering effects, determinism, hard errors. The **compiled executor**
@@ -67,7 +67,7 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
    Verified: `kodos-exec selftest` (create/switch/prune/rollback/edit-keep)
    + live scratch-root E2E with the REAL pinned `broot-1.54.0-r0` from
    v3.24 (download, unpack, generation, activation, idempotent re-run).
-   **All 22 IR ops now implemented** incl. partition/format/mount, users,
+   **All 23 IR ops now implemented** incl. partition/format/mount, users,
    services, locale/kbd/tz/modules, bootloader, and the full dependency
    closure via apk's own solver (90 requested → 864 installed).
 

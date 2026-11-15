@@ -238,7 +238,7 @@ func apply(configArg string, dryRun bool, root, apkBin string) error {
 		return fmt.Errorf("parse generate output: %w", err)
 	}
 
-	// 2. the configure_repos action carries mirror/branches/repos (#1 always present)
+	// 2. the configure_repos action carries mirror/branches/repos (#6 always present; emitted after the mounts)
 	var mirror string
 	var branches []string
 	var localRepos []localRepoRef

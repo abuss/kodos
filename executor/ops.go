@@ -1101,6 +1101,13 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if uuid == "" {
 		return fmt.Errorf("bootloader: UUID of %s: blkid produced no UUID (util-linux blkid required?)", e.rootPart)
 	}
+	// busybox blkid on a REAL device prints the whole
+	// '/dev/x: UUID="..." TYPE="ext4"' line (-o value -s UUID ignored): a
+	// bare UUID never contains space/tab/=/", so this fails closed on the
+	// garbage line too — same placement, before any mutation.
+	if strings.ContainsAny(uuid, " \t=\"") {
+		return fmt.Errorf("bootloader: UUID of %s: not a bare UUID (util-linux blkid required?)", e.rootPart)
+	}
 	fstype, _ := runOut("blkid", "-o", "value", "-s", "TYPE", e.rootPart)
 	gen := e.s.genDir(e.meta.Generation)
 
