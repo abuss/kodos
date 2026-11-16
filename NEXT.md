@@ -457,15 +457,22 @@ boxes with a monitor never need it).
 toolchain (rc 0): 98-pkg closure incl. `linux-lts` + `linux-firmware` (the
 backend DEFAULT variant is the right one for real hardware), canonical IR
 order ending `install_bootloader`, copy_tree src rewrite visible, no `dummy`,
-kodos apk pinned — plus the qemu E2E chain above for the ISO path. Known
+kodos apk pinned — plus the qemu E2E chain above for the ISO path. **REAL
+BARE-METAL INSTALL DONE 2026-11-16** (user's box, install-ISO burned to
+USB): the field hiccup was a stale SWAP signature on the root-designated
+partition surfacing as a mount failure — root-caused + fixed at `ad2a9ac`
+(format self-heals swap signatures, protects real filesystems; create_swap
+refuses to erase data), cleared live with one `wipefs -a`, install then
+completed. Known
 limits (as designed): the INSTALLED system's
 bootloader is grub EFI only (the stick itself also boots legacy BIOS, but an
 install on a legacy-BIOS-only box would not boot); partition sizes are the
 base profile's placeholders (ponytail: confirm with lsblk on the stick);
 the machine config inherits the eszkoz base desktop profile (tailscale etc —
-edit the layer to trim). **Paste round pending (physical hardware):** real
-stick + real-box install, then the usual apply/rollback/self-update checks on
-bare metal.
+edit the layer to trim). **Still open on the bare box:** the day-2 checks
+(apply/rollback/self-update) have only ever been driven on the VM; the
+stick variant (writable KODOS ext4 partition) has not had its own physical
+round.
 
 ## Offline VM forensics (no sudo; host needs qemu-img, mtools, e2fsprogs)
 
@@ -499,7 +506,7 @@ top-level init entry before the ESP copy.)
 | 5 | ~~Executor design + spike~~ | **SPIKE DONE 2026-11-12** (Go; store/generation core + install + network live-tested on a scratch root; remaining ops listed in item 5 above) |
 | 6 | Schema-gap backlog above (networking **done** 2026-11-12; display manager next) | fill gaps as real needs, not upfront |
 | 7 | Drift CI: re-fetch the 3 indexes + re-run all backends per Alpine release / weekly | `clang19→clang20` proved the failure mode is real |
-| 8 | Bare-metal install media (`build/usb/`) | stick + ISO variants; **qemu E2E proven** (install -> UEFI boot -> gen 0 -> kodos status); real hardware round still paste-run |
+| 8 | Bare-metal install media (`build/usb/`) | **install DONE on real hardware 2026-11-16** (ISO path; field trap fixed at `ad2a9ac`); qemu E2E green; day-2 apply/rollback/self-update on the bare box not yet driven |
 
 Suggested entry point: the **bare-metal paste round** (build/usb/ section
 above) — VM install-to-login and self-management are DONE (2026-11-16), so
