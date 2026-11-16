@@ -1,8 +1,11 @@
 #!/bin/sh
 # build/usb/run-install.sh — bare-metal bootstrap, run ON the booted install
-# USB (Alpine standard live: root login, Ethernet up via `udhcpc` or
-# setup-alpine). Payload layout on the KODOS ext4 partition (make it with
-# build/usb/mkinstall-usb.sh, mount it with `mount -L KODOS /usb`):
+# USB (Alpine live: root login, Ethernet up via `udhcpc` or setup-alpine).
+# The media is the kodos install ISO dd'd to the stick (build/usb/mkinstall-
+# usb.sh); the live AUTO-mounts it under /media — locate the payload with
+#   D=$(find /media /run/media -maxdepth 4 -name run-install.sh | head -1)
+#   cp -a "${D%/*}" /root/kodos
+# Payload layout inside:
 #
 #   bin/kodos  repo/x86_64/  indexes/  config/{machine.lua,target-config.lua}
 #   run-install.sh
@@ -124,8 +127,8 @@ fi
 [ -n "$KODOS_APK" ] && [ -x "$KODOS_APK" ] || {
     echo "ERROR: no apk-tools for the closure lock (KODOS_APK=/path)"; exit 1; }
 export KODOS_APK
-# copy_tree src must be where the KODOS partition IS mounted (config was
-# written assuming /usb/repo) — same actions.json sed idea vm/run.sh uses
+# copy_tree src must be where the PAYLOAD actually IS (config was written
+# assuming /usb/repo) — same actions.json sed idea vm/run.sh uses
 # for nbd indices. (busybox-safe: no GNU sed -i dependency.)
 sed "s|/usb/repo|$PAYLOAD/repo|g" "$WORK/actions.json" > "$WORK/actions.json.tmp"
 mv "$WORK/actions.json.tmp" "$WORK/actions.json"

@@ -390,40 +390,48 @@ self-management.
 ## Bare-metal install USB (build/usb/)
 
 Full create/boot/install walkthrough: **`build/usb/README.md`** (it also
-ships on the payload partition). The gist:
+ships inside the media). The gist:
 
-The stick = Alpine standard ISO (3.24.4, isohybrid: the stick itself boots
-BIOS *and* UEFI via El Torito) + one ext4 partition labelled KODOS holding the
-payload: static `kodos`, local repo (`kodos.apk` + APKINDEX via
-`build/mkapk.sh`), 3.24 main+community index snapshots, the bare-metal config
-layer, and `run-install.sh`. Packages resolve from the Alpine mirror on the
-target (network available — the design decision); offline mirror deferred.
+The stick = the **kodos install ISO dd'd whole** (Alpine standard 3.24.4
+re-mastered with xorriso — isohybrid, boots BIOS *and* UEFI — payload
+grafted read-only at /kodos: static `kodos`, local repo (`kodos.apk` +
+APKINDEX via `build/mkapk.sh`), 3.24 main+community index snapshots, the
+bare-metal config layer, and `run-install.sh`). Packages resolve from the
+Alpine mirror on the target (network available — the design decision);
+offline mirror deferred. The same ISO is the VM/optical/Ventoy artifact.
 
-FIRST STICK ROUND (2026-11-16, user's host) caught a partitioner trap: the
-Alpine 3.24.4 ISO's table is xorriso hybrid-DOS (entry id 0 spans the whole
-ISO + a tiny ESP entry), and `sgdisk` refuses to touch it
-(`Invalid partition data!` rc=2). The script now uses `parted`, replacing the
-hybrid ISO entry with the payload partition — both stick boot paths survive
-the surgery (qemu-proven: UEFI GRUB *and* SeaBIOS isolinux reach live login
-after it; the xorriso MBR bootstrap reads the El Torito marker at LBA0, and
-UEFI only needs the ESP entry, which parted leaves intact).
+THE PARTITIONED-STICK VARIANT IS RETIRED (2026-11-16 — killed by its first
+physical round, three independent ways): (1) the Alpine 3.24.4 ISO's table is
+xorriso hybrid-DOS (entry id 0 spans the whole ISO + a tiny ESP entry) and
+`sgdisk` flatly refuses it (`Invalid partition data!` rc=2; `parted` CAN
+carve — both stick boot paths survive that surgery, qemu-proven: the xorriso
+MBR bootstrap reads the El Torito marker at LBA0, UEFI only needs the ESP
+entry); (2) a carved payload partition proved UNMOUNTABLE on the live: the
+automounter holds the WHOLE disk as ISO9660 (/media/vda) and while that
+holds, busybox `mount`/`losetup` exclusive-opens on its partitions fail EBUSY
+(also with explicit `-t ext4`, and after `umount -l`); (3) nothing needed it
+— run-install.sh always copies the payload to /root/kodos and edits happen
+there, and the ISO already carries the payload. Burn the ISO.
 
-Host side (needs go, curl, parted, mkfs.ext4; the ISO + index snapshots cache
+Host side (needs go, curl, xorriso; the ISO + index snapshots cache
 under `build/usb/iso/`):
 
 ```
-sh build/usb/mkinstall-usb.sh /dev/sdX      # typed device-name confirm, stick ERASED
+sh build/usb/mkinstall-usb.sh /dev/sdX      # builds kodos-install ISO, dd's it to the stick; typed confirm, ERASED
 STAGE_ONLY=1 sh build/usb/mkinstall-usb.sh  # payload staging only (layout proof)
+sh build/usb/mkinstall-iso.sh               # the ISO alone (VM/CD/Ventoy)
 ```
 
-USB side (Alpine live: root login, Ethernet up):
+USB side (Alpine live: root login, Ethernet up; the boot media AUTO-mounts:
+`/media/<devname>` for a burned stick, `/media/cdrom` for optical):
 
 ```
-udhcpc -i <if>            # or setup-alpine; network IS required
-mount -L KODOS /usb
-vi /usb/config/machine.lua    # host_name + the /dev/... disk line (lsblk)
-sh /usb/run-install.sh --dry-run
-sh /usb/run-install.sh
+ifconfig eth0 up && udhcpc -i <if>
+D=$(find /media /run/media -maxdepth 4 -name run-install.sh | head -1)
+cp -a "${D%/*}" /root/kodos
+vi /root/kodos/config/machine.lua    # host_name + the /dev/... disk line (lsblk)
+sh /root/kodos/run-install.sh --dry-run
+sh /root/kodos/run-install.sh
 ```
 
 `run-install.sh` is the VM-proven install sequence minus the nbd
@@ -439,12 +447,12 @@ password into a 0600 secrets file and lands it at the machine's
 self-management applies exactly as above: `/kod/repo` is on the machine's
 own disk.
 
-**ISO variant (approved 2026-11-16):** `build/usb/mkinstall-iso.sh`
+**ISO build facts (qemu-proven, no sudo):** `build/usb/mkinstall-iso.sh`
 xorriso-re-masters the Alpine standard ISO (boot info verbatim from
 `-report_el_torito as_mkisofs`) with the payload grafted read-only at
-`/kodos` — one file for VMs/optical/ISO-only writers; live auto-mounts its
-ISO at `/media/cdrom`, so day-of use is `cp -a /media/cdrom/kodos /root/
-kodos`, edit, `run-install.sh --device <disk>`.
+`/kodos`; isohybrid preserved so the SAME file works as VM CD, optical, and
+dd-to-stick (stick auto-mounts at `/media/<devname>`; live copy + edit +
+`run-install.sh --device <disk>` either way).
 
 **LIVE-ENV FACTS this proved (qemu, no sudo):** the Alpine standard live ISO
 is BUSYBOX-flavored — no parted, no mkfs.ext4, and busybox blkid/mount lack

@@ -45,8 +45,8 @@ return {
     },
 
     -- The USB payload repo: copy_tree ships it INTO the machine at /kod/repo;
-    -- run-install.sh rewrites this path to wherever the KODOS partition is
-    -- actually mounted (the same actions.json sed trick vm/run.sh proved).
+    -- run-install.sh rewrites this path to wherever the payload actually is
+    -- (the same actions.json sed trick vm/run.sh proved).
     repositories = { kodos = { url = "file:///kod/repo", src = "/usb/repo" } },
     packages = { { repo = "kodos", name = "kodos" } },
 

@@ -1,10 +1,11 @@
 # Bare-metal install USB
 
 How to put kodos on a real machine: build a stick on a dev host, boot the
-target from it, run the installer. The stick is an Alpine 3.24 live system
-(the installer host) plus a `KODOS` partition carrying the payload (the
-static `kodos` binary, its own apk in a local repo, index snapshots, and the
-machine config you edit). Package installs download from the Alpine mirror —
+target from it, run the installer. The stick is the kodos **install ISO**
+(an Alpine 3.24 live system re-mastered with xorriso, with the payload —
+the static `kodos` binary, its own apk in a local repo, index snapshots,
+and the machine config you edit — grafted read-only at `/kodos`) `dd`'d
+onto the whole stick. Package installs download from the Alpine mirror —
 **the target needs Ethernet during the install** (Wi-Fi can only be
 configured *for the installed machine*, the live stick won't join a network
 without it).
@@ -14,9 +15,8 @@ host.
 
 ## 1. Create the USB (dev host)
 
-Requirements: `go`, `curl`, `parted`, `mkfs.ext4` (e2fsprogs),
-`xorriso` (ISO variant only); util-linux is not needed on the host. The
-Alpine ISO (~350MB) and the 3.24 index snapshots download once and cache
+Requirements: `go`, `curl`, `xorriso`; util-linux is not needed on the host.
+The Alpine ISO (~350MB) and the 3.24 index snapshots download once and cache
 under `build/usb/iso/`.
 
 ```sh
@@ -26,11 +26,12 @@ sh build/usb/mkinstall-usb.sh /dev/sdX
 `/dev/sdX` is the WHOLE USB stick (`lsblk` to find it) — everything on it is
 erased, and the script makes you type the device name again to confirm. It:
 
-1. builds the payload (`kodos` static binary + `kodos.apk` local repo +
+1. stages the payload (`kodos` static binary + `kodos.apk` local repo +
    index snapshots + `build/usb/config/` + `run-install.sh`),
-2. `dd`s the Alpine standard ISO to the start of the stick,
-3. carves a 1 GB ext4 partition labelled `KODOS` in the space after the ISO
-   and copies the payload in.
+2. builds `build/usb/iso/kodos-install-<rel>.iso` (Alpine standard ISO
+   re-mastered with xorriso: original isohybrid BIOS/EFI boot info
+   preserved, payload grafted read-only at `/kodos`),
+3. `dd`s that ISO onto the stick.
 
 To inspect the payload without touching a device:
 
@@ -38,33 +39,21 @@ To inspect the payload without touching a device:
 STAGE_ONLY=1 sh build/usb/mkinstall-usb.sh    # -> build/usb/stage/
 ```
 
-### Alternative: a single ISO file
+The ISO alone (no stick) is also a first-class artifact — VM/CD media or
+ISO-only writers (Etcher/Ventoy): `sh build/usb/mkinstall-iso.sh`.
 
-`build/usb/mkinstall-iso.sh` (host-side) produces
-`build/usb/iso/kodos-install-<rel>.iso`: the same Alpine base re-mastered
-with xorriso (original isohybrid/BIOS/EFI boot info preserved) with the
-payload grafted read-only at `/kodos`. Use it when a single file is the
-right shape: VM/CD media, or ISO-only USB writers (Etcher/Ventoy). The
-difference from `mkinstall-usb.sh`: the payload there is a writable ext4
-partition (edit configs on the stick); here it is read-only, so boot, then:
-
-```sh
-cp -a /media/cdrom/kodos /root/kodos      # the live system auto-mounts its ISO
-vi /root/kodos/config/machine.lua         # disk device (or keep it and use --device)
-sh /root/kodos/run-install.sh --dry-run
-sh /root/kodos/run-install.sh --device /dev/vda   # rewrites the stream (like vm/run.sh's nbd sed)
-```
-
-Proven end-to-end on plain qemu (no sudo): ISO live → 37-op install onto a
-virtio disk → reboot → UEFI `Booting 'Kodos generation 0'` → OpenRC boot on
-linux-lts → login → `kodos status` current -> generation 0. Headless VM
-testing note: the bare-metal config boots to the *video* console; for
-serial-visible boots add `serial_console = true` + a `"console=ttyS0"`
-kernel arg to both config files first (exactly what vm/vm-layer.lua does).
+> **Retired variant (2026-11-16 field round):** the earlier design — Alpine
+> ISO `dd`'d plus a carved ext4 `KODOS` payload partition — is dead on both
+> ends: `sgdisk` refuses the ISO's hybrid-DOS table (`Invalid partition
+> data!`; `parted` works), and on the live the partition is *unmountable*:
+> the automounter holds the whole disk as ISO9660 at `/media/vda`, and busybox
+> `mount`/`losetup` exclusive-opens on its partitions fail EBUSY while that
+> holds. It also solved nothing — the installer always works from the copy it
+> makes under `/root/kodos`. Burn the ISO instead.
 
 ## 2. Boot the target from the stick
 
-The stick image is isohybrid: it boots on **BIOS or UEFI** firmware. Notes:
+The burned ISO is isohybrid: it boots on **BIOS or UEFI** firmware. Notes:
 
 - **Disable Secure Boot.** The installed system's bootloader is
   `grub-install --removable --target=x86_64-efi` — the unshimmed EFI
@@ -78,14 +67,20 @@ The stick image is isohybrid: it boots on **BIOS or UEFI** firmware. Notes:
 ## 3. Bring up the payload + network (on the live stick)
 
 ```sh
-ifconfig eth0 up && udhcpc -i eth0     # or: setup-alpine (pick defaults, "None" for disk)
-mount -L KODOS /usb
+ifconfig eth0 up && udhcpc -i eth0   # or: setup-alpine (defaults, "None" for disk)
+D=$(find /media /run/media -maxdepth 4 -name run-install.sh | head -1); D=${D%/*}
+cp -a "$D" /root/kodos
 ```
+
+The live auto-mounts its boot media — burned-to-stick lands at
+`/media/<devname>` (e.g. `/media/vda`), optical/VM CD at `/media/cdrom`; the
+`find` above covers both, no manual mounting (busybox `mount -L` does not
+exist on this live image anyway).
 
 ## 4. Edit the machine config (before installing)
 
-`/usb/config/machine.lua` decides what gets installed. The two things to
-check every time:
+`/root/kodos/config/machine.lua` decides what gets installed. The two things
+to check every time:
 
 - **the disk**: `storage = { devices = { disk0 = { device = "/dev/sda" } } }`
   — run `lsblk` and point it at the machine's real disk. NEVER the USB stick
@@ -109,7 +104,7 @@ Also worth knowing:
 - Users come from the eszkoz base profile (e.g. `abuss`). Accounts without a
   password hash are created *without a password*: give the root password at
   the install prompt, and add hashes for other users via
-  `/usb/config/secrets.json` (`{"users.NAME.hashed_password":
+  `/root/kodos/config/secrets.json` (`{"users.NAME.hashed_password":
   "<openssl passwd -6 ...>"}`, kept out of git) if you want them usable.
 - Wi-Fi for the installed machine: add a `connections` entry with
   `psk = { secret = "wifi.x.psk" }` in the layer and the psk in that same
@@ -118,8 +113,9 @@ Also worth knowing:
 ## 5. Install
 
 ```sh
-sh /usb/run-install.sh --dry-run     # prints the full plan, writes nothing
-sh /usb/run-install.sh               # typed `yes`, then it installs
+sh /root/kodos/run-install.sh --dry-run   # prints the full plan, writes nothing
+sh /root/kodos/run-install.sh             # typed `yes`, then it installs
+                                          # (add --device /dev/sdX to override the config)
 ```
 
 The installer runs the proven sequence: generate the action stream, version-
@@ -150,7 +146,9 @@ kodos self-update             # after bumping kodos.apk into /kod/repo + applyin
 ```
 
 Verify at first boot: `kodos status` shows generation 0 current,
-`ls /kod/generation`, `uname -r` = the linux-lts version.
+`ls /kod/generation`, `uname -r` = the linux-lts version, and
+`ls -l /kod/generation/0/boot/initramfs-lts` ≈ 20–30MB (a ~180MB image
+means the mkinitfs trim above did not land — see that bullet).
 
 ## Troubleshooting
 
@@ -167,3 +165,6 @@ Verify at first boot: `kodos status` shows generation 0 current,
   If that entry fails to boot: live USB → `mount /dev/sda2 /mnt/x &&
   mount /dev/sda1 /mnt/x/boot`, `for f in dev proc sys; do mount --rbind
   /$f /mnt/x/$f; done`, then `chroot /mnt/x kodos rollback`.
+- A boot dies in grub with `start_image() ... LOAD_ERROR`: the initramfs is
+  too big for that firmware (see the mkinitfs bullet in section 4 — this is
+  exactly how the NanoVM box failed at 180MB).

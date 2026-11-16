@@ -9,10 +9,21 @@
 # indexes/ (3.24 main+community snapshots, cached in build/usb/iso/), config/
 # (bare-metal layer + target config), run-install.sh.
 #
-# The stick = Alpine standard ISO dd'd (El Torito: UEFI+BIOS boot from the ISO
-# filesystem) + one ext4 partition labelled KODOS carved into the space after
-# the ISO, holding the payload. Boot the stick, bring up Ethernet, then:
-#   mount -L KODOS /usb && /usb/run-install.sh
+# The stick = the kodos INSTALL ISO (mkinstall-iso.sh: Alpine standard ISO
+# re-mastered with xorriso, payload grafted read-only at /kodos) dd'd onto the
+# whole device: isohybrid, boots BIOS+UEFI. Boot the stick, bring up
+# Ethernet, then find the payload the live auto-mounted:
+#   D=$(find /media /run/media -maxdepth 4 -name run-install.sh | head -1)
+#   cp -a "${D%/*}" /root/kodos && sh /root/kodos/run-install.sh
+#
+# The earlier design (Alpine ISO dd + carved ext4 KODOS partition) died on
+# its FIRST physical round (2026-11-16), three independent ways: sgdisk
+# refuses the ISO's hybrid-DOS table ("Invalid partition data!" — parted
+# works); the payload partition is then unmountable on the live (the
+# automounter holds the WHOLE disk as ISO9660 at /media/vda and busybox
+# mount/losetup exclusive-opens on its partitions fail EBUSY); and it was
+# never needed: the installer edits/works from its copy under /root/kodos
+# anyway. Burn the ISO; the payload travels inside it.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
@@ -31,8 +42,9 @@ stage_payload() {
     KPKG="kodos-${PKGVER:-0.1.0}-r${PKGREL_OVERRIDE:-$(git -C "$REPO" rev-list --count HEAD)}.apk"
     [ -f "$REPO/vm/repo/x86_64/$KPKG" ] || { echo "ERROR: mkapk did not produce $KPKG"; exit 1; }
     cp "$REPO/vm/repo/x86_64/$KPKG" "$OUT/repo/x86_64/"
-    # parted for the LIVE installer host (the standard ISO does not ship it,
-    # the executor's storage ops need it): pinned to the snapshot index version
+    # parted + util-linux for the LIVE installer host (the standard ISO does
+    # not ship them, the executor's storage ops need them): pinned to the
+    # snapshot index versions, offline from the payload repo
     for pk in parted util-linux; do
         PV=$(awk -v p="$pk" '$0=="P:"p{f=1} f&&/^V:/{print substr($0,3); exit}' "$CACHE/main-324.apkindex")
         [ -s "$CACHE/$pk-$PV.apk" ] || {
@@ -71,43 +83,25 @@ if lsblk -n -o MOUNTPOINT "$DEV" 2>/dev/null | grep -q '[^[:space:]]'; then
     echo "ERROR: $DEV (or a partition of it) is mounted. Not the stick you mean?"
     exit 1
 fi
-command -v parted >/dev/null || { echo "ERROR: parted needed on the host"; exit 1; }
-command -v mkfs.ext4 >/dev/null || { echo "ERROR: mkfs.ext4 (e2fsprogs) needed on the host"; exit 1; }
 
 echo "ALL DATA ON $DEV WILL BE DESTROYED (kodos install USB, Alpine $REL)."
 printf 'type the device name to confirm: '
 read -r CONFIRM
 [ "$CONFIRM" = "$DEV" ] || { echo "not confirmed; aborted"; exit 1; }
 
-[ -s "$ISO" ] || { mkdir -p "$CACHE"; curl -f -o "$ISO" "$ISO_URL"; }
-echo "dd $ISO -> $DEV"
-dd if="$ISO" of="$DEV" bs=4M status=progress oflag=sync
+KISO=$CACHE/kodos-install-$REL.iso
+sh "$(dirname "$0")/mkinstall-iso.sh"
+[ -s "$KISO" ] || { echo "ERROR: mkinstall-iso.sh produced no $KISO"; exit 1; }
+echo "dd $KISO -> $DEV"
+dd if="$KISO" of="$DEV" bs=4M status=progress oflag=sync
 sync
-
-# The Alpine ISO's table is xorriso hybrid-DOS (entry id 0 spans the whole
-# ISO + a tiny ESP): sgdisk flatly refuses it ("Invalid partition data!").
-# parted replaces that hybrid ISO entry with the payload partition; both
-# boot paths survive (qemu-proven: the xorriso MBR bootstrap reads the El
-# Torito marker at LBA0, UEFI only needs the ESP entry parted leaves be).
-ISO_MIB=$(( $(stat -c%s "$ISO") / 1048576 + 8 ))
-parted -s "$DEV" mkpart primary "${ISO_MIB}MiB" 100%
-udevadm settle 2>/dev/null || sleep 2
-NEW=$(lsblk -nro NAME "$DEV" | grep -v "^${DEV}$" | tail -1)
-[ -n "$NEW" ] || { echo "ERROR: no partition appeared on $DEV"; exit 1; }
-mkfs.ext4 -q -L KODOS "$NEW"
-
-MNT=/mnt/kodos-usb-payload
-mkdir -p "$MNT"
-mount "$NEW" "$MNT"
-cp -a "$OUT/." "$MNT/"
-sync
-umount "$MNT"
 
 echo
-echo "USB ready. Full walkthrough: /usb/README.md (also on the stick)."
+echo "USB ready. Full walkthrough: /kodos/README.md in the ISO (also on the stick)."
 echo "Boot the target from it (BIOS or UEFI, Secure Boot OFF), on the live system:"
-echo "  udhcpc -i <if>            # or setup-alpine, network is required
-  mount -L KODOS /usb
-  vi /usb/config/machine.lua     # host_name + the /dev/... disk line (lsblk)
-  sh /usb/run-install.sh --dry-run
-  sh /usb/run-install.sh"
+echo "  ifconfig eth0 up && udhcpc -i <if>   # network is required"
+echo "  D=\$(find /media /run/media -maxdepth 4 -name run-install.sh | head -1)"
+echo "  cp -a \"\${D%/*}\" /root/kodos"
+echo "  vi /root/kodos/config/machine.lua    # the /dev/... disk line (lsblk)"
+echo "  sh /root/kodos/run-install.sh --dry-run"
+echo "  sh /root/kodos/run-install.sh"
