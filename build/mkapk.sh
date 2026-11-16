@@ -9,7 +9,7 @@ OUTDIR="$REPO/vm/repo/x86_64"
 mkdir -p "$OUTDIR"
 
 PKGVER=${PKGVER:-0.1.0}
-PKGREL=${PKGREL:-0}
+PKGREL=${PKGREL_OVERRIDE:-$(git -C "$REPO" rev-list --count HEAD 2>/dev/null || echo 0)}
 PKGFILE="kodos-${PKGVER}-r${PKGREL}.apk"
 
 STAGE=$(mktemp -d)

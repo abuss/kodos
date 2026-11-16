@@ -304,7 +304,7 @@ What the bootstrap now ships into the image (host proof: regenerating
   copy of the repo): `copy_tree` self-skips (src == the chroot-mapped dst) and
   apk/fetchUnpack read the repo off the local disk. Bootstrap keeps
   `src = "repo"` — host-path provenance — and its lock needs no config drift
-  (893 pins incl. the util-linux closure, `kodos` 0.1.0-r0, no `dummy`).
+  (893 pins incl. the util-linux closure, `kodos` 0.1.0-r<commit-count>, no `dummy`).
   PASTE ROUND 2 RULING (2026-11-14): the repo lives at **`/kod/repo`**, root
   level next to `/kod/store` — `/var` is per-generation (flips at activation,
   pruning-unsafe), so a repo under `/var/kodos` would vanish at the next
@@ -347,6 +347,16 @@ vm/run.sh guest 'kodos status'
 bash vm/guest-test/selfup-build.sh         # PKGVER=0.2.0 build + copy into the guest
 vm/run.sh guest "$(cat vm/guest-test/30-selfup.sh)"
 ```
+
+**Rebuilds and the stale-store trap**: `build/mkapk.sh` versions the kodos apk
+as `0.1.0-r<git-commit-count>` (monotonically increasing per commit). After any
+executor change, commit it, then re-run `vm/run.sh install` — the new rN pkgrel
+produces a new store key and the guest's `install_packages` picks up fresh
+bytes. The symptom of a stale store is a guest apply log whose shape contradicts
+HEAD behaviour (e.g. hook lines appearing after `activate_generation`, or
+`checkGenRunnable` absent from the binary). Grep `usr/bin/kodos` from the guest
+repo apk for a known error string to confirm staleness (`strings <apk-binary> |
+grep "generation.*incomplete"`; 0 matches = pre-bef50c0 binary).
 
 `vm/run.sh guest '<cmd>'` / `vm/run.sh guest-file F [DIR]` are the ssh runners
 (host 2222 → guest 22, root + the test password). This host HAS `sshpass`, so

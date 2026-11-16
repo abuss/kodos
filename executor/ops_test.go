@@ -17,7 +17,7 @@ func TestCopyTreeSelfCopySkip(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(src, "x86_64"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "x86_64", "kodos-0.1.0-r0.apk"), []byte("apk"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "x86_64", "kodos-test-fixture.apk"), []byte("apk"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	e := &executor{s: &system{chroot: root}}
@@ -33,7 +33,7 @@ func TestCopyTreeSelfCopySkip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("copy to a different dst: %v", err)
 	}
-	b, err := os.ReadFile(filepath.Join(root, "kod/repo/x86_64/kodos-0.1.0-r0.apk"))
+	b, err := os.ReadFile(filepath.Join(root, "kod/repo/x86_64/kodos-test-fixture.apk"))
 	if err != nil || string(b) != "apk" {
 		t.Fatalf("copied content missing/wrong: %q %v", string(b), err)
 	}
@@ -57,7 +57,7 @@ func TestCopyTreeChrootRootedSymlinkDst(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(src, "x86_64"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "x86_64", "kodos-0.1.0-r0.apk"), []byte("apk"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "x86_64", "kodos-test-fixture.apk"), []byte("apk"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	e := &executor{s: &system{chroot: root}}
@@ -66,7 +66,7 @@ func TestCopyTreeChrootRootedSymlinkDst(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("copy under a symlinked top dir: %v", err)
 	}
-	b, err := os.ReadFile(filepath.Join(realVar, "repo/x86_64/kodos-0.1.0-r0.apk"))
+	b, err := os.ReadFile(filepath.Join(realVar, "repo/x86_64/kodos-test-fixture.apk"))
 	if err != nil || string(b) != "apk" {
 		t.Fatalf("content missing at the link's real target: %q %v", string(b), err)
 	}
