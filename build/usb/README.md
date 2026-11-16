@@ -15,8 +15,9 @@ host.
 ## 1. Create the USB (dev host)
 
 Requirements: `go`, `curl`, `sgdisk` (gdisk), `mkfs.ext4` (e2fsprogs),
-`parted`-era util-linux is not needed here. The Alpine ISO (~40MB) and the
-3.24 index snapshots download once and cache under `build/usb/iso/`.
+`xorriso` (ISO variant only); util-linux is not needed on the host. The
+Alpine ISO (~350MB) and the 3.24 index snapshots download once and cache
+under `build/usb/iso/`.
 
 ```sh
 sh build/usb/mkinstall-usb.sh /dev/sdX
@@ -36,6 +37,30 @@ To inspect the payload without touching a device:
 ```sh
 STAGE_ONLY=1 sh build/usb/mkinstall-usb.sh    # -> build/usb/stage/
 ```
+
+### Alternative: a single ISO file
+
+`build/usb/mkinstall-iso.sh` (host-side) produces
+`build/usb/iso/kodos-install-<rel>.iso`: the same Alpine base re-mastered
+with xorriso (original isohybrid/BIOS/EFI boot info preserved) with the
+payload grafted read-only at `/kodos`. Use it when a single file is the
+right shape: VM/CD media, or ISO-only USB writers (Etcher/Ventoy). The
+difference from `mkinstall-usb.sh`: the payload there is a writable ext4
+partition (edit configs on the stick); here it is read-only, so boot, then:
+
+```sh
+cp -a /media/cdrom/kodos /root/kodos      # the live system auto-mounts its ISO
+vi /root/kodos/config/machine.lua         # disk device (or keep it and use --device)
+sh /root/kodos/run-install.sh --dry-run
+sh /root/kodos/run-install.sh --device /dev/vda   # rewrites the stream (like vm/run.sh's nbd sed)
+```
+
+Proven end-to-end on plain qemu (no sudo): ISO live → 37-op install onto a
+virtio disk → reboot → UEFI `Booting 'Kodos generation 0'` → OpenRC boot on
+linux-lts → login → `kodos status` current -> generation 0. Headless VM
+testing note: the bare-metal config boots to the *video* console; for
+serial-visible boots add `serial_console = true` + a `"console=ttyS0"`
+kernel arg to both config files first (exactly what vm/vm-layer.lua does).
 
 ## 2. Boot the target from the stick
 

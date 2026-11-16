@@ -27,8 +27,24 @@ stage_payload() {
     mkdir -p "$OUT/bin" "$OUT/repo/x86_64" "$OUT/indexes" "$OUT/config"
     (cd "$REPO/executor" && CGO_ENABLED=0 go build -o "$OUT/bin/kodos" .)
     sh "$REPO/build/mkapk.sh" >/dev/null   # -> vm/repo/x86_64 (apk + index)
-    cp "$REPO"/vm/repo/x86_64/kodos-*.apk "$REPO/vm/repo/x86_64/APKINDEX.tar.gz" \
-        "$OUT/repo/x86_64/"
+    # only the apk THIS commit built (vm/repo accumulates old versions)
+    KPKG="kodos-${PKGVER:-0.1.0}-r${PKGREL_OVERRIDE:-$(git -C "$REPO" rev-list --count HEAD)}.apk"
+    [ -f "$REPO/vm/repo/x86_64/$KPKG" ] || { echo "ERROR: mkapk did not produce $KPKG"; exit 1; }
+    cp "$REPO/vm/repo/x86_64/$KPKG" "$OUT/repo/x86_64/"
+    # parted for the LIVE installer host (the standard ISO does not ship it,
+    # the executor's storage ops need it): pinned to the snapshot index version
+    for pk in parted util-linux; do
+        PV=$(awk -v p="$pk" '$0=="P:"p{f=1} f&&/^V:/{print substr($0,3); exit}' "$CACHE/main-324.apkindex")
+        [ -s "$CACHE/$pk-$PV.apk" ] || {
+            mkdir -p "$CACHE"
+            curl -sf "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/$pk-$PV.apk" \
+                -o "$CACHE/$pk-$PV.apk"
+        }
+        cp "$CACHE/$pk-$PV.apk" "$OUT/repo/x86_64/"
+    done
+    # payload-local index over exactly what we ship (kodos + parted; no vm fixture)
+    "$REPO/vm/apk-tools-static" index --allow-untrusted --no-warnings \
+        -o "$OUT/repo/x86_64/APKINDEX.tar.gz" "$OUT"/repo/x86_64/*.apk
     for r in main community; do             # lockfile.lua index snapshots
         [ -s "$CACHE/$r-324.apkindex" ] || {
             mkdir -p "$CACHE"

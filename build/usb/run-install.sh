@@ -34,9 +34,27 @@ done
 [ -f "$CFG" ] || { echo "ERROR: no $CFG"; exit 1; }
 [ -f "$LOCAL_REPO" ] || { echo "ERROR: no $LOCAL_REPO"; exit 1; }
 command -v blkid >/dev/null || { echo "ERROR: blkid missing (util-linux); boot the ALPINE standard stick, not some other stick"; exit 1; }
+# the executor's storage ops shell out to parted + mkfs.ext4; the live ISO
+# ships neither. parted rides in the payload repo (offline); the rest resolve
+# from the mirror (network is an install assumption anyway).
+MISSING=""
+command -v parted    >/dev/null || MISSING="$MISSING parted"
+command -v mkfs.ext4 >/dev/null || MISSING="$MISSING e2fsprogs"
+# busybox blkid/mount lack the util-linux interfaces the executor uses;
+# lsblk is the sentinel (no busybox applet for it)
+command -v lsblk     >/dev/null || MISSING="$MISSING util-linux"
+if [ -n "$MISSING" ]; then
+    echo "installing from payload repo + mirror:$MISSING"
+    apk add --allow-untrusted \
+        --repository "$PAYLOAD/repo" \
+        --repository https://dl-cdn.alpinelinux.org/alpine/v3.24/main \
+        --repository https://dl-cdn.alpinelinux.org/alpine/v3.24/community \
+        $MISSING || { echo "ERROR: apk add$MISSING failed"; exit 1; }
+fi
 
 # ---- target disk: the one the config layer names (or --device) ----
-[ -n "$DEV" ] || DEV=$(grep -o '"/dev/[a-z0-9/]*"' "$CFG" | head -1 | tr -d '"')
+CFGDEV=$(grep -o '"/dev/[a-z0-9/]*"' "$CFG" | head -1 | tr -d '"')
+[ -n "$DEV" ] || DEV=$CFGDEV
 [ -n "$DEV" ] || { echo "ERROR: no /dev/... device in $CFG"; exit 1; }
 
 # refuse to install onto the stick we are running from
@@ -94,6 +112,12 @@ IM=$(snapshot main)
 IC=$(snapshot community)
 
 "$KODOS" lua generate.lua system.lua "$CFG" > "$WORK/actions.json"
+# --device differing from the config: rewrite the stream (the proven vm/run.sh
+# nbd-index sed, generalized): partition/format/mount ops act on DEV.
+if [ "$DEV" != "$CFGDEV" ]; then
+    sed "s|$CFGDEV|$DEV|g" "$WORK/actions.json" > "$WORK/actions.json.tmp"
+    mv "$WORK/actions.json.tmp" "$WORK/actions.json"
+fi
 # lockfile.lua's closure solver wants an ABSOLUTE apk-tools (same resolution
 # kodos apply does in-guest): the live stick's native apk, env-overridable.
 [ -n "${KODOS_APK:-}" ] || KODOS_APK=$(command -v apk)

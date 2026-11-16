@@ -534,6 +534,11 @@ func (e *executor) mount(act map[string]any) error {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return err
 	}
+	// live/installer kernels do not always autoload the fs driver at mount
+	// time (busybox mount then fails EINVAL); ask kmod first, best effort.
+	if fsType, _ := runOut("blkid", "-o", "value", "-s", "TYPE", part); fsType != "" {
+		run("modprobe", fsType)
+	}
 	if err := run("mount", "-o", field(act, "options"), part, target); err != nil {
 		return err
 	}

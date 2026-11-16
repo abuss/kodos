@@ -423,16 +423,42 @@ indirection: `kodos lua generate.lua` -> `kodos lua lockfile.lua`
 `kodos exec -root /mnt/kodos-target`. It refuses a target disk that *is* the
 payload stick (findmnt + lsblk PKNAME), requires typed `yes` before touching
 any disk, seds the `copy_tree` src to wherever the stick IS mounted (the
-proven nbd-sed idea), prompts a root password into a 0600 secrets file and
-lands it at the machine's `/etc/kodos/secrets.json` next to the shipped
-config.lua. Afterwards self-management applies exactly as above: `/kod/repo`
-is on the machine's own disk.
+proven nbd-sed idea) and `--device` seds the whole stream when it differs
+from the config's device (vm/run.sh's nbd-sed, generalized), prompts a root
+password into a 0600 secrets file and lands it at the machine's
+`/etc/kodos/secrets.json` next to the shipped config.lua. Afterwards
+self-management applies exactly as above: `/kod/repo` is on the machine's
+own disk.
+
+**ISO variant (approved 2026-11-16):** `build/usb/mkinstall-iso.sh`
+xorriso-re-masters the Alpine standard ISO (boot info verbatim from
+`-report_el_torito as_mkisofs`) with the payload grafted read-only at
+`/kodos` — one file for VMs/optical/ISO-only writers; live auto-mounts its
+ISO at `/media/cdrom`, so day-of use is `cp -a /media/cdrom/kodos /root/
+kodos`, edit, `run-install.sh --device <disk>`.
+
+**LIVE-ENV FACTS this proved (qemu, no sudo):** the Alpine standard live ISO
+is BUSYBOX-flavored — no parted, no mkfs.ext4, and busybox blkid/mount lack
+the util-linux interfaces the executor uses. Fixes landed: run-install.sh
+auto-installs parted + util-linux + e2fsprogs at startup (parted/util-linux
+ride in the payload repo pinned to the snapshot index = offline; e2fsprogs
+from the mirror), and `executor/ops.go` mount now best-effort `modprobe`s
+the fs TYPE first (live kernels do not autoload ext4 at mount time —
+busybox mount then fails EINVAL). Payload repo also now stages EXACTLY one
+kodos apk (the HEAD-built `r<commit-count>`; vm/repo accumulates old
+versions). Full qemu E2E chain at this commit: ISO live -> 37-op install on
+virtio disk (parted/formats/swap/mounts/store/grub all green) -> UEFI
+reboot -> `Booting 'Kodos generation 0'` -> OpenRC on linux-lts -> login ->
+`kodos status` current->0. Headless VM test note: add `serial_console =
+true` + `"console=ttyS0"` to the config for serial-visible boots (real
+boxes with a monitor never need it).
 
 **Proven:** `STAGE_ONLY` layout + full host dry-run through the embedded
 toolchain (rc 0): 98-pkg closure incl. `linux-lts` + `linux-firmware` (the
 backend DEFAULT variant is the right one for real hardware), canonical IR
 order ending `install_bootloader`, copy_tree src rewrite visible, no `dummy`,
-kodos apk pinned. Known limits (as designed): the INSTALLED system's
+kodos apk pinned — plus the qemu E2E chain above for the ISO path. Known
+limits (as designed): the INSTALLED system's
 bootloader is grub EFI only (the stick itself also boots legacy BIOS, but an
 install on a legacy-BIOS-only box would not boot); partition sizes are the
 base profile's placeholders (ponytail: confirm with lsblk on the stick);
@@ -473,7 +499,7 @@ top-level init entry before the ESP copy.)
 | 5 | ~~Executor design + spike~~ | **SPIKE DONE 2026-11-12** (Go; store/generation core + install + network live-tested on a scratch root; remaining ops listed in item 5 above) |
 | 6 | Schema-gap backlog above (networking **done** 2026-11-12; display manager next) | fill gaps as real needs, not upfront |
 | 7 | Drift CI: re-fetch the 3 indexes + re-run all backends per Alpine release / weekly | `clang19→clang20` proved the failure mode is real |
-| 8 | Bare-metal install USB (`build/usb/`) | scripts + example layer exist, host dry-run green; real-stick + real-box paste round pending |
+| 8 | Bare-metal install media (`build/usb/`) | stick + ISO variants; **qemu E2E proven** (install -> UEFI boot -> gen 0 -> kodos status); real hardware round still paste-run |
 
 Suggested entry point: the **bare-metal paste round** (build/usb/ section
 above) — VM install-to-login and self-management are DONE (2026-11-16), so
