@@ -14,7 +14,7 @@ host.
 
 ## 1. Create the USB (dev host)
 
-Requirements: `go`, `curl`, `sgdisk` (gdisk), `mkfs.ext4` (e2fsprogs),
+Requirements: `go`, `curl`, `parted`, `mkfs.ext4` (e2fsprogs),
 `xorriso` (ISO variant only); util-linux is not needed on the host. The
 Alpine ISO (~350MB) and the 3.24 index snapshots download once and cache
 under `build/usb/iso/`.

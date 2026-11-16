@@ -399,7 +399,16 @@ payload: static `kodos`, local repo (`kodos.apk` + APKINDEX via
 layer, and `run-install.sh`. Packages resolve from the Alpine mirror on the
 target (network available — the design decision); offline mirror deferred.
 
-Host side (needs go, curl, sgdisk, mkfs.ext4; the ISO + index snapshots cache
+FIRST STICK ROUND (2026-11-16, user's host) caught a partitioner trap: the
+Alpine 3.24.4 ISO's table is xorriso hybrid-DOS (entry id 0 spans the whole
+ISO + a tiny ESP entry), and `sgdisk` refuses to touch it
+(`Invalid partition data!` rc=2). The script now uses `parted`, replacing the
+hybrid ISO entry with the payload partition — both stick boot paths survive
+the surgery (qemu-proven: UEFI GRUB *and* SeaBIOS isolinux reach live login
+after it; the xorriso MBR bootstrap reads the El Torito marker at LBA0, and
+UEFI only needs the ESP entry, which parted leaves intact).
+
+Host side (needs go, curl, parted, mkfs.ext4; the ISO + index snapshots cache
 under `build/usb/iso/`):
 
 ```
@@ -540,6 +549,7 @@ top-level init entry before the ESP copy.)
 Suggested entry point: the **bare-metal paste round** (build/usb/ section
 above) — VM install-to-login and self-management are DONE (2026-11-16), so
 the unproven surface is now physical hardware: mkinstall-usb.sh on a real
-stick (sgdisk partitioning after the ISO dd), run-install.sh on a real disk,
+stick (parted partitioning after the ISO dd — sgdisk refuses the hybrid-DOS
+table: `Invalid partition data!`, field trap 2026-11-16), run-install.sh on a real disk,
 then apply/rollback/self-update on the bare box. Remaining non-executor
 work: the gaps above + step 6/7.

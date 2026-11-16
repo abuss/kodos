@@ -71,7 +71,7 @@ if lsblk -n -o MOUNTPOINT "$DEV" 2>/dev/null | grep -q '[^[:space:]]'; then
     echo "ERROR: $DEV (or a partition of it) is mounted. Not the stick you mean?"
     exit 1
 fi
-command -v sgdisk >/dev/null || { echo "ERROR: sgdisk (gdisk pkg) needed on the host"; exit 1; }
+command -v parted >/dev/null || { echo "ERROR: parted needed on the host"; exit 1; }
 command -v mkfs.ext4 >/dev/null || { echo "ERROR: mkfs.ext4 (e2fsprogs) needed on the host"; exit 1; }
 
 echo "ALL DATA ON $DEV WILL BE DESTROYED (kodos install USB, Alpine $REL)."
@@ -84,11 +84,13 @@ echo "dd $ISO -> $DEV"
 dd if="$ISO" of="$DEV" bs=4M status=progress oflag=sync
 sync
 
-# The ISO is isohybrid: its backup GPT sits at the old image end. Relocate it
-# to the stick's end (sgdisk -e), then carve the payload partition.
-sgdisk -e "$DEV" >/dev/null
-sgdisk -n 0:0:+1G -t 0:0700 -c 0:KODOS "$DEV" >/dev/null
-sgdisk -G "$DEV" >/dev/null 2>&1 || true    # re-randomize GUIDs off the ISO's
+# The Alpine ISO's table is xorriso hybrid-DOS (entry id 0 spans the whole
+# ISO + a tiny ESP): sgdisk flatly refuses it ("Invalid partition data!").
+# parted replaces that hybrid ISO entry with the payload partition; both
+# boot paths survive (qemu-proven: the xorriso MBR bootstrap reads the El
+# Torito marker at LBA0, UEFI only needs the ESP entry parted leaves be).
+ISO_MIB=$(( $(stat -c%s "$ISO") / 1048576 + 8 ))
+parted -s "$DEV" mkpart primary "${ISO_MIB}MiB" 100%
 udevadm settle 2>/dev/null || sleep 2
 NEW=$(lsblk -nro NAME "$DEV" | grep -v "^${DEV}$" | tail -1)
 [ -n "$NEW" ] || { echo "ERROR: no partition appeared on $DEV"; exit 1; }
