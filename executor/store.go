@@ -343,14 +343,12 @@ func (s *system) seedEtc(generation string, toInstall map[string]string, prevGen
 	}
 
 	// generation/etc: one entry per seed entry, HARDLINKED into the private
-	// trees (etc_store wins on collision). Not /kod-rooted symlinks: package
-	// hooks run chrooted into the RAW gen tree at create time, where a
-	// /kod-rooted link would dangle (there is no /kod under the gen dir);
-	// hardlinks make each etc file a real file whose inode IS the store copy
-	// — hooks read/write it directly, rename-over tools detach it and
-	// syncMutatedEtc re-cows it (same shape activation materializes in
-	// live /etc).
+	// trees (etc_store wins on collision). Re-runs (reinstall of same idx,
+	// retry after aborted create) MUST replace any existing entry — a stale
+	// /kod-rooted symlink from a pre-e95af09 shape dangles inside the gen
+	// chroot (paste round 5: mkinitfs abort, chown warnings, add-shell error).
 	etc := filepath.Join(generation, "etc")
+	seeded := map[string]bool{} // rel → true for every entry we (re)link
 	for _, tree := range []string{etcStore, etcDefault} {
 		paths, err := walkTree(tree)
 		if err != nil {
@@ -358,16 +356,31 @@ func (s *system) seedEtc(generation string, toInstall map[string]string, prevGen
 		}
 		for _, f := range paths {
 			rel, _ := filepath.Rel(tree, f)
-			link := filepath.Join(etc, rel)
-			if lexists(link) {
-				continue // etc_store already linked (it wins)
+			if seeded[rel] {
+				continue // etc_store already linked (it wins on collision)
 			}
+			seeded[rel] = true
+			link := filepath.Join(etc, rel)
 			os.MkdirAll(filepath.Dir(link), 0o755)
+			os.Remove(link) // force-replace: stale legacy symlinks must not survive
 			if err := s.hardlink(f, link); err != nil {
 				return err
 			}
 		}
 	}
+	// Seed-time stale sweep: remove gen/etc file/symlink entries whose rel
+	// is not in the seeded set (leftover from an aborted create or a package
+	// that was dropped). Dirs are left alone — empty dirs are harmless.
+	filepath.WalkDir(etc, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || p == etc {
+			return nil
+		}
+		rel, _ := filepath.Rel(etc, p)
+		if !seeded[rel] {
+			os.Remove(p)
+		}
+		return nil
+	})
 	return nil
 }
 

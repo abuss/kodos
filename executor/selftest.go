@@ -201,6 +201,42 @@ func selftest() {
 	check(readOr(s.chrootResolve(filepath.Join(chroot, "etc", "foo"))) == "edited\n", "edit survives rollback")
 	check(readOr(s.chrootResolve(filepath.Join(chroot, "bin", "a"))) == "A1\n", "bin back at gen0")
 
+	// (a) Re-seed/reinstall: contaminate gen/etc with stale legacy-shape entries,
+	// then re-run seedEtc and assert force-replace + stale-sweep correctness.
+	// (Runs after the full create/activate/switch/rollback sequence so chroot/bin
+	// is already correctly set; createGeneration here exercises the re-install path.)
+	{
+		etcDir := filepath.Join(g0, "etc")
+		// legacy /kod-rooted symlink at a seeded rel (pre-e95af09 shape)
+		os.Remove(filepath.Join(etcDir, "foo"))
+		check(os.Symlink("/kod/generation/0/etc_store/foo", filepath.Join(etcDir, "foo")) == nil,
+			"inject legacy symlink at seeded rel")
+		// stale real file with wrong content at another seeded rel
+		os.Remove(filepath.Join(etcDir, "bar"))
+		check(os.WriteFile(filepath.Join(etcDir, "bar"), []byte("stale\n"), 0o644) == nil,
+			"inject stale real file at seeded rel")
+		// stale real file at a rel NOT seeded (must be swept away)
+		check(os.WriteFile(filepath.Join(etcDir, "unseeded-stale"), []byte("garbage\n"), 0o644) == nil,
+			"inject unseeded stale file")
+		// re-run createGeneration (same closure = re-install of same idx)
+		g0b, err := s.createGeneration(map[string]string{"pkgA": "1.0", "pkgB": "2.0", "00base": "1.0"}, 0, "")
+		check(err == nil, "re-seed gen0 must succeed: %v", err)
+		_ = g0b
+		// seeded rels must now be fresh hardlinks into etc_store (not legacy symlinks)
+		fooLink, _ := os.Readlink(filepath.Join(g0, "etc", "foo"))
+		check(fooLink == "", "re-seed: foo must be a hardlink, not a symlink (got %q)", fooLink)
+		check(sameInode(filepath.Join(g0, "etc", "foo"), filepath.Join(g0, "etc_store", "foo")),
+			"re-seed: foo hardlinks into fresh etc_store")
+		barContent := readOr(filepath.Join(g0, "etc", "bar"))
+		check(barContent == "bar\n",
+			"re-seed: bar must carry upstream content, got %q", barContent)
+		check(sameInode(filepath.Join(g0, "etc", "bar"), filepath.Join(g0, "etc_store", "bar")),
+			"re-seed: bar hardlinks into fresh etc_store")
+		_, unseededErr := os.Lstat(filepath.Join(g0, "etc", "unseeded-stale"))
+		check(os.IsNotExist(unseededErr),
+			"re-seed stale sweep: unseeded file must be removed")
+	}
+
 	fmt.Println("PASS: executor selftest (create/activate/seed/switch/prune/rollback)")
 	selftestPruneLogic()
 	selftestPure()
@@ -760,6 +796,72 @@ func selftestHookSweepNS() {
 	e2 := &executor{s: s, meta: meta, hookRunlevels: map[string]bool{}}
 	err = e2.runPostInstalls(genDir, toInstall)
 	check(err != nil, "negative sweep (no busybox hook) must fail — pkgB's #!/bin/sh exec errors")
+
+	// (b) Hook-sees-shipped-etc: fixture pkg P ships etc/seeded.conf; pkg Q's
+	// #!/bin/sh hook greps for the marker line and appends "extra".
+	// After the sweep: etc/bmarker2 exists AND the etc_store seeded.conf
+	// contains "extra" (whether written through the hardlink or re-cowed by
+	// syncMutatedEtc).
+	{
+		// Restore the busybox link hook for this sub-fixture.
+		bbHook2 := "#!/bin/busybox sh\nmkdir -p /sbin /bin\nln -sf /bin/busybox /sbin/init\nln -sf /bin/busybox /bin/sh\nln -sf /bin/busybox /bin/grep\n/bin/busybox --install -s\nexit 0\n"
+		check(os.WriteFile(filepath.Join(storeDir, "busybox", "1.0", ".post-install"), []byte(bbHook2), 0o755) == nil,
+			"restore busybox hook for shipped-etc fixture")
+
+		// pkgP ships etc/seeded.conf
+		check(os.MkdirAll(filepath.Join(storeDir, "pkgP", "1.0", "etc"), 0o755) == nil, "mkdir pkgP/etc")
+		check(os.WriteFile(filepath.Join(storeDir, "pkgP", "1.0", "etc", "seeded.conf"),
+			[]byte("marker\n"), 0o644) == nil, "write pkgP seeded.conf")
+
+		// pkgQ post-install greps for marker + appends "extra" + touches bmarker2
+		qHook := "#!/bin/sh\ngrep -q marker /etc/seeded.conf || exit 1\necho extra >> /etc/seeded.conf\ntouch /etc/bmarker2\nexit 0\n"
+		check(os.MkdirAll(filepath.Join(storeDir, "pkgQ", "1.0"), 0o755) == nil, "mkdir pkgQ")
+		check(os.WriteFile(filepath.Join(storeDir, "pkgQ", "1.0", ".post-install"), []byte(qHook), 0o755) == nil,
+			"write pkgQ hook")
+
+		// Fresh gen dir for this sub-fixture.
+		genDir2 := filepath.Join(chroot, "kod", "generation", "2")
+		for _, d := range []string{"bin", "sbin", "etc", "tmp", "etc_store", "etc_default"} {
+			check(os.MkdirAll(filepath.Join(genDir2, d), 0o755) == nil, "mkdir gen2/"+d)
+		}
+		check(os.WriteFile(filepath.Join(genDir2, "bin", "busybox"), src, 0o755) == nil, "gen2 busybox")
+
+		// Seed etc manually: hardlink pkgP's seeded.conf into gen/etc.
+		check(os.Link(filepath.Join(storeDir, "pkgP", "1.0", "etc", "seeded.conf"),
+			filepath.Join(genDir2, "etc_store", "seeded.conf")) == nil, "etc_store seeded.conf")
+		check(os.Link(filepath.Join(genDir2, "etc_store", "seeded.conf"),
+			filepath.Join(genDir2, "etc", "seeded.conf")) == nil, "gen/etc seeded.conf hardlink")
+
+		meta2 := &metadata{Generation: 2}
+		e3 := &executor{s: s, meta: meta2, hookRunlevels: map[string]bool{}}
+		toInstall2 := map[string]string{"busybox": "1.0", "pkgP": "1.0", "pkgQ": "1.0"}
+		err3 := e3.runPostInstalls(genDir2, toInstall2)
+		check(err3 == nil, "shipped-etc sweep must succeed: %v", err3)
+		_, bm2Err := os.Lstat(filepath.Join(genDir2, "etc", "bmarker2"))
+		check(bm2Err == nil, "bmarker2 must exist (pkgQ hook ran)")
+		// seeded.conf store copy must contain "extra" (hook wrote through hardlink or syncMutatedEtc re-cowed)
+		seededFinal, _ := os.ReadFile(filepath.Join(genDir2, "etc_store", "seeded.conf"))
+		check(strings.Contains(string(seededFinal), "extra"),
+			"etc_store seeded.conf must contain 'extra' after hook append, got %q", string(seededFinal))
+
+		// Negative twin: hook greps for a marker NOT in seeded.conf → error.
+		qHookBad := "#!/bin/sh\ngrep -q NOTHERE /etc/seeded.conf || exit 1\necho should-not-reach >> /etc/bmarker3\nexit 0\n"
+		check(os.WriteFile(filepath.Join(storeDir, "pkgQ", "1.0", ".post-install"), []byte(qHookBad), 0o755) == nil,
+			"write pkgQ bad hook")
+		genDir3 := filepath.Join(chroot, "kod", "generation", "3")
+		for _, d := range []string{"bin", "sbin", "etc", "tmp", "etc_store", "etc_default"} {
+			check(os.MkdirAll(filepath.Join(genDir3, d), 0o755) == nil, "mkdir gen3/"+d)
+		}
+		check(os.WriteFile(filepath.Join(genDir3, "bin", "busybox"), src, 0o755) == nil, "gen3 busybox")
+		check(os.Link(filepath.Join(storeDir, "pkgP", "1.0", "etc", "seeded.conf"),
+			filepath.Join(genDir3, "etc_store", "seeded.conf")) == nil, "gen3 etc_store seeded.conf")
+		check(os.Link(filepath.Join(genDir3, "etc_store", "seeded.conf"),
+			filepath.Join(genDir3, "etc", "seeded.conf")) == nil, "gen3 gen/etc seeded.conf")
+		meta3 := &metadata{Generation: 3}
+		e4 := &executor{s: s, meta: meta3, hookRunlevels: map[string]bool{}}
+		err4 := e4.runPostInstalls(genDir3, toInstall2)
+		check(err4 != nil, "shipped-etc negative: hook greps for absent marker must fail, got nil")
+	}
 
 	fmt.Println("PASS: executor selftest (hook-sweep intra-/bin/sh dependency, positive+negative)")
 }
