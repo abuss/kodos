@@ -55,5 +55,13 @@ return {
     files = {
         config = { path = "/etc/kodos/config.lua",
                    content = sibling("target-config.lua") },
+        -- NanoVM field round 2026-11-16: Alpine's mkinitfs 'kms' feature
+        -- sweeps the whole GPU driver tree plus every module's firmware
+        -- blobs (amdgpu/i915: ~10MB each) into the initramfs — 180MB, which
+        -- NanoVM's minimal UEFI stub refused to start (grub start_image
+        -- LOAD_ERROR; its 108MB gen-0 image still booted). Kodos needs only
+        -- disk/net drivers early; drop kms.
+        mkinitfs = { path = "/etc/mkinitfs/mkinitfs.conf",
+                     content = [[features="ata base cdrom ext4 keymap mmc nvme raid scsi usb virtio"]] },
     },
 }

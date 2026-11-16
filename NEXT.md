@@ -467,9 +467,38 @@ completed. Known
 limits (as designed): the INSTALLED system's
 bootloader is grub EFI only (the stick itself also boots legacy BIOS, but an
 install on a legacy-BIOS-only box would not boot); partition sizes are the
-base profile's placeholders (ponytail: confirm with lsblk on the stick);
+base profile's placeholders (ponytail: confirm with lsblk on the stick; the
+fixed parts total ~99GB so the disk must be >= ~100GB);
 the machine config inherits the eszkoz base desktop profile (tailscale etc —
-edit the layer to trim). **Still open on the bare box:** the day-2 checks
+edit the layer to trim).
+
+**NanoVM gen-2 boot failure -> seedEtc root cause (2026-11-16, second field
+round):** the box installed and gen0/gen1 booted, but a config tweak's gen2
+died at grub `start_image() 0x8000000000000001` (LOAD_ERROR): NanoVM's
+minimal UEFI loads a 108MB initrd but refuses 180MB. `cpio -tv` of the image:
+`/lib/firmware` fat — Alpine's default mkinitfs features include `kms`
+(features.d/kms.modules = the whole `kernel/drivers/gpu` tree) and
+mkinitfs's initfs_firmware attaches every collected .ko's `firmware:` blobs
+(amdgpu/i915 ≈ 10MB each; the gen2 package set pushed it over). Kodos needs
+only disk/net drivers before the root mount — the GPU comes up under openrc.
+Config fix: the machine layer now ships a trimmed
+`/etc/mkinitfs/mkinitfs.conf` (stock features minus `kms`) in the `files`
+section -> 22MB initramfs (measured in-VM). The config fix then EXPOSED the
+real executor bug: fresh-ISO E2E still built 180MB despite the write_file
+op landing in live /etc — `seedEtc` recognized "local edits" ONLY from a
+previous generation's etc_store, so at bootstrap (no prev) every
+package-shipped conffile was seeded verbatim, silently dropping the stream's
+write_file content from the gen tree that install_bootloader's chrooted
+mkinitfs reads; a plain `kodos apply` on the installed box lost the edit
+the same way (gen1 measured 180MB). Root fix in `seedEtc`: a shipped
+conffile whose LIVE /etc content differs from its pristine default IS the
+local edit (live wins) — covers bootstrap AND apply; unit test
+`TestSeedEtcBootstrapKeepsStreamEdits` (red first). Field remediation needs
+the FIXED executor (the box's installed kodos predates it): boot media with
+the rebuilt payload, copy it over, refresh `/etc/kodos/config.lua` from the
+payload's target-config.lua, run the payload's `bin/kodos apply`, verify the
+new gen's initramfs size, reboot (`kodos rollback` stays the escape hatch).
+**Still open on the bare box:** the day-2 checks
 (apply/rollback/self-update) have only ever been driven on the VM; the
 stick variant (writable KODOS ext4 partition) has not had its own physical
 round.

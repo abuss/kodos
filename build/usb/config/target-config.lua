@@ -23,6 +23,14 @@ conf = resolve.deep_merge(conf, {
     },
     repositories = { kodos = { url = "file:///kod/repo", src = "/kod/repo" } },
     packages = { { repo = "kodos", name = "kodos" } },
+    -- lean initramfs: Alpine's mkinitfs 'kms' feature sweeps GPU modules +
+    -- ALL their firmware blobs (~100MB+) into the initramfs; NanoVM's UEFI
+    -- stub failed to start a 180MB image. GPU comes up under openrc — only
+    -- disk/net drivers are needed before the root mount.
+    files = {
+        mkinitfs = { path = "/etc/mkinitfs/mkinitfs.conf",
+                     content = [[features="ata base cdrom ext4 keymap mmc nvme raid scsi usb virtio"]] },
+    },
 })
 
 return conf

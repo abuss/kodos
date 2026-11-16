@@ -95,8 +95,15 @@ check every time:
 Also worth knowing:
 
 - Partition layout comes from the base profile (ESP 512MB, root 64GB, home
-  remainder, 34GB swap) — placeholder sizes; adjust the layer if the real
+  remainder, 34GB swap) — placeholder sizes; the fixed parts already total
+  ~99GB, so the target disk must be >= ~100GB (qemu test disks smaller than
+  that fail with `no room on a NNMB disk`). Adjust the layer if the real
   disk disagrees.
+- The machine config ships a trimmed `/etc/mkinitfs/mkinitfs.conf` (no
+  `kms`): Alpine's default sweeps the GPU driver trees + all their firmware
+  blobs into every initramfs (~100MB+), and minimal UEFI firmwares (e.g.
+  NanoVM) refuse to load such a big initrd. Only disk/net drivers are
+  needed before the root mount; the GPU comes up under openrc.
 - Kernel: the Alpine default variant is `linux-lts` + `linux-firmware`,
   right for real hardware. No override needed.
 - Users come from the eszkoz base profile (e.g. `abuss`). Accounts without a

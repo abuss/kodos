@@ -21,7 +21,7 @@ REL=${ALPINE_REL:-3.24.4}
 CACHE=$REPO/build/usb/iso
 BASE=$CACHE/alpine-standard-$REL-x86_64.iso
 URL=https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-standard-$REL-x86_64.iso
-STAGE=$REPO/build/usb/stage
+STAGE=${STAGE:-$REPO/build/usb/stage}
 OUT=${1:-$CACHE/kodos-install-$REL.iso}
 
 command -v xorriso >/dev/null || { echo "ERROR: xorriso needed on the host"; exit 1; }

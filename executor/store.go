@@ -308,6 +308,20 @@ func (s *system) seedEtc(generation string, toInstall map[string]string, prevGen
 		}
 		edited := storeSrc != "" &&
 			(baseline == "" || !sameContent(baseline, storeSrc))
+		// The LIVE root's /etc is the only record of edits made before the
+		// first generation (bootstrap write_file ops land there while no
+		// generation exists yet) and of stream writes on later applies. If
+		// the live content of a shipped conffile differs from its pristine
+		// default, that IS the local edit: live wins. (NanoVM field round:
+		// dropping this lost the mkinitfs.conf feature trim, and gen0's
+		// chrooted mkinitfs built Alpine's stock 180MB `kms` image.)
+		if newSrc != "" {
+			if live := filepath.Join(s.chroot, "etc", rel); lexists(live) &&
+				!sameContent(newSrc, live) &&
+				(baseline == "" || !sameContent(baseline, live)) {
+				storeSrc, edited = live, true
+			}
+		}
 		dstDefault := filepath.Join(etcDefault, rel)
 		dstStore := filepath.Join(etcStore, rel)
 		os.MkdirAll(filepath.Dir(dstDefault), 0o755)
