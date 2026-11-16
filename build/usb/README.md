@@ -155,5 +155,8 @@ Verify at first boot: `kodos status` shows generation 0 current,
   exists on THIS machine.
 - No network: `udhcpc -i <iface>` (`ip link` to list interfaces); the
   install downloads from `dl-cdn.alpinelinux.org`.
-- Machine boots to grub but the entry fails: boot another generation from
-  the grub menu, then `kodos rollback` from a working one.
+- The grub menu has exactly **one** entry: the current generation (by
+  design — generation switching is `kodos rollback`, not a grub submenu).
+  If that entry fails to boot: live USB → `mount /dev/sda2 /mnt/x &&
+  mount /dev/sda1 /mnt/x/boot`, `for f in dev proc sys; do mount --rbind
+  /$f /mnt/x/$f; done`, then `chroot /mnt/x kodos rollback`.
