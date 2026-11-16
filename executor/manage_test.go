@@ -22,26 +22,26 @@ func TestRollbackTarget(t *testing.T) {
 	p := func(n int) *int { return &n }
 
 	// explicit N present in gens -> that N
-	if got, err := rollbackTarget(2, p(0), gens); err != nil || got != 0 {
+	if got, err := rollbackTarget(2, p(0), gens, nil); err != nil || got != 0 {
 		t.Errorf("explicit 0: got %d, %v", got, err)
 	}
 	// explicit N == current is allowed (re-activate the same generation)
-	if got, err := rollbackTarget(2, p(2), gens); err != nil || got != 2 {
+	if got, err := rollbackTarget(2, p(2), gens, nil); err != nil || got != 2 {
 		t.Errorf("explicit == current: got %d, %v", got, err)
 	}
 	// previous = highest generation strictly below current
-	if got, err := rollbackTarget(2, nil, gens); err != nil || got != 1 {
+	if got, err := rollbackTarget(2, nil, gens, nil); err != nil || got != 1 {
 		t.Errorf("previous of 2: got %d, %v", got, err)
 	}
-	if got, err := rollbackTarget(5, nil, []int{0, 1, 3, 4}); err != nil || got != 4 {
+	if got, err := rollbackTarget(5, nil, []int{0, 1, 3, 4}, nil); err != nil || got != 4 {
 		t.Errorf("previous of 5 over {0,1,3,4}: got %d, %v", got, err)
 	}
-	if got, err := rollbackTarget(1, nil, []int{0, 4, 7}); err != nil || got != 0 {
+	if got, err := rollbackTarget(1, nil, []int{0, 4, 7}, nil); err != nil || got != 0 {
 		t.Errorf("previous of 1 over {0,4,7}: got %d, %v", got, err)
 	}
 
 	// explicit N missing -> hard error naming N AND the generation list
-	_, err := rollbackTarget(2, p(5), gens)
+	_, err := rollbackTarget(2, p(5), gens, nil)
 	if err == nil {
 		t.Fatal("explicit 5 must be a hard error")
 	}
@@ -50,7 +50,7 @@ func TestRollbackTarget(t *testing.T) {
 	}
 
 	// previous with current at the lowest generation -> error listing gens
-	_, err = rollbackTarget(0, nil, gens)
+	_, err = rollbackTarget(0, nil, gens, nil)
 	if err == nil {
 		t.Fatal("previous below the lowest generation must error")
 	}
@@ -59,13 +59,13 @@ func TestRollbackTarget(t *testing.T) {
 	}
 
 	// broken current alias (current < 0): no implicit target, says so
-	_, err = rollbackTarget(-1, nil, gens)
+	_, err = rollbackTarget(-1, nil, gens, nil)
 	if err == nil || !strings.Contains(err.Error(), "explicit") {
 		t.Errorf("broken current must error telling the user to pass N: %v", err)
 	}
 
 	// explicit N still rejected against an empty store
-	if _, err := rollbackTarget(0, p(0), nil); err == nil {
+	if _, err := rollbackTarget(0, p(0), nil, nil); err == nil {
 		t.Error("explicit N with no generations must error")
 	}
 }
@@ -167,6 +167,70 @@ func TestRollbackRefusesUnusableTargets(t *testing.T) {
 	// nothing was activated in any error path
 	if s, _ := os.Readlink(filepath.Join(root, "kod", "generation", "current")); s != "/kod/generation/0" {
 		t.Errorf("error paths must not move current, got %q", s)
+	}
+
+	// (A) Runnable gate: gen 7 has vmlinuz + initramfs but NO sbin/init.
+	// Explicit -to 7: must error naming "incomplete"; current must not move.
+	writeManifest(t, root, 7, &metadata{SchemaVersion: 1, Generation: 7, Distro: "alpine"}, "")
+	bootDir7 := filepath.Join(root, "kod", "generation", "7", "boot")
+	if err := os.MkdirAll(bootDir7, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bootDir7, "vmlinuz-virt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bootDir7, "initramfs-virt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No sbin/init in gen 7 → checkGenRunnable fires.
+	seven := 7
+	err := rollback(root, &seven, "apk")
+	if err == nil || !strings.Contains(err.Error(), "incomplete") {
+		t.Errorf("explicit rollback to incomplete gen must error with 'incomplete', got %v", err)
+	}
+	if s, _ := os.Readlink(filepath.Join(root, "kod", "generation", "current")); s != "/kod/generation/0" {
+		t.Errorf("incomplete-gate must not move current, got %q", s)
+	}
+
+	// (B) Default rollback (n==nil) skips gen 7 (incomplete) and also gen 0
+	// (which is current). There's no bootable lower gen → error naming the skip.
+	// Make gen 7 the current so the nil walk looks at gen 0 (which has vmlinuz
+	// but no sbin/init either in this fixture) and gen 5 (no vmlinuz) etc.
+	// Simpler: add a runnable gen 1 (sbin/init present) below current gen 7;
+	// nil walk must land on gen 1 skipping non-runnable ones.
+	// Set current to gen 7 first.
+	os.Remove(filepath.Join(root, "kod", "generation", "current"))
+	if err := os.Symlink("/kod/generation/7", filepath.Join(root, "kod", "generation", "current")); err != nil {
+		t.Fatal(err)
+	}
+	// Gen 1: has vmlinuz + initramfs + sbin/init + bin/sh (fully runnable).
+	writeManifest(t, root, 1, &metadata{SchemaVersion: 1, Generation: 1, Distro: "alpine"}, "")
+	gen1Boot := filepath.Join(root, "kod", "generation", "1", "boot")
+	if err := os.MkdirAll(gen1Boot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gen1Boot, "vmlinuz-virt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gen1Boot, "initramfs-virt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"sbin/init", "bin/sh"} {
+		p := filepath.Join(root, "kod", "generation", "1", f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// nil rollback from gen 7 must skip gens 0,3,5,6 (bad manifest or no kernel
+	// or no sbin/init) and land on gen 1.
+	rollbackTarget_got, rtErr := rollbackTarget(7, nil, []int{0, 1, 3, 5, 6, 7}, func(g int) bool {
+		return checkGenRunnable(filepath.Join(root, "kod", "generation", strconv.Itoa(g)), g) == nil
+	})
+	if rtErr != nil || rollbackTarget_got != 1 {
+		t.Errorf("nil rollback must skip non-runnable and pick gen 1, got %d err %v", rollbackTarget_got, rtErr)
 	}
 }
 

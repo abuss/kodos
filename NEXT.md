@@ -358,6 +358,12 @@ HEAD behaviour (e.g. hook lines appearing after `activate_generation`, or
 repo apk for a known error string to confirm staleness (`strings <apk-binary> |
 grep "generation.*incomplete"`; 0 matches = pre-bef50c0 binary).
 
+**Rollback runnable gate**: `kodos rollback -to N` refuses (errors, current
+alias untouched) if generation N is missing `sbin/init` or `bin/sh` — stranded
+debris generations from aborted bootstraps can no longer strand the machine.
+Plain `kodos rollback` skips non-runnable generations silently and picks the
+highest runnable one below current.
+
 `vm/run.sh guest '<cmd>'` / `vm/run.sh guest-file F [DIR]` are the ssh runners
 (host 2222 → guest 22, root + the test password). This host HAS `sshpass`, so
 the rounds run non-interactively; on a host without it the same lines work but

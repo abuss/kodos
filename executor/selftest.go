@@ -754,6 +754,23 @@ func selftestHookSweepNS() {
 	check(err2 == nil, "read busybox: %v", err2)
 	check(os.WriteFile(bbDst, src, 0o755) == nil, "write busybox binary")
 
+	// stageMuslInterp copies the host musl ELF interpreter (if any) into a
+	// gen dir's /lib so that dynamically-linked busybox binaries (Alpine's
+	// busybox is musl-linked) can execute inside the fixture chroot. On glibc
+	// hosts the host busybox is static and the glob finds nothing → no-op.
+	stageMuslInterp := func(genD string) {
+		matches, _ := filepath.Glob("/lib/ld-musl-*.so.1")
+		for _, m := range matches {
+			b, err := os.ReadFile(m)
+			if err != nil {
+				continue
+			}
+			dst := filepath.Join(genD, "lib", filepath.Base(m))
+			os.MkdirAll(filepath.Dir(dst), 0o755)
+			os.WriteFile(dst, b, 0o755)
+		}
+	}
+
 	bbHook := "#!/bin/busybox sh\nmkdir -p /sbin /bin\nln -sf /bin/busybox /sbin/init\nln -sf /bin/busybox /bin/sh\nexit 0\n"
 	check(os.WriteFile(filepath.Join(storeDir, "busybox", "1.0", ".post-install"), []byte(bbHook), 0o755) == nil, "write busybox hook")
 
@@ -770,6 +787,7 @@ func selftestHookSweepNS() {
 	check(os.MkdirAll(filepath.Join(genDir, "tmp"), 0o755) == nil, "mkdir gen/tmp")
 	// Copy busybox into gen/bin so hook's shebang #!/bin/busybox sh resolves.
 	check(os.WriteFile(filepath.Join(genDir, "bin", "busybox"), src, 0o755) == nil, "gen busybox")
+	stageMuslInterp(genDir)
 
 	meta := &metadata{Generation: 0}
 	e := &executor{s: s, meta: meta, hookRunlevels: map[string]bool{}}
@@ -825,6 +843,7 @@ func selftestHookSweepNS() {
 			check(os.MkdirAll(filepath.Join(genDir2, d), 0o755) == nil, "mkdir gen2/"+d)
 		}
 		check(os.WriteFile(filepath.Join(genDir2, "bin", "busybox"), src, 0o755) == nil, "gen2 busybox")
+		stageMuslInterp(genDir2)
 
 		// Seed etc manually: hardlink pkgP's seeded.conf into gen/etc.
 		check(os.Link(filepath.Join(storeDir, "pkgP", "1.0", "etc", "seeded.conf"),
@@ -853,6 +872,7 @@ func selftestHookSweepNS() {
 			check(os.MkdirAll(filepath.Join(genDir3, d), 0o755) == nil, "mkdir gen3/"+d)
 		}
 		check(os.WriteFile(filepath.Join(genDir3, "bin", "busybox"), src, 0o755) == nil, "gen3 busybox")
+		stageMuslInterp(genDir3)
 		check(os.Link(filepath.Join(storeDir, "pkgP", "1.0", "etc", "seeded.conf"),
 			filepath.Join(genDir3, "etc_store", "seeded.conf")) == nil, "gen3 etc_store seeded.conf")
 		check(os.Link(filepath.Join(genDir3, "etc_store", "seeded.conf"),

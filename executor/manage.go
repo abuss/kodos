@@ -98,10 +98,14 @@ func readableGenerations(gens []int, s *system) []int {
 //   - explicit N: must be an existing generation directory, else a hard error
 //     naming N and listing the generations (N == current is allowed: it is a
 //     plain re-activation + bootloader rerun).
-//   - nil ("previous"): the highest generation STRICTLY below current.
+//   - nil ("previous"): the highest generation STRICTLY below current that also
+//     passes the runnable predicate (unbootable debris is skipped with a note).
 //   - current < 0 means the alias is absent/broken/unparseable: there is no
 //     safe implicit choice, so it errors and tells the user to pass N.
-func rollbackTarget(current int, n *int, gens []int) (int, error) {
+//
+// The runnable predicate is applied only during the nil (default) walk;
+// explicit -to N is NOT silently skipped — the caller gates it after selection.
+func rollbackTarget(current int, n *int, gens []int, runnable func(int) bool) (int, error) {
 	if n != nil {
 		for _, g := range gens {
 			if g == *n {
@@ -115,12 +119,19 @@ func rollbackTarget(current int, n *int, gens []int) (int, error) {
 	}
 	best := -1
 	for _, g := range gens {
-		if g < current && g > best {
+		if g >= current {
+			continue
+		}
+		if runnable != nil && !runnable(g) {
+			fmt.Printf("note: skipping generation %d (not runnable: sbin/init or bin/sh missing)\n", g)
+			continue
+		}
+		if g > best {
 			best = g
 		}
 	}
 	if best < 0 {
-		return 0, fmt.Errorf("no generation below current %d: pass an explicit generation; available generations: %s", current, genList(gens))
+		return 0, fmt.Errorf("no bootable generation below current %d: pass an explicit generation; available generations: %s", current, genList(gens))
 	}
 	return best, nil
 }
@@ -236,14 +247,16 @@ func rollback(chroot string, n *int, apkBin string) error {
 		return fmt.Errorf("no generations under %s", filepath.Join(rootAbs, "kod", "generation"))
 	}
 	cur, why := currentGeneration(rootAbs)
-	target, err := rollbackTarget(cur, n, gens)
+	// Runnable predicate: used by the nil-case walk to skip stranded generations.
+	runnableFn := func(g int) bool {
+		return checkGenRunnable(s.genDir(g), g) == nil
+	}
+	target, err := rollbackTarget(cur, n, gens, runnableFn)
 	if err != nil {
 		return err
 	}
 
 	// Everything the stream needs is read BEFORE anything can be activated:
-	// a target whose manifest is missing or corrupt must fail here (and name
-	// what is usable), not half-activate (Review Focus 3).
 	metaPath := filepath.Join(s.genDir(target), "generation.json")
 	meta, err := loadMetadata(metaPath)
 	if err != nil {
@@ -269,6 +282,14 @@ func rollback(chroot string, n *int, apkBin string) error {
 	if !lexists(filepath.Join(gen, "boot", "initramfs-"+kver)) {
 		return fmt.Errorf("cannot roll back to generation %d: no boot/initramfs-%s in %s (mkinitfs never ran?): refusing to activate it", target, kver, gen)
 	}
+	// Explicit -to N: check the userland tree is runnable after all structural
+	// checks pass (the nil walk already skipped non-runnable gens silently).
+	// Fail closed: current alias + grub.cfg untouched.
+	if n != nil {
+		if err := checkGenRunnable(s.genDir(target), target); err != nil {
+			return fmt.Errorf("rollback: %w", err)
+		}
+	}
 	mounts, err := fstabMounts(s)
 	if err != nil {
 		return err
@@ -289,6 +310,8 @@ func rollback(chroot string, n *int, apkBin string) error {
 	acts = append(acts, mounts...)
 	acts = append(acts,
 		map[string]any{"op": "set_kernel_arguments", "arguments": meta.KernelArgs},
+		// activate_generation: not gated here — its tree was gated at create_generation
+		// time (checkGenRunnable) and again above at rollback selection.
 		map[string]any{"op": "activate_generation", "root": "/kod"},
 		bootloaderAction(timeout, hasTimeout),
 	)
