@@ -284,7 +284,7 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
 - Static-IP connections, display-manager section, mounts config, arch/deb
   lock parsers: unchanged backlog below.
 
-## Self-management on the VM (Task 13) — machinery DONE, paste round pending
+## Self-management on the VM (Task 13) — DONE, VM-PROVEN 2026-11-16
 
 The round that proves an installed machine manages itself. Every piece of it is
 in place and proven host-side (scratch root); the install/boot/ssh lines below
@@ -387,6 +387,57 @@ ssh prompts for `kodos-root-test` (the runner says so). Findings from this round
 become fix-forward commits; the round is the definition of done for
 self-management.
 
+## Bare-metal install USB (build/usb/)
+
+The stick = Alpine standard ISO (3.24.4, isohybrid: the stick itself boots
+BIOS *and* UEFI via El Torito) + one ext4 partition labelled KODOS holding the
+payload: static `kodos`, local repo (`kodos.apk` + APKINDEX via
+`build/mkapk.sh`), 3.24 main+community index snapshots, the bare-metal config
+layer, and `run-install.sh`. Packages resolve from the Alpine mirror on the
+target (network available — the design decision); offline mirror deferred.
+
+Host side (needs go, curl, sgdisk, mkfs.ext4; the ISO + index snapshots cache
+under `build/usb/iso/`):
+
+```
+sh build/usb/mkinstall-usb.sh /dev/sdX      # typed device-name confirm, stick ERASED
+STAGE_ONLY=1 sh build/usb/mkinstall-usb.sh  # payload staging only (layout proof)
+```
+
+USB side (Alpine live: root login, Ethernet up):
+
+```
+udhcpc -i <if>            # or setup-alpine; network IS required
+mount -L KODOS /usb
+vi /usb/config/machine.lua    # host_name + the /dev/... disk line (lsblk)
+sh /usb/run-install.sh --dry-run
+sh /usb/run-install.sh
+```
+
+`run-install.sh` is the VM-proven install sequence minus the nbd
+indirection: `kodos lua generate.lua` -> `kodos lua lockfile.lua`
+(`KODOS_APK` = the live stick's own apk, absolute, like apply resolves it) ->
+`kodos exec -root /mnt/kodos-target`. It refuses a target disk that *is* the
+payload stick (findmnt + lsblk PKNAME), requires typed `yes` before touching
+any disk, seds the `copy_tree` src to wherever the stick IS mounted (the
+proven nbd-sed idea), prompts a root password into a 0600 secrets file and
+lands it at the machine's `/etc/kodos/secrets.json` next to the shipped
+config.lua. Afterwards self-management applies exactly as above: `/kod/repo`
+is on the machine's own disk.
+
+**Proven:** `STAGE_ONLY` layout + full host dry-run through the embedded
+toolchain (rc 0): 98-pkg closure incl. `linux-lts` + `linux-firmware` (the
+backend DEFAULT variant is the right one for real hardware), canonical IR
+order ending `install_bootloader`, copy_tree src rewrite visible, no `dummy`,
+kodos apk pinned. Known limits (as designed): the INSTALLED system's
+bootloader is grub EFI only (the stick itself also boots legacy BIOS, but an
+install on a legacy-BIOS-only box would not boot); partition sizes are the
+base profile's placeholders (ponytail: confirm with lsblk on the stick);
+the machine config inherits the eszkoz base desktop profile (tailscale etc —
+edit the layer to trim). **Paste round pending (physical hardware):** real
+stick + real-box install, then the usual apply/rollback/self-update checks on
+bare metal.
+
 ## Offline VM forensics (no sudo; host needs qemu-img, mtools, e2fsprogs)
 
 ```
@@ -419,10 +470,11 @@ top-level init entry before the ESP copy.)
 | 5 | ~~Executor design + spike~~ | **SPIKE DONE 2026-11-12** (Go; store/generation core + install + network live-tested on a scratch root; remaining ops listed in item 5 above) |
 | 6 | Schema-gap backlog above (networking **done** 2026-11-12; display manager next) | fill gaps as real needs, not upfront |
 | 7 | Drift CI: re-fetch the 3 indexes + re-run all backends per Alpine release / weekly | `clang19→clang20` proved the failure mode is real |
+| 8 | Bare-metal install USB (`build/usb/`) | scripts + example layer exist, host dry-run green; real-stick + real-box paste round pending |
 
-Suggested entry point: **boot the VM to a login prompt** — the install
-flow reaches the last ops; one clean `vm/run.sh` paste round should get
-through create_user → services → bootloader. On boot verify: `uname -r`,
-`ls /kod/generation`, `rc-status`, NM keyfiles, serial login
-`abuss`/`kodos-user-test`. Remaining non-executor work: the gaps above +
-step 6/7.
+Suggested entry point: the **bare-metal paste round** (build/usb/ section
+above) — VM install-to-login and self-management are DONE (2026-11-16), so
+the unproven surface is now physical hardware: mkinstall-usb.sh on a real
+stick (sgdisk partitioning after the ISO dd), run-install.sh on a real disk,
+then apply/rollback/self-update on the bare box. Remaining non-executor
+work: the gaps above + step 6/7.

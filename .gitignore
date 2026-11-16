@@ -9,3 +9,5 @@ secret*.d/
 scratch/
 install.out
 vm/repo/
+build/usb/stage/
+build/usb/iso/
