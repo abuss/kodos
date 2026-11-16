@@ -205,12 +205,18 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   file:// local repo carrying kodos.apk; generations_keep cap). Implemented
   via `docs/superpowers/plans/2026-11-14-kodos-self-management.md` (13 tasks;
   SDD ledger `.superpowers/sdd/2026-11-14-kodos-self-management/`).
-  **Implemented + host-proven (Tasks 10-13, this tree):** the single binary
-  embeds the Lua toolchain and runs `apply`/`status`/`rollback`; `kodos.apk`
-  ships in the local file:// repo (`build/mkapk.sh`); the machine's own
-  `/etc/kodos/config.lua` + 0600 secrets are written by the bootstrap stream.
-  The definition-of-done round on the VM is the paste sequence in "Self-
-  management on the VM (Task 13)" below — machinery DONE, run it next.
+  **DONE — VM-PROVEN 2026-11-16 at commit `ee192d0` (paste rounds 1-13):** the
+  single binary embeds the Lua toolchain and runs `apply`/`status`/`rollback`;
+  `kodos.apk` ships in the local file:// repo (`build/mkapk.sh`); the machine's
+  own `/etc/kodos/config.lua` + 0600 secrets are written by the bootstrap
+  stream. On the booted guest: `kodos apply` live-added `dummy` (new gen
+  current, no storage ops), `kodos rollback` moved boot default + current back
+  and the reboot LANDED on it (`Booting 'Kodos generation 2'` + full OpenRC
+  boot), and the self-update round upgraded the machine's own manager
+  (`kodos 0.1.0-r119 → 0.2.0-r121`, old binary intact, new one self-tests
+  green in-guest). The paste runbook in "Self-management on the VM (Task 13)"
+  below is the reproduction. Notable field facts it proved are ledged in
+  `.superpowers/sdd/2026-11-14-kodos-self-management/progress.md`.
   ON-MACHINE FACT (paste round 1, 2026-11-14): Alpine's base `blkid` is a
   busybox applet that silently IGNORES `-o value -s UUID` (exit 0: empty on
   a bogus device, full `/dev/x: UUID=... TYPE=...` line on a real one) —

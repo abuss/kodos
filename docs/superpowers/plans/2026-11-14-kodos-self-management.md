@@ -223,11 +223,11 @@
 - Modify: `vm/run.sh` — helper phases: `vm/run.sh guest '<cmd>'` → ssh `-p 2222 root/abuss` runner for paste rounds; `build/mkapk.sh` rebuild step inside install phase.
 - No Go/Lua code changes; findings become fix-forward commits.
 
-- [ ] **Step 1:** Round A: `build/mkapk.sh && sudo vm/run.sh install && vm/run.sh boot` → guest has `/var/kodos/repo` + `kodos` binary (Task 9 already proved; re-verify after 10-12).
-- [ ] **Step 2:** In-guest (paste): edit `/etc/kodos/config` layer to ADD `dummy` (ship repo src via copy_tree from the guest's own `/var/kodos/repo` — src path points there); `kodos apply --dry-run` then `kodos apply`; expect: new generation N+1, plan printed, no format/partition ops, no `libkmod` errors after reboot.
-- [ ] **Step 3:** In-guest: `kodos status` → N+1 current; `kodos rollback` → N; reboot lands on generation N (grub title + `kodos status` after boot).
-- [ ] **Step 4:** Self-upgrade once: bump kodos pkgver, rebuild apk into the guest repo dir, `kodos apply`, verify store + running binary untouched.
-- [ ] **Step 5:** Update NEXT.md (self-management: DONE at commit X) + IR.md flag note; commit `docs: self-management proven on VM`.
+- [x] **Step 1:** Round A: `build/mkapk.sh && sudo vm/run.sh install && vm/run.sh boot` → guest has `/var/kodos/repo` + `kodos` binary (Task 9 already proved; re-verify after 10-12). *(Done rounds 1-10; repo moved to `/kod/repo` by ruling ce0d8f7.)*
+- [x] **Step 2:** In-guest (paste): edit `/etc/kodos/config` layer to ADD `dummy` (ship repo src via copy_tree from the guest's own `/var/kodos/repo` — src path points there); `kodos apply --dry-run` then `kodos apply`; expect: new generation N+1, plan printed, no format/partition ops, no `libkmod` errors after reboot. *(10-apply full PASS, rounds 10+12; guest config = single /etc/kodos/config.lua shipped by bootstrap.)*
+- [x] **Step 3:** In-guest: `kodos status` → N+1 current; `kodos rollback` → N; reboot lands on generation N (grub title + `kodos status` after boot). *(Round 11: 1→0 disk+grub PASS; round 13: 3→2 + reboot landed — `Booting 'Kodos generation 2'` + OpenRC boot + status current→2.)*
+- [x] **Step 4:** Self-upgrade once: bump kodos pkgver, rebuild apk into the guest repo dir, `kodos apply`, verify store + running binary untouched. *(Round 12: 30-selfup failures=0 — gen3 pins kodos 0.2.0-r121, store has r119+r121, gen2 binary intact, gen3 binary selftest green in-guest. Host-built APKINDEX shipped alongside: guest apk-tools 3 refuses to index v2 packages.)*
+- [x] **Step 5:** Update NEXT.md (self-management: DONE at commit X) + IR.md flag note; commit `docs: self-management proven on VM`. *(This commit.)*
 
 ---
 

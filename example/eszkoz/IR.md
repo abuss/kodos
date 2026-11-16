@@ -33,6 +33,13 @@ Rules:
 
 ## Operations (in canonical emission order)
 
+Executor enforcement (`executor/ir.go`, landed 2026-11-15): every stream is
+validated against this order before ANY action executes — a per-op rank map,
+ranks never go backwards (repeats at the same rank allowed); an out-of-order
+op is a hard error (`op %q out of order`) and nothing runs. Generators that
+emit in this order are accepted as-is; the check is the backstop, not the
+mechanism.
+
 | # | op | fields | fed by | notes |
 |---|----|--------|--------|-------|
 | 1 | `partition_disk` | `device`, `table`, `efi`, `partitions[]`: `{index, name, size, type}` | `storage.devices` | skip if table already present; executor parses sizes ("512MB"/"64GB"/"100%"; "100%" = remainder minus later explicit sizes when not last) |
