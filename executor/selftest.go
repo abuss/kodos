@@ -771,11 +771,11 @@ func selftestHookSweepNS() {
 		}
 	}
 
-	bbHook := "#!/bin/busybox sh\nmkdir -p /sbin /bin\nln -sf /bin/busybox /sbin/init\nln -sf /bin/busybox /bin/sh\nexit 0\n"
+	bbHook := "#!/bin/busybox sh\n/bin/busybox mkdir -p /bin /sbin /usr/bin /usr/sbin\n/bin/busybox --install -s\nexit 0\n"
 	check(os.WriteFile(filepath.Join(storeDir, "busybox", "1.0", ".post-install"), []byte(bbHook), 0o755) == nil, "write busybox hook")
 
 	// pkgB: hook uses #!/bin/sh (depends on busybox hook running first)
-	pkgBHook := "#!/bin/sh\nmkdir -p /etc\necho bmarker > /etc/bmarker\nexit 0\n"
+	pkgBHook := "#!/bin/sh\n/bin/busybox mkdir -p /etc\necho bmarker > /etc/bmarker\nexit 0\n"
 	check(os.WriteFile(filepath.Join(storeDir, "pkgB", "1.0", ".post-install"), []byte(pkgBHook), 0o755) == nil, "write pkgB hook")
 
 	// Create a minimal system + generation directory.
@@ -822,7 +822,7 @@ func selftestHookSweepNS() {
 	// syncMutatedEtc).
 	{
 		// Restore the busybox link hook for this sub-fixture.
-		bbHook2 := "#!/bin/busybox sh\nmkdir -p /sbin /bin\nln -sf /bin/busybox /sbin/init\nln -sf /bin/busybox /bin/sh\nln -sf /bin/busybox /bin/grep\n/bin/busybox --install -s\nexit 0\n"
+		bbHook2 := "#!/bin/busybox sh\n/bin/busybox mkdir -p /bin /sbin /usr/bin /usr/sbin\n/bin/busybox --install -s\nexit 0\n"
 		check(os.WriteFile(filepath.Join(storeDir, "busybox", "1.0", ".post-install"), []byte(bbHook2), 0o755) == nil,
 			"restore busybox hook for shipped-etc fixture")
 
@@ -832,7 +832,7 @@ func selftestHookSweepNS() {
 			[]byte("marker\n"), 0o644) == nil, "write pkgP seeded.conf")
 
 		// pkgQ post-install greps for marker + appends "extra" + touches bmarker2
-		qHook := "#!/bin/sh\ngrep -q marker /etc/seeded.conf || exit 1\necho extra >> /etc/seeded.conf\ntouch /etc/bmarker2\nexit 0\n"
+		qHook := "#!/bin/sh\n/bin/busybox grep -q marker /etc/seeded.conf || exit 1\necho extra >> /etc/seeded.conf\n> /etc/bmarker2\nexit 0\n"
 		check(os.MkdirAll(filepath.Join(storeDir, "pkgQ", "1.0"), 0o755) == nil, "mkdir pkgQ")
 		check(os.WriteFile(filepath.Join(storeDir, "pkgQ", "1.0", ".post-install"), []byte(qHook), 0o755) == nil,
 			"write pkgQ hook")
@@ -864,7 +864,7 @@ func selftestHookSweepNS() {
 			"etc_store seeded.conf must contain 'extra' after hook append, got %q", string(seededFinal))
 
 		// Negative twin: hook greps for a marker NOT in seeded.conf → error.
-		qHookBad := "#!/bin/sh\ngrep -q NOTHERE /etc/seeded.conf || exit 1\necho should-not-reach >> /etc/bmarker3\nexit 0\n"
+		qHookBad := "#!/bin/sh\n/bin/busybox grep -q NOTHERE /etc/seeded.conf || exit 1\necho should-not-reach >> /etc/bmarker3\nexit 0\n"
 		check(os.WriteFile(filepath.Join(storeDir, "pkgQ", "1.0", ".post-install"), []byte(qHookBad), 0o755) == nil,
 			"write pkgQ bad hook")
 		genDir3 := filepath.Join(chroot, "kod", "generation", "3")
