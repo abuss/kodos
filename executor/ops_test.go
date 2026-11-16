@@ -107,3 +107,28 @@ func TestWriteFileExplicitMode(t *testing.T) {
 		t.Fatal("non-octal mode must be a hard error, not a silent default")
 	}
 }
+
+// Real bare-metal round (2026-11-16): a disk with a STALE SWAP signature on
+// the partition config wants as ext4 (left by a crashed/partial run or an
+// accidental mkswap) made format "succeed" via repairFS(no-op for swap), and
+// the later mount died on "unknown filesystem type 'swap'". A swap signature
+// is not user data: formatting must self-heal it. A REAL filesystem — even a
+// foreign one — stays protected. Mirror rule for swap: mkswap must refuse to
+// silently destroy a real fs sitting on the swap-designated partition.
+func TestStaleSwapVsRealFS(t *testing.T) {
+	if existingBlocksFormat("swap", "ext4") || existingBlocksFormat("swap", "vfat") {
+		t.Fatal("stale swap signature must not block mkfs on an fs-designated partition")
+	}
+	if !existingBlocksFormat("ext4", "ext4") || !existingBlocksFormat("ntfs", "ext4") {
+		t.Fatal("real filesystems must be protected (repair/reuse), foreign ones too")
+	}
+	if existingBlocksFormat("", "ext4") {
+		t.Fatal("empty partition formats normally")
+	}
+	if !mkswapDestroysRealFS("ext4") || !mkswapDestroysRealFS("ntfs") {
+		t.Fatal("mkswap must refuse partitions carrying a real fs")
+	}
+	if mkswapDestroysRealFS("swap") || mkswapDestroysRealFS("") {
+		t.Fatal("swap-or-empty swap partitions are fine")
+	}
+}

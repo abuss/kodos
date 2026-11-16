@@ -439,13 +439,14 @@ func (e *executor) formatPartition(act map[string]any) error {
 	if isMounted(part, mounts) {
 		return fmt.Errorf("refusing to format mounted target %s", part)
 	}
-	if out, _ := runOut("blkid", "-o", "value", "-s", "TYPE", part); out != "" {
+	fs := field(act, "filesystem")
+	if out, _ := runOut("blkid", "-o", "value", "-s", "TYPE", part); existingBlocksFormat(out, fs) {
 		// never re-mkfs a live partition — but a fs torn by an earlier
 		// crashed run would poison later ops with mysterious I/O errors,
 		// so repair the fs we are about to reuse
 		return repairFS(out, part)
 	}
-	switch fs := field(act, "filesystem"); fs {
+	switch fs {
 	case "ext4":
 		return run("mkfs.ext4", "-q", part)
 	case "vfat":
@@ -453,6 +454,28 @@ func (e *executor) formatPartition(act map[string]any) error {
 	default:
 		return fmt.Errorf("format: unsupported filesystem %q", fs)
 	}
+}
+
+// existingBlocksFormat: does the filesystem blkid found on the partition
+// protect it from re-formatting? A stale SWAP signature (crashed-run
+// leftover, stray mkswap) is not user data: the config says this partition
+// is a real fs, so format over it (self-heal; real bare-metal round
+// 2026-11-16). Anything that is an actual filesystem — incl. foreign types —
+// stays protected.
+func existingBlocksFormat(existing, want string) bool {
+	if existing == "" {
+		return false
+	}
+	if existing == "swap" && (want == "ext4" || want == "vfat") {
+		return false
+	}
+	return true
+}
+
+// mkswapDestroysRealFS: the swap-designated partition carries data a
+// silent mkswap would erase; refuse and let the operator decide.
+func mkswapDestroysRealFS(existing string) bool {
+	return existing != "" && existing != "swap"
 }
 
 // repairFS: preen-check an existing filesystem before reusing it. fsck
@@ -507,6 +530,8 @@ func (e *executor) createSwap(act map[string]any) error {
 	}
 	if out, _ := runOut("blkid", "-o", "value", "-s", "TYPE", part); out == "swap" {
 		return nil
+	} else if mkswapDestroysRealFS(out) {
+		return fmt.Errorf("create_swap: %s carries a %s filesystem; refusing to mkswap over data", part, out)
 	}
 	return run("mkswap", part)
 }
