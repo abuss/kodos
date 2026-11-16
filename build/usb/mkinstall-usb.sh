@@ -38,7 +38,7 @@ stage_payload() {
         cp "$CACHE/$r-324.apkindex" "$OUT/indexes/"
     done
     cp "$REPO"/build/usb/config/*.lua "$OUT/config/"
-    cp "$REPO"/build/usb/run-install.sh "$OUT/"
+    cp "$REPO"/build/usb/run-install.sh "$REPO"/build/usb/README.md "$OUT/"
     echo "payload staged in $OUT:"
     find "$OUT" -mindepth 1 -maxdepth 2 | sort
 }
@@ -86,7 +86,8 @@ sync
 umount "$MNT"
 
 echo
-echo "USB ready. Boot the target from it (BIOS or UEFI), on the live system:"
+echo "USB ready. Full walkthrough: /usb/README.md (also on the stick)."
+echo "Boot the target from it (BIOS or UEFI, Secure Boot OFF), on the live system:"
 echo "  udhcpc -i <if>            # or setup-alpine, network is required
   mount -L KODOS /usb
   vi /usb/config/machine.lua     # host_name + the /dev/... disk line (lsblk)

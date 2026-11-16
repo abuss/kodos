@@ -389,6 +389,9 @@ self-management.
 
 ## Bare-metal install USB (build/usb/)
 
+Full create/boot/install walkthrough: **`build/usb/README.md`** (it also
+ships on the payload partition). The gist:
+
 The stick = Alpine standard ISO (3.24.4, isohybrid: the stick itself boots
 BIOS *and* UEFI via El Torito) + one ext4 partition labelled KODOS holding the
 payload: static `kodos`, local repo (`kodos.apk` + APKINDEX via
