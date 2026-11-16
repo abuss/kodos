@@ -364,6 +364,16 @@ debris generations from aborted bootstraps can no longer strand the machine.
 Plain `kodos rollback` skips non-runnable generations silently and picks the
 highest runnable one below current.
 
+**Guest apk-tools and the index-writer mismatch**: Alpine 3.24 ships apk-tools
+3.0.9. It reads v2-format repos (resolution and fetch always worked) but its
+`apk index` writer refuses v2-no-datahash packages ("file format is invalid or
+inconsistent"). The selfup round therefore ships a host-built APKINDEX.tar.gz
+(from vm/apk-tools-static 2.14) alongside the new apk via `selfup-build.sh`;
+the guest 30-selfup.sh asserts the shipped index names the new version instead
+of rebuilding it. v3-native package format (.DATAHASH, abuild) is a deferred
+concern. ponytail: global host-built index; per-package datahash when v3
+packaging is adopted.
+
 `vm/run.sh guest '<cmd>'` / `vm/run.sh guest-file F [DIR]` are the ssh runners
 (host 2222 → guest 22, root + the test password). This host HAS `sshpass`, so
 the rounds run non-interactively; on a host without it the same lines work but

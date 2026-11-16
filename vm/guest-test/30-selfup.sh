@@ -20,18 +20,16 @@ newver=$(basename "$newest" .apk); newver=${newver#kodos-}
 echo "== guest repo: $(ls "$R" | tr '\n' ' ')"
 line repo-has-new-kodos PASS "(newest: kodos-$newver)"
 
-# index refresh is the guest's own job: /sbin/apk index over every apk in the
-# repo dir (dummy + both kodos versions), same layout mkrepo/mkapk produce
-if /sbin/apk index --allow-untrusted --no-warnings -o "$R/APKINDEX.tar.gz" "$R"/*.apk; then
-    line index-refresh PASS
+echo "== guest apk: $(/sbin/apk --version 2>/dev/null || echo unknown)"
+
+# The host-built APKINDEX.tar.gz was shipped alongside the apk by selfup-build.sh:
+# guest apk-tools 3.x reads v2 repos fine but its `apk index` WRITER refuses v2
+# packages without .DATAHASH → index is built on the host (apk-tools 2.14) instead.
+if tar -xzOf "$R/APKINDEX.tar.gz" APKINDEX | /bin/busybox grep -q "^V:$newver$"; then
+    line index-shipped PASS "(APKINDEX has V:$newver)"
 else
-    line index-refresh FAIL
-fi
-if tar -xzOf "$R/APKINDEX.tar.gz" APKINDEX | grep -q "^V:$newver\$"; then
-    line index-names-new PASS "(APKINDEX has V:$newver)"
-else
-    line index-names-new FAIL "(APKINDEX lacks V:$newver)"
-    tar -xzOf "$R/APKINDEX.tar.gz" APKINDEX | grep -E '^(P|V):kodos|^V:' | head -8
+    line index-shipped FAIL "(APKINDEX lacks V:$newver — did selfup-build.sh push both files?)"
+    tar -xzOf "$R/APKINDEX.tar.gz" APKINDEX | /bin/busybox grep -E '^(P|V):kodos' | head -8
 fi
 
 before=$(cur)
