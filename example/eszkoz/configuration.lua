@@ -279,7 +279,7 @@ return {
             "podman-compose", "distrobox"),
         base("alacritty", "foot", "wezterm"),
         base("openssh", "tailscale", "iw"),
-        base("gnome", "gnome-tweaks", "networkmanager"),
+        base("networkmanager"), -- DE is machine-layer material (COSMIC), not a system default
         base("font-noto", "font-noto-emoji", "font-dejavu",
             "font-liberation", "font-fira-code")
     ),

@@ -169,9 +169,13 @@ means the mkinitfs trim above did not land — see that bullet).
   system's repos are written into the TARGET by the installer, not
   inherited from the live. To grab something extra yourself:
   `apk add --repository http://dl-cdn.alpinelinux.org/alpine/v3.24/main <pkg>`.
-- The grub menu has exactly **one** entry: the current generation (by
-  design — generation switching is `kodos rollback`, not a grub submenu).
-  If that entry fails to boot: live USB → `mount /dev/sda2 /mnt/x &&
+- The grub menu lists **every surviving generation**: entry 0 is the
+  current one (kernel at the ESP root), the rest boot older generations'
+  kernel+initramfs from `boot/gen-N/` — a recovery path when a
+  kernel/mkinitfs step goes sideways. Note the older entries boot that
+  generation's *kernel*, but the mounted root/userspace is still whatever
+  `current` points at: generation switching is `kodos rollback`, not a
+  grub pick. If entry 0 fails to boot: live USB → `mount /dev/sda2 /mnt/x &&
   mount /dev/sda1 /mnt/x/boot`, `for f in dev proc sys; do mount --rbind
   /$f /mnt/x/$f; done`, then `chroot /mnt/x kodos rollback`.
 - `ERROR: lock_drift: X resolves to A but metadata pins B`: the executor

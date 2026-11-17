@@ -18,7 +18,10 @@ local all = {
                           "podman-compose", "distrobox"),
     terminals = base("alacritty", "foot", "wezterm"),
     network = base("openssh", "tailscale", "iw"),
-    desktop = base("gnome", "gnome-tweaks", "networkmanager"),
+    -- networkmanager stays a system default (the install assumption); the
+    -- DESKTOP is machine-layer material now (COSMIC in the USB configs) —
+    -- the system layer no longer ships a DE (GNOME was the old default).
+    desktop = base("networkmanager"),
     fonts = base("font-noto", "font-noto-emoji", "font-dejavu",
                  "font-liberation", "font-fira-code"),
 }

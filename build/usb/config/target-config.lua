@@ -20,9 +20,30 @@ conf = resolve.deep_merge(conf, {
     services = {
         printing = { enable = false },
         networkmanager = { connections = { wired = { type = "ethernet" } } },
+        -- COSMIC greeter is the display manager; seatd is its OpenRC
+        -- dependency, elogind its seat requirement, dbus the bus both ride.
+        seatd = { enable = true },
+        elogind = { enable = true },
+        dbus = { enable = true },
+        ["cosmic-greeter"] = { enable = true },
     },
     repositories = { kodos = { url = "file:///kod/repo", src = "/kod/repo" } },
-    packages = { { repo = "kodos", name = "kodos" } },
+    packages = { { repo = "kodos", name = "kodos" },
+        -- COSMIC desktop (the system layer no longer ships GNOME).
+        -- cosmic-session pulls comp+greeter+apps+xwayland; seatd/elogind
+        -- for the greeter's seat chain; mesa-dri-gallium = software GL
+        -- (no GPU accel in NanoVM: GBM lands on the simpledrm card);
+        -- icons/locales/desktop-file-utils = Alpine COSMIC wiki minimal.
+        { repo = "base", name = "cosmic-session" },
+        { repo = "base", name = "cosmic-term" },
+        { repo = "base", name = "seatd" },
+        { repo = "base", name = "elogind" },
+        { repo = "base", name = "mesa-dri-gallium" },
+        { repo = "base", name = "adwaita-icon-theme" },
+        { repo = "base", name = "hicolor-icon-theme" },
+        { repo = "base", name = "musl-locales" },
+        { repo = "base", name = "desktop-file-utils" },
+    },
     -- lean initramfs: Alpine's mkinitfs 'kms' feature sweeps GPU modules +
     -- ALL their firmware blobs (~100MB+) into the initramfs; NanoVM's UEFI
     -- stub failed to start a 180MB image. GPU comes up under openrc — only

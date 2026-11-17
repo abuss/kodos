@@ -430,10 +430,17 @@ func selftestPure() {
 		check(false, "tiny disk must be a hard error, not an overwrite")
 	}
 
-	// grub.cfg: ESP-relative kernel, UUID root, serial console for -nographic
-	cfg := renderGrubCfg(5, "UUID-X", "6.18.63-r0", []string{"quiet"}, 0)
+	// grub.cfg: ESP-relative kernel, UUID root, serial console for
+	// -nographic; current generation first (default=0), every other
+	// surviving generation as its own entry from its ESP gen-N dir
+	cfg := renderGrubCfg(5, "UUID-X", []string{"quiet"}, []grubEntry{
+		{4, "6.18.63-r0", ""}, {3, "6.18.60-r0", "/gen-3"}})
 	check(strings.Contains(cfg, "linux /vmlinuz-6.18.63-r0 root=UUID=UUID-X ro quiet"),
 		"grub cmdline, got:\n%s", cfg)
+	check(strings.Contains(cfg, "initrd /gen-3/initramfs-6.18.60-r0"),
+		"generation menu entry, got:\n%s", cfg)
+	check(strings.Index(cfg, "generation 4") < strings.Index(cfg, "generation 3"),
+		"current generation must be the default entry")
 	check(strings.Contains(cfg, "terminal_output serial") &&
 		!strings.Contains(cfg, "search.fs_uuid"),
 		"grub serial, no search: kernel loads from ESP where grub.cfg lives")

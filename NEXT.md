@@ -112,8 +112,14 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   `configure_network` IR op (#17). Static-IP connections still TODO.
 - **Mounts** (`configs.mount` pattern from kodos testvm) — fstab today is
   implied by `storage.devices` only.
-- **Desktop/display-manager**: dropped from the neutral dialect (only
-  package lists); if eszkoz boots to GNOME this must come back.
+- ~~**Desktop/display-manager**~~ **DONE 2026-11-17** (no new schema): the
+  system layer dropped GNOME (all-packages `desktop` = networkmanager
+  only); COSMIC is declared in the USB machine layer (cosmic-session +
+  seatd/elogind/dbus/cosmic-greeter services via the escape hatch — the
+  greeter is an ordinary OpenRC unit, its `need seatd` is an ordinary
+  dependency). NanoVM field round taught us: greeter needs a seat chain
+  (seatd+elogind) AND software GL (mesa-dri-gallium on the simpledrm
+  card); the greeter user's locale warnings ride on musl-locales + LANG.
 - **Kernel modules/initrd**: `boot.kernel.modules` exists but nothing
   says which mechanism loads them (/etc/modules + mkinitfs on Alpine).
 - Secrets: refs + `configure_network` plumbing **done**; the resolver side
@@ -557,7 +563,7 @@ top-level init entry before the ESP copy.)
 | 3 | ~~Port schema/validator~~ | **DONE 2026-11-12** (`validate.lua`, `test-validate.lua`; wired into generator + checker) |
 | 4 | ~~Version locking + generation metadata~~ | **DONE 2026-11-12** (`lockfile.lua`, `test-lock.lua`, IR.md contract) |
 | 5 | ~~Executor design + spike~~ | **SPIKE DONE 2026-11-12** (Go; store/generation core + install + network live-tested on a scratch root; remaining ops listed in item 5 above) |
-| 6 | Schema-gap backlog above (networking **done** 2026-11-12; display manager next) | fill gaps as real needs, not upfront |
+| 6 | Schema-gap backlog above (networking **done** 2026-11-12; display manager **done** 2026-11-17 via COSMIC machine-layer config) | fill gaps as real needs, not upfront |
 | 7 | Drift CI: re-fetch the 3 indexes + re-run all backends per Alpine release / weekly | `clang19→clang20` proved the failure mode is real |
 | 8 | Bare-metal install media (`build/usb/`) | **install DONE on real hardware 2026-11-16** (ISO path; field trap fixed at `ad2a9ac`); qemu E2E green; day-2 apply/rollback/self-update on the bare box not yet driven |
 

@@ -232,24 +232,38 @@ func specsFromAction(act map[string]any) ([]partSpec, error) {
 	return specs, nil
 }
 
+// grubEntry: one boot menu entry per generation; dir is the ESP-relative
+// directory holding that generation's kernel+initramfs ("" = ESP root).
+type grubEntry struct {
+	gen  int
+	kver string
+	dir  string
+}
+
 // renderGrubCfg is pure (selftested): ESP-relative kernel paths (vfat,
 // grub reads it natively), root by UUID, serialized terminals so the
-// qemu -nographic console shows the boot.
-func renderGrubCfg(timeout int, uuid, kver string, args []string, gen int) string {
+// qemu -nographic console shows the boot. Current generation first
+// (set default=0), every other surviving generation after it.
+func renderGrubCfg(timeout int, uuid string, args []string, entries []grubEntry) string {
 	cmdline := fmt.Sprintf("root=UUID=%s ro", uuid)
 	if len(args) > 0 {
 		cmdline += " " + strings.Join(args, " ")
 	}
-	return fmt.Sprintf(`set default=0
+	var b strings.Builder
+	fmt.Fprintf(&b, `set default=0
 set timeout=%d
 serial --unit=0 --speed=115200
 terminal_input serial
 terminal_output serial console
-menuentry 'Kodos generation %d' {
-	linux /vmlinuz-%s %s
-	initrd /initramfs-%s
+`, timeout)
+	for _, en := range entries {
+		fmt.Fprintf(&b, `menuentry 'Kodos generation %d' {
+	linux %s/vmlinuz-%s %s
+	initrd %s/initramfs-%s
 }
-`, timeout, gen, kver, cmdline, kver)
+`, en.gen, en.dir, en.kver, cmdline, en.dir, en.kver)
+	}
+	return b.String()
 }
 
 // settingsKey: neutral snake_case -> sshd-style CamelCase keys (pure,
@@ -1425,14 +1439,74 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if f, ok := act["timeout"].(float64); ok {
 		timeout = int(f)
 	}
+	// Every surviving generation gets a menu entry: boot that generation's
+	// own kernel+initramfs from a per-generation ESP dir — the recovery
+	// path when a kernel/mkinitfs step goes sideways in the newest
+	// generation. Honest semantics: the mounted root and the activated
+	// userspace are still whatever `current` points at; generation
+	// SWITCHING remains kodos rollback.
+	bootDst := e.s.chrootResolve(filepath.Join(e.s.chroot, "boot"))
 	genIdx := e.meta.Generation
-	cfg := renderGrubCfg(timeout, uuid, kver, args, genIdx)
+	entries := []grubEntry{{genIdx, kver, ""}}
+	genDirs, _ := filepath.Glob(filepath.Join(e.s.root(), "generation", "[0-9]*"))
+	slices.SortFunc(genDirs, func(a, b string) int {
+		x, _ := strconv.Atoi(filepath.Base(a))
+		y, _ := strconv.Atoi(filepath.Base(b))
+		return y - x
+	})
+	for _, gd := range genDirs {
+		g, err := strconv.Atoi(filepath.Base(gd))
+		if err != nil || g == genIdx {
+			continue
+		}
+		gm, _ := filepath.Glob(filepath.Join(gd, "boot", "vmlinuz-*"))
+		if len(gm) == 0 {
+			continue // no kernel tree in that generation: nothing to boot
+		}
+		gkv := strings.TrimPrefix(filepath.Base(gm[0]), "vmlinuz-")
+		dir := filepath.Join(bootDst, fmt.Sprintf("gen-%d", g))
+		if err := filepath.WalkDir(filepath.Join(gd, "boot"), func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			rel, _ := filepath.Rel(filepath.Join(gd, "boot"), p)
+			b, err := os.ReadFile(e.s.chrootResolve(p))
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(dir, rel), b, 0o644)
+		}); err != nil {
+			return fmt.Errorf("bootloader: generation %d boot copy: %w", g, err)
+		}
+		entries = append(entries, grubEntry{g, gkv, fmt.Sprintf("/gen-%d", g)})
+	}
+	// prune ESP gen-N trees whose generation was pruned away
+	alive := map[string]bool{}
+	for _, en := range entries {
+		if en.dir != "" {
+			alive[en.dir[1:]] = true
+		}
+	}
+	if stale, _ := filepath.Glob(filepath.Join(bootDst, "gen-*")); len(stale) > 0 {
+		for _, s := range stale {
+			if !alive[filepath.Base(s)] {
+				if err := os.RemoveAll(s); err != nil {
+					return fmt.Errorf("bootloader: pruning %s: %w", s, err)
+				}
+			}
+		}
+	}
+	cfg := renderGrubCfg(timeout, uuid, args, entries)
 	// ESP is mounted at <chroot>/boot: grub reads its config there
 	if err := os.WriteFile(filepath.Join(e.s.chroot, "boot/grub/grub.cfg"),
 		[]byte(cfg), 0o444); err != nil {
 		return err
 	}
-	fmt.Printf("bootloader: grub EFI (removable path) + grub.cfg for generation %d, kernel %s\n", genIdx, kver)
+	fmt.Printf("bootloader: grub EFI (removable path) + grub.cfg for generation %d, kernel %s (%d menu entries)\n",
+		genIdx, kver, len(entries))
 	return nil
 }
 
