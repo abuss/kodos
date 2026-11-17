@@ -445,7 +445,12 @@ from the config's device (vm/run.sh's nbd-sed, generalized), prompts a root
 password into a 0600 secrets file and lands it at the machine's
 `/etc/kodos/secrets.json` next to the shipped config.lua. Afterwards
 self-management applies exactly as above: `/kod/repo` is on the machine's
-own disk.
+own disk. **Index snapshots are refreshed from the mirror at startup**
+(best-effort curl/wget, media copies kept as fallback with a WARN): a
+media-only snapshot goes stale the day the 3.24 branch rolls a package and
+the executor then fail-closes with `lock_drift` (field round 2026-11-17:
+...3.6.7-r0 pinned vs 3.6.8-r0 on the mirror); network is an install
+requirement anyway, so live index truth is free.
 
 **ISO build facts (qemu-proven, no sudo):** `build/usb/mkinstall-iso.sh`
 xorriso-re-masters the Alpine standard ISO (boot info verbatim from

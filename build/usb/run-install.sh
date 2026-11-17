@@ -55,6 +55,29 @@ if [ -n "$MISSING" ]; then
         $MISSING || { echo "ERROR: apk add$MISSING failed"; exit 1; }
 fi
 
+# lockfile indexes: prefer the MIRROR's current state over the media
+# snapshot. A media older than the mirror trips the executor's fail-closed
+# lock_drift guard (field round 2026-11-16: lock pinned ...3.6.7-r0 from
+# the build-time snapshot, mirror resolved 3.6.8-r0). Network is an
+# install requirement anyway; fall back to the media copies only when the
+# mirror is unreachable or the download comes back empty/truncated.
+for r in main community; do
+    idx=$PAYLOAD/indexes/$r-324.apkindex
+    url=https://dl-cdn.alpinelinux.org/alpine/v3.24/$r/x86_64/APKINDEX.tar.gz
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url" 2>/dev/null | tar -xzO APKINDEX > "$idx.new" 2>/dev/null
+    else
+        wget -qO- "$url" 2>/dev/null | tar -xzO APKINDEX > "$idx.new" 2>/dev/null
+    fi
+    if [ -s "$idx.new" ] && grep -qm1 '^P:' "$idx.new"; then
+        mv "$idx.new" "$idx"
+    else
+        rm -f "$idx.new"
+        echo "WARN: could not refresh the $r index from the mirror; using"
+        echo "      the media snapshot (lock_drift will abort if the mirror moved)"
+    fi
+done
+
 # ---- target disk: the one the config layer names (or --device) ----
 CFGDEV=$(grep -o '"/dev/[a-z0-9/]*"' "$CFG" | head -1 | tr -d '"')
 [ -n "$DEV" ] || DEV=$CFGDEV

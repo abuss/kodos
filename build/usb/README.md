@@ -174,6 +174,13 @@ means the mkinitfs trim above did not land — see that bullet).
   If that entry fails to boot: live USB → `mount /dev/sda2 /mnt/x &&
   mount /dev/sda1 /mnt/x/boot`, `for f in dev proc sys; do mount --rbind
   /$f /mnt/x/$f; done`, then `chroot /mnt/x kodos rollback`.
+- `ERROR: lock_drift: X resolves to A but metadata pins B`: the executor
+  is fail-closed by design — the ISO froze its index snapshots at build
+  time and the mirror has since rolled that package. The media's
+  `run-install.sh` refreshes both indexes from the mirror at startup, so
+  current media should never hit this; on an older burn, refresh them in
+  the live copy and re-run:
+  `for r in main community; do wget -qO- https://dl-cdn.alpinelinux.org/alpine/v3.24/$r/x86_64/APKINDEX.tar.gz | tar -xzO APKINDEX > /root/kodos/indexes/$r-324.apkindex; done`
 - A boot dies in grub with `start_image() ... LOAD_ERROR`: the initramfs is
   too big for that firmware (see the mkinitfs bullet in section 4 — this is
   exactly how the NanoVM box failed at 180MB).
