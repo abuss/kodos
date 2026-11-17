@@ -14,9 +14,11 @@ end
 -- 1. NixOS-style disable: machine layer kills a base service
 assert(conf.services.printing.enable == false,
        "printing must be disabled by the machine layer")
--- base settings survive a partial overlay (dict merge, not replace)
-assert(conf.services.printing.dns_sd == true,
-       "printing.dns_sd from base must survive the enable=false overlay")
+-- regression guard: a base service entry must not carry settings keys the
+-- backend has no settings file for (that emits an exec-time-failing
+-- configure_service; resolve now aborts generation, see test-generate)
+assert(conf.services.printing.dns_sd == nil,
+       "printing must carry no settings keys (no backend settings file)")
 
 -- 2. scalar override, sibling keys intact
 assert(conf.boot.bootloader.timeout == 3, "bootloader.timeout must be overridden")

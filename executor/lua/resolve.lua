@@ -227,6 +227,17 @@ function M.service_plan(conf, backend)
             for k, v in pairs(srv) do
                 if not SKIP[k] then settings[k] = v; has_settings = true end
             end
+            -- fail CLOSED at generate time: settings are only appliable via a
+            -- backend-defined settings file, and only ssh has one today. A
+            -- stray key here used to reach the executor as an anonymous
+            -- "configure_service: no settings_file" at exec time.
+            if has_settings and not (be and be.settings_file) then
+                local ks = {}
+                for k in pairs(settings) do ks[#ks + 1] = k end
+                table.sort(ks)
+                error("service " .. name .. ": settings (" ..
+                      table.concat(ks, ", ") .. ") but the backend defines no settings file for it")
+            end
             plan[#plan + 1] = {
                 name = name,
                 unit = unit ~= false and unit or nil, -- false = packages only

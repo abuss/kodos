@@ -1075,7 +1075,8 @@ func (e *executor) loadKernelModules(act map[string]any) error {
 func (e *executor) configureService(act map[string]any) error {
 	file := field(act, "settings_file")
 	if file == "" {
-		return fmt.Errorf("configure_service: no settings_file")
+		return fmt.Errorf("configure_service %s: no backend settings_file for this service",
+			field(act, "name"))
 	}
 	settings, _ := act["settings"].(map[string]any)
 	keys := make([]string, 0, len(settings))

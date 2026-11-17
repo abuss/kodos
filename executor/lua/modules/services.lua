@@ -23,7 +23,9 @@ local services = {
     },
     printing = {
         enable = true,
-        dns_sd = true, -- printer sharing via avahi
+        -- printer sharing via avahi is what the backend's printing baseline
+        -- PACKAGES deliver (avahi-compat-libdns_sd); there is no settings
+        -- file to configure, so no settings key may live here.
     },
     bluetooth = { enable = true },
     avahi = { enable = true },

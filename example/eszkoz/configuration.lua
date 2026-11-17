@@ -144,7 +144,8 @@ return {
         },
         printing = {
             enable = true,
-            dns_sd = true, -- printer sharing via avahi
+            -- sharing rides on the backend's printing packages (avahi-compat);
+            -- no settings file exists for printing, so no settings keys here
         },
         bluetooth = { enable = true },
         avahi = { enable = true },

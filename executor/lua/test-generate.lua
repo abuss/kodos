@@ -212,6 +212,25 @@ assert(ft:find('"path": "/etc/kodos/secrets.json"', 1, true)
        "files writes must precede install_packages")
 os.remove("_scratch_files.lua")
 
+-- a service entry's stray keys are settings; without a backend settings file
+-- they must abort GENERATION, naming the service (field-tested: this used to
+-- surface only as an anonymous exec-time configure_service failure)
+local f4 = assert(io.open("_scratch_svc.lua", "w"))
+f4:write('return { services = { weirdsvc = { enable = true, typo_key = true } } }')
+f4:close()
+local err4
+if os.getenv("KODOS_INPROCESS") == "1" then
+    local ok, e = pcall(kodos_run, "generate.lua", "system.lua", "_scratch_svc.lua")
+    err4 = ok and "" or tostring(e)
+else
+    local h4 = assert(io.popen((os.getenv("KODOS_LUA_CMD") or "lua") .. " generate.lua system.lua _scratch_svc.lua 2>&1"))
+    err4 = h4:read("*a")
+    h4:close()
+end
+os.remove("_scratch_svc.lua")
+assert(err4:find("weirdsvc: settings", 1, true),
+       "settings without a backend settings file must abort with the service name")
+
 -- flatpak ids without repos.flatpak: hard error, same strictness rule
 local f3 = assert(io.open("_scratch_flatpak2.lua", "w"))
 f3:write('return { packages = { { repo = "flatpak", name = "org.gimp.GIMP" } } }')
