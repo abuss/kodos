@@ -83,8 +83,10 @@ exist on this live image anyway).
 to check every time:
 
 - **the disk**: `storage = { devices = { disk0 = { device = "/dev/sda" } } }`
-  — run `lsblk` and point it at the machine's real disk. NEVER the USB stick
-  (the installer double-checks and refuses anyway).
+  — identify disks with `cat /proc/partitions` (`lsblk` does not exist on
+  the live until run-install.sh installs util-linux). Point it at the
+  machine's real disk. NEVER the USB stick (~370MB in /proc/partitions;
+  the installer double-checks and refuses anyway).
 - **host_name**.
 
 Also worth knowing:
@@ -155,11 +157,18 @@ means the mkinitfs trim above did not land — see that bullet).
 - `ERROR: blkid missing` — you booted something that is not the Alpine
   standard stick (the installer checks util-linux).
 - `ERROR: ... is the USB stick this script runs from` — wrong disk name in
-  `machine.lua`; `lsblk`, edit, re-run.
+  `machine.lua`; `cat /proc/partitions` on the live (no lsblk there), edit, re-run.
 - `$DEV is not a block device` — same; the config must name a disk that
   exists on THIS machine.
 - No network: `udhcpc -i <iface>` (`ip link` to list interfaces); the
   install downloads from `dl-cdn.alpinelinux.org`.
+- `apk add` finds nothing on the live: by design, `/etc/apk/repositories`
+  there points only at the media dir (no main/community lines). Nothing to
+  fix — `run-install.sh`'s start gate installs its own pinned
+  parted/util-linux **offline from the payload repo**, and the installed
+  system's repos are written into the TARGET by the installer, not
+  inherited from the live. To grab something extra yourself:
+  `apk add --repository http://dl-cdn.alpinelinux.org/alpine/v3.24/main <pkg>`.
 - The grub menu has exactly **one** entry: the current generation (by
   design — generation switching is `kodos rollback`, not a grub submenu).
   If that entry fails to boot: live USB → `mount /dev/sda2 /mnt/x &&

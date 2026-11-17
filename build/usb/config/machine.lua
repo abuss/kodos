@@ -5,7 +5,8 @@
 -- same layering the VM rounds proved (vm/vm-layer.lua is the sibling example).
 --
 -- EDIT before installing: host_name and the ONE device line below — run
--- `lsblk` on the booted stick and point it at the real disk. NEVER the USB
+-- `cat /proc/partitions` on the booted stick (no lsblk on the live until
+-- run-install.sh installs util-linux) and point it at the real disk. NEVER the USB
 -- stick you boot from (run-install.sh double-checks and refuses).
 
 -- Read a file NEXT TO this layer (the lua runner chdirs, so io.open must find

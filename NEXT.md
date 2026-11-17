@@ -429,7 +429,7 @@ USB side (Alpine live: root login, Ethernet up; the boot media AUTO-mounts:
 ifconfig eth0 up && udhcpc -i <if>
 D=$(find /media /run/media -maxdepth 4 -name run-install.sh | head -1)
 cp -a "${D%/*}" /root/kodos
-vi /root/kodos/config/machine.lua    # host_name + the /dev/... disk line (lsblk)
+vi /root/kodos/config/machine.lua    # host_name + the disk line (cat /proc/partitions; lsblk not on live)
 sh /root/kodos/run-install.sh --dry-run
 sh /root/kodos/run-install.sh
 ```
@@ -484,7 +484,9 @@ completed. Known
 limits (as designed): the INSTALLED system's
 bootloader is grub EFI only (the stick itself also boots legacy BIOS, but an
 install on a legacy-BIOS-only box would not boot); partition sizes are the
-base profile's placeholders (ponytail: confirm with lsblk on the stick; the
+base profile's placeholders (ponytail: confirm on the live with
+  `cat /proc/partitions` — no lsblk there until run-install installs
+  util-linux; the
 fixed parts total ~99GB so the disk must be >= ~100GB);
 the machine config inherits the eszkoz base desktop profile (tailscale etc —
 edit the layer to trim).
