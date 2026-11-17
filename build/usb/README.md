@@ -188,3 +188,19 @@ means the mkinitfs trim above did not land — see that bullet).
 - A boot dies in grub with `start_image() ... LOAD_ERROR`: the initramfs is
   too big for that firmware (see the mkinitfs bullet in section 4 — this is
   exactly how the NanoVM box failed at 180MB).
+- `supervise-daemon: cosmic-greeter: respawning too fast`: three independent
+  causes, all fixed in the image (2026-11-17 field round) — check them first
+  on an older install:
+  `ls -ld /var/run` must be a symlink whose `readlink -f` is the live `/run`
+  tmpfs (a real dir, or `../run` landing in `/kod/generation/<N>/run`,
+  breaks zbus's hardcoded `/var/run/dbus/system_bus_socket`, so
+  `cosmic-greeter-daemon` exits with `InputOutput(NotFound)` and
+  `cosmic-greeter-daemon: respawned too many times` follows);
+  `ls /usr/lib/security/pam_gnome_keyring.so` must exist (`cosmic-greeter.pam`
+  lists it; when absent PAM marks it faulty and greetd dies with
+  `pam_setcred: MODULE_UNKNOWN`). Reinstalling a fresh ISO fixes all three —
+  the generation builder now re-anchors links that escape a generation
+  top-level dir, and the config carries the PAM module. The module alone is
+  enough for login (`gkr-pam: gnome-keyring-daemon didn't start properly` in
+  syslog is cosmetic); add `gnome-keyring` only if apps need the Secret
+  Service.

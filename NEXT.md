@@ -120,6 +120,13 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   dependency). NanoVM field round taught us: greeter needs a seat chain
   (seatd+elogind) AND software GL (mesa-dri-gallium on the simpledrm
   card); the greeter user's locale warnings ride on musl-locales + LANG.
+  Second field round (2026-11-17) closed the respawn loop: the image must
+  keep `/var/run` pointing at the live `/run` tmpfs (package dirs under it
+  merge *through* the symlink; links that escape a generation top-level dir
+  are re-anchored absolute, since zbus hardcodes
+  `/var/run/dbus/system_bus_socket`) and ship `gnome-keyring-pam`
+  (`cosmic-greeter.pam` names the module; absent = faulty module = greetd
+  `pam_setcred: MODULE_UNKNOWN`).
 - **Kernel modules/initrd**: `boot.kernel.modules` exists but nothing
   says which mechanism loads them (/etc/modules + mkinitfs on Alpine).
 - Secrets: refs + `configure_network` plumbing **done**; the resolver side

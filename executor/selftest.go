@@ -64,6 +64,12 @@ func selftest() {
 		filepath.Join(s.store(), "pkgA", "1.0", "etc", "rellink")) == nil, "rellink store")
 	write(filepath.Join(s.store(), "pkgB", "2.0", "bin", "b"), "B\n")
 	write(filepath.Join(s.store(), "pkgB", "2.0", "etc", "bar"), "bar\n")
+	// apk-style merge-through: package content under another package's
+	// symlink must merge THROUGH it (baselayout var/run -> ../run vs
+	// avahi/qemu shipping var/run/<subdir>; zbus hardcodes /var/run).
+	check(os.MkdirAll(filepath.Join(s.store(), "00base", "1.0", "var"), 0o755) == nil, "fake var dir")
+	check(os.Symlink("../run", filepath.Join(s.store(), "00base", "1.0", "var", "run")) == nil, "fake var/run symlink")
+	write(filepath.Join(s.store(), "pkgA", "1.0", "var", "run", "avahi-daemon", "pid"), "7\n")
 	check(os.MkdirAll(filepath.Join(chroot, "etc"), 0o755) == nil, "live etc")
 
 	// gen 0
@@ -116,6 +122,12 @@ func selftest() {
 	check(t == "", "gen bin/a is a hardlink, not a symlink (got %q)", t)
 	check(sameInode(filepath.Join(g0, "bin", "a"), filepath.Join(s.store(), "pkgA", "1.0", "bin", "a")),
 		"gen file hardlinks into store pool")
+	// escaping relative link re-anchored at the live root; apk-style
+	// merge-through put the content there instead of over the link
+	vr, _ := os.Readlink(filepath.Join(g0, "var", "run"))
+	check(vr == "/run", "gen var/run re-anchored to /run, got %q", vr)
+	check(readOr(filepath.Join(chroot, "run", "avahi-daemon", "pid")) == "7\n",
+		"pkg content merged through the var/run symlink")
 	// new contract (hooks run chrooted into the RAW gen tree at create
 	// time): gen/etc entries are HARDLINKS into the generation's store copy,
 	// not /kod-rooted links (those would dangle inside the gen chroot).

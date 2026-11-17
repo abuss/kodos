@@ -52,15 +52,16 @@ func symlinkChroot(dst, target, chroot string) error {
 	return os.Symlink("/"+rel, dst)
 }
 
-func symlinkTree(src, dst, chroot string) error {
+func (s *system) symlinkTree(src, dst string) error {
 	if isRealDir(src) {
 		if lexists(dst) && !isRealDir(dst) {
-			// merge conflict: a real dir beats a package-shipped symlink
-			// (e.g. var/run as symlink in baselayout vs files under
-			// var/run/ in other packages — apk itself merges through it)
-			if err := os.Remove(dst); err != nil {
-				return err
-			}
+			// A package dir landing on another package's symlink merges
+			// THROUGH the link, like apk writing into a live root: baselayout
+			// ships /var/run -> ../run, avahi/qemu ship /var/run/<subdir>.
+			// Replacing the link with a real dir breaks clients that hardcode
+			// /var/run (zbus/cosmic-greeter-daemon does; libdbus tools use
+			// /run) — that mismatch respawn-looped the greeter on ENOENT.
+			dst = s.chrootResolve(dst)
 		}
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return err
@@ -70,14 +71,18 @@ func symlinkTree(src, dst, chroot string) error {
 			return err
 		}
 		for _, e := range entries {
-			if err := symlinkTree(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name()), chroot); err != nil {
+			if err := s.symlinkTree(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 	if isRealDir(dst) {
-		return nil // merged real dir wins over this package's symlink
+		// Reverse order (a dir package linked before the symlink package):
+		// the dir wins. Sorted package names make baselayout (the owner of
+		// /var/run) precede avahi/qemu, so the merge-through above is what
+		// runs in practice.
+		return nil
 	}
 	// Regular files become HARDLINKS into the store (store and generation
 	// dirs share the filesystem under <chroot>/kod): distro tools assume
@@ -98,11 +103,43 @@ func symlinkTree(src, dst, chroot string) error {
 	// makes mkinitfs copy links into the initramfs that dangle there
 	// (no /kod/store inside the image -> /bin/sh broken -> boot panic).
 	t, _ := os.Readlink(src)
+	t = s.reanchor(dst, t)
 	os.Remove(dst)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
 	return os.Symlink(t, dst)
+}
+
+// reanchor keeps a relative package symlink pointing at the same LIVE path
+// after it is linked into the generation tree. Generation top-level dirs are
+// mounted at the live root (/var -> .../generation/current/var), so a link
+// under one of them that points out of that dir lands somewhere else than on
+// a plain rootfs: baselayout's /var/run -> ../run would mean
+// <generation>/run, while /run is the boot tmpfs. Rewriting such targets to
+// the absolute live path is also right inside a chroot of the generation,
+// where the generation IS the root. Field proof: zbus hardcodes
+// /var/run/dbus/system_bus_socket, so cosmic-greeter-daemon exited with
+// InputOutput(NotFound) and respawn-looped without this.
+func (s *system) reanchor(dst, target string) string {
+	if filepath.IsAbs(target) {
+		return target
+	}
+	rel, err := filepath.Rel(s.chroot, dst)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return target
+	}
+	parts := strings.Split(rel, "/") // kod/generation/<N>/<top>/...
+	if len(parts) < 5 || parts[0] != "kod" || parts[1] != "generation" {
+		return target // not in a generation tree (activation merge, top-level)
+	}
+	treeRel := strings.Join(parts[3:], "/") // <top>/rest
+	resolved := filepath.Clean(filepath.Join(filepath.Dir(treeRel), target))
+	if strings.HasPrefix(resolved, "..") ||
+		resolved == parts[3] || strings.HasPrefix(resolved, parts[3]+"/") {
+		return target // stays inside its own top-level dir: relative is fine
+	}
+	return "/" + resolved
 }
 
 // chrootResolve resolves p the way the chroot's kernel would: absolute link
@@ -681,7 +718,7 @@ func (s *system) activateGeneration(generation string) error {
 				if err := s.activateEtc(item, dst); err != nil {
 					return err
 				}
-			} else if err := symlinkTree(item, dst, s.chroot); err != nil {
+			} else if err := s.symlinkTree(item, dst); err != nil {
 				return err
 			}
 		} else {
@@ -733,7 +770,7 @@ func (s *system) createGeneration(toInstall map[string]string, idx int, prevGene
 					continue
 				}
 			}
-			if err := symlinkTree(path, filepath.Join(generation, e.Name()), s.chroot); err != nil {
+			if err := s.symlinkTree(path, filepath.Join(generation, e.Name())); err != nil {
 				return "", err
 			}
 		}

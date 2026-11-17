@@ -39,6 +39,11 @@ conf = resolve.deep_merge(conf, {
         { repo = "base", name = "seatd" },
         { repo = "base", name = "elogind" },
         { repo = "base", name = "mesa-dri-gallium" },
+        -- cosmic-greeter.pam lists pam_gnome_keyring.so; when the module is
+        -- absent PAM flags it faulty and greetd's pam_setcred fails with
+        -- MODULE_UNKNOWN -> greeter respawn loop (field round 2026-11-17).
+        -- Module only; full gnome-keyring (Secret Service) is opt-in.
+        { repo = "base", name = "gnome-keyring-pam" },
         { repo = "base", name = "adwaita-icon-theme" },
         { repo = "base", name = "hicolor-icon-theme" },
         { repo = "base", name = "musl-locales" },
