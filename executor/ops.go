@@ -1205,6 +1205,9 @@ func (e *executor) createUser(act map[string]any) error {
 
 func (e *executor) enableService(act map[string]any) error {
 	unit, runlevel := field(act, "unit"), field(act, "runlevel")
+	if e.meta != nil && e.meta.Distro == "arch" {
+		return e.enableServiceSystemd(act, unit, runlevel)
+	}
 	os.MkdirAll(filepath.Join(e.s.chroot, "etc/runlevels", runlevel), 0o755)
 	out, err := e.chrootShOut(fmt.Sprintf("rc-update add %s %s", shellQuote(unit), shellQuote(runlevel)))
 	if err != nil && !strings.Contains(out, "already been added") {
@@ -1217,11 +1220,96 @@ func (e *executor) enableService(act map[string]any) error {
 	return nil
 }
 
+// enableServiceSystemd: systemd "enable" is just a wants-symlink under
+// /etc/systemd/system — offline-safe, no systemctl in the chroot. Review
+// Focus 1: the unit file MUST exist in the activated generation tree before
+// linking: systemd silently skips dangling wants links, so a typo'd unit
+// would ship a service that never starts. runlevel maps to target:
+// boot/default -> multi-user.target, getty -> getty.target.
+func (e *executor) enableServiceSystemd(act map[string]any, unit, runlevel string) error {
+	var target string
+	switch runlevel {
+	case "boot", "default":
+		target = "multi-user.target"
+	case "getty":
+		target = "getty.target"
+	default:
+		return fmt.Errorf("arch enable_service: runlevel %q unsupported", runlevel)
+	}
+	unitFile := unit
+	if !strings.Contains(unitFile, ".") {
+		unitFile += ".service"
+	}
+	genDir := e.s.genDir(e.meta.Generation)
+	lookup := func(rel string) bool {
+		return lexists(e.s.chrootResolve(filepath.Join(genDir, "usr/lib/systemd/system", rel)))
+	}
+	if !lookup(unitFile) {
+		// templated instance: serial-getty@ttyS0.service <- serial-getty@.service
+		if i := strings.Index(unitFile, "@"); i >= 0 {
+			if dot := strings.Index(unitFile[i:], "."); dot >= 0 {
+				if !lookup(unitFile[:i+1] + unitFile[i+dot:]) {
+					return fmt.Errorf("enable_service %s: unit %s not shipped by any package", field(act, "name"), unitFile)
+				}
+			} else {
+				return fmt.Errorf("enable_service %s: unit %s not shipped by any package", field(act, "name"), unitFile)
+			}
+		} else {
+			return fmt.Errorf("enable_service %s: unit %s not shipped by any package", field(act, "name"), unitFile)
+		}
+	}
+	wants := filepath.Join(e.s.chroot, "etc/systemd/system", target+".wants")
+	if err := os.MkdirAll(wants, 0o755); err != nil {
+		return err
+	}
+	link := filepath.Join(wants, unitFile)
+	hdr := "/usr/lib/systemd/system/" + unitFile
+	if st, err := os.Lstat(link); err == nil {
+		if st.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("enable_service %s: %s is not a symlink", field(act, "name"), link)
+		}
+		if cur, _ := os.Readlink(link); cur != hdr {
+			os.Remove(link)
+			if err := os.Symlink(hdr, link); err != nil {
+				return fmt.Errorf("enable_service %s: %w", field(act, "name"), err)
+			}
+		} // else: idempotent rerun
+	} else if err := os.Symlink(hdr, link); err != nil {
+		return fmt.Errorf("enable_service %s: %w", field(act, "name"), err)
+	}
+	if e.declaredRunlevels == nil {
+		e.declaredRunlevels = map[string]bool{}
+	}
+	e.declaredRunlevels[target+".wants/"+unitFile] = true
+	return nil
+}
+
 // snapshotRunlevels indexes <root>/etc/runlevels entries as "runlevel/unit"
 // (rootDir = where the hooks/ops write: the raw gen tree at create time, the
 // live chroot everywhere else).
 func (e *executor) snapshotRunlevels(rootDir string) map[string]bool {
 	set := map[string]bool{}
+	if e.meta != nil && e.meta.Distro == "arch" {
+		// same key space as declaredRunlevels: "<target>.wants/<unitFile>"
+		sysDir := filepath.Join(rootDir, "etc/systemd/system")
+		sysDirs, err := os.ReadDir(sysDir)
+		if err != nil {
+			return set
+		}
+		for _, d := range sysDirs {
+			if !d.IsDir() || !strings.HasSuffix(d.Name(), ".wants") {
+				continue
+			}
+			units, err := os.ReadDir(filepath.Join(sysDir, d.Name()))
+			if err != nil {
+				continue
+			}
+			for _, u := range units {
+				set[d.Name()+"/"+u.Name()] = true
+			}
+		}
+		return set
+	}
 	roots, err := os.ReadDir(filepath.Join(rootDir, "etc/runlevels"))
 	if err != nil {
 		return set
@@ -1251,6 +1339,9 @@ func (e *executor) snapshotRunlevels(rootDir string) map[string]bool {
 func (e *executor) reconcileRunlevels() error {
 	if len(e.declaredRunlevels) == 0 {
 		return nil // this stream does not manage services: hands off
+	}
+	if e.meta != nil && e.meta.Distro == "arch" {
+		return e.reconcileWants()
 	}
 	rlRoot := filepath.Join(e.s.chroot, "etc/runlevels")
 	roots, err := os.ReadDir(rlRoot)
@@ -1283,6 +1374,46 @@ func (e *executor) reconcileRunlevels() error {
 				return fmt.Errorf("reconcile runlevels %s: %w", key, err)
 			}
 			fmt.Printf("runlevel reconcile: removed stale %s\n", key)
+		}
+	}
+	return nil
+}
+
+// reconcileWants: arch form of the runlevel sweep — declares services
+// declaratively through wants-symlinks under /etc/systemd/system. Only
+// symlinks are swept (a real file there is the admin's); static package
+// enables live under /usr and are never touched.
+func (e *executor) reconcileWants() error {
+	sysDir := filepath.Join(e.s.chroot, "etc/systemd/system")
+	dirs, err := os.ReadDir(sysDir)
+	if err != nil {
+		return nil
+	}
+	for _, d := range dirs {
+		if !d.IsDir() || !strings.HasSuffix(d.Name(), ".wants") {
+			continue
+		}
+		units, err := os.ReadDir(filepath.Join(sysDir, d.Name()))
+		if err != nil {
+			continue
+		}
+		for _, u := range units {
+			key := d.Name() + "/" + u.Name()
+			if e.declaredRunlevels[key] || e.hookRunlevels[key] {
+				continue
+			}
+			p := filepath.Join(sysDir, d.Name(), u.Name())
+			st, err := os.Lstat(p)
+			if err != nil {
+				continue
+			}
+			if st.Mode()&os.ModeSymlink == 0 {
+				continue // not a link we manage: hands off
+			}
+			if err := os.Remove(p); err != nil {
+				return fmt.Errorf("reconcile wants %s: %w", key, err)
+			}
+			fmt.Printf("wants reconcile: removed stale %s\n", key)
 		}
 	}
 	return nil

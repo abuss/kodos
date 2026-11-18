@@ -315,4 +315,33 @@ assert(ip:find('"op": "install_bootloader"', 1, true),
 assert(out:find('"op": "format"', 1, true),
     "without --inplace, format must still be present")
 
+-- ====== arch backend + serial console: unit enable, no inittab ======
+local f_ar = assert(io.open("_scratch_arch.lua", "w"))
+f_ar:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "archt", timezone = "UTC",
+               locale = { default = "C.UTF-8" }, serial_console = true },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+}
+]])
+f_ar:close()
+local ar = run("_scratch_arch.lua")
+assert(pos(ar, '"distro": "arch"'))
+assert(pos(ar, '"unit": "serial-getty@ttyS0"') > pos(ar, '"op": "activate_generation"'),
+       "serial console unit enables AFTER activation, like any unit")
+assert(pos(ar, '"runlevel": "getty"'))
+assert(not ar:find("/etc/inittab", 1, true),
+       "systemd backend must never render the OpenRC inittab")
+assert(pos(ar, '"linux-firmware"') and pos(ar, '"base"'))
+os.remove("_scratch_arch.lua")
+
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")
