@@ -407,6 +407,30 @@ func (e *executor) installPackages(act map[string]any) error {
 		return fmt.Errorf("install_packages before configure_repos: no repos captured")
 	}
 	names := strList(act, "names")
+	if e.meta.Distro == "arch" {
+		// lockfile.lua already emitted the FULL closure as pins: the pins
+		// ARE the resolved set; no live solver on the arch exec path.
+		for _, n := range names {
+			if _, ok := e.meta.Packages[n]; !ok {
+				return fmt.Errorf("install_packages %s: not pinned in generation metadata", n)
+			}
+		}
+		resolved := map[string]string{}
+		for n, pin := range e.meta.Packages {
+			resolved[n] = pin.Version
+		}
+		for name, ver := range resolved {
+			if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
+				if err := e.fetchUnpack(name, ver); err != nil {
+					return err
+				}
+			}
+		}
+		e.resolved = resolved
+		fmt.Printf("install_packages: %d requested -> %d pinned (arch: lockfile closure is authoritative)\n",
+			len(names), len(resolved))
+		return nil
+	}
 	addArgs := []string{}
 	for _, n := range names {
 		if pin, ok := e.meta.Packages[n]; ok {

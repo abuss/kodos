@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,6 +66,39 @@ func TestArchPkgURL(t *testing.T) {
 	want := "https://geo.mirror.pkgbuild.com/core/os/x86_64/glibc-2.40-1.pkg.tar.zst"
 	if got != want {
 		t.Errorf("got %s want %s", got, want)
+	}
+}
+
+func TestInstallPackagesArch(t *testing.T) {
+	pkg := fixturePkgTzst(t)
+	sum := sha256.Sum256(pkg)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/core/os/x86_64/hello-1.0-1.pkg.tar.zst",
+		func(w http.ResponseWriter, r *http.Request) { w.Write(pkg) })
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	root := t.TempDir()
+	e := &executor{s: &system{chroot: root}, arch: "x86_64",
+		meta: &metadata{Distro: "arch", Generation: 0, Packages: map[string]pkgPin{
+			"hello": {Version: "1.0-1", Checksum: hex.EncodeToString(sum[:]), Repo: "core"},
+		}}}
+	e.mirror = ts.URL
+	e.branches = []string{"core"}
+	if err := e.installPackages(map[string]any{"names": []any{"hello"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "kod/store/hello/1.0-1/usr/bin/hello")); err != nil {
+		t.Errorf("store content missing: %v", err)
+	}
+	if e.resolved["hello"] != "1.0-1" {
+		t.Errorf("resolved = %v", e.resolved)
+	}
+
+	// a request the lock lacks fails closed
+	err := e.installPackages(map[string]any{"names": []any{"ghost"}})
+	if err == nil || !strings.Contains(err.Error(), "not pinned") {
+		t.Errorf("unpinned request must error 'not pinned', got: %v", err)
 	}
 }
 
