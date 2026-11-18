@@ -154,8 +154,13 @@ EOF
     echo "syncing core+extra DB snapshots via pacman (trust oracle: TLS + SigLevel rules)"
     pacman -Sy --config "$D/arch/pacman.conf" || { echo "ERROR: pacman -Sy failed"; exit 1; }
     for r in core extra; do
+        # pacman >= 6.1 stores sync DBs under DBPath/sync/<repo>.db (only the
+        # local DB sits at DBPath root) - a stale hand-curled db/ used to mask
+        # that here; a fresh /tmp after reboot exposed it.
+        dbf="$D/arch/db/sync/$r.db"
+        [ -e "$dbf" ] || { echo "ERROR: pacman -Sy did not produce $dbf"; exit 1; }
         # the DB tarball's members are <pkg-ver>/desc (no <repo>.desc member)
-        tar -xzOf "$D/arch/db/$r.db" --wildcards '*/desc' > "$D/arch/$r.desc"
+        tar -xzOf "$dbf" --wildcards '*/desc' > "$D/arch/$r.desc"
         # we run under sudo: leave snapshots writable by the real user
         [ -n "${SUDO_USER:-}" ] && chown "$SUDO_USER" "$D/arch/$r.desc" 2>/dev/null || true
     done
