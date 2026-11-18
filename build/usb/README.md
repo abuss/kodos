@@ -188,6 +188,12 @@ means the mkinitfs trim above did not land — see that bullet).
 - A boot dies in grub with `start_image() ... LOAD_ERROR`: the initramfs is
   too big for that firmware (see the mkinitfs bullet in section 4 — this is
   exactly how the NanoVM box failed at 180MB).
+- `depmod: ERROR: fstatat(3, vmlinuz): No such file or directory` at the end
+  of an older install: benign. `/lib/modules/<abi>/vmlinuz` points at
+  `/boot/vmlinuz-lts` on the ESP, which the same op copies only *after*
+  depmod; depmod still exits 0 and writes a complete `modules.dep`. Fixed in
+  r141 — depmod now runs in the generation chroot, which already has the
+  kernel file.
 - `supervise-daemon: cosmic-greeter: respawning too fast`: three independent
   causes, all fixed in the image (2026-11-17 field round) — check them first
   on an older install:

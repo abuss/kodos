@@ -1349,7 +1349,12 @@ func (e *executor) installBootloader(act map[string]any) error {
 			// fs/IO incident (truncated by fsck) then silently boots a
 			// skeleton initramfs into "No working init" panics. Rebuilding
 			// costs seconds; activation is rare.
-			if err := e.chrootSh(e.s.chroot, "depmod "+shellQuote(abi)); err != nil {
+			// depmod scans /lib/modules/<abi>, which ships a vmlinuz symlink
+			// to /boot/vmlinuz-lts. Live /boot is the ESP: the kernel is not
+			// copied there until after this loop, so running depmod in the
+			// live chroot logs "fstatat(3, vmlinuz): No such file". The gen
+			// tree already has the kernel file, so chroot there instead.
+			if err := e.genChrootSh("depmod " + shellQuote(abi)); err != nil {
 				return fmt.Errorf("bootloader depmod %s: %w", abi, err)
 			}
 			if err := e.genChrootSh("mkinitfs -o /boot/initramfs" + suffix + " " + shellQuote(abi)); err != nil {

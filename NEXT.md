@@ -142,6 +142,10 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   gen0 still used gen1's `/var`. Fix: after the hook sweep, create/chown
   every `/var/lib/<svc>` home listed in the generation's passwd
   (`homedirs.go`, `ensureSystemHomeDirs`), with unit tests.
+  Sixth round: install log's `depmod: ERROR: fstatat(3, vmlinuz)` was the
+  `/lib/modules/<abi>/vmlinuz -> /boot/vmlinuz-lts` symlink resolving on the
+  ESP before the kernel copy (depmod still RC=0); depmod now runs in the gen
+  chroot, where the packaged kernel is already present (r141 media).
 - **Kernel modules/initrd**: `boot.kernel.modules` exists but nothing
   says which mechanism loads them (/etc/modules + mkinitfs on Alpine).
 - Secrets: refs + `configure_network` plumbing **done**; the resolver side
