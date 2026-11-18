@@ -51,6 +51,12 @@ cleanup() {
     for i in 0 1 2 3 4 5 6 7; do
         [ -e "/sys/block/nbd$i/pid" ] || continue
         p=$(cat "/sys/block/nbd$i/pid" 2>/dev/null) || continue
+        # Dead holder pid => nobody can serve that connection anymore: an
+        # orphan from a killed/crashed run (a live nbd server ALWAYS leaves
+        # a live /proc pid, so this can never steal a working foreign conn).
+        # Real incident: 4 crashed rounds burned nbd0-7 this way and the
+        # cmdline-proof below could never prove a dead pid was ours.
+        [ -d "/proc/$p" ] || { proven="$proven $i"; continue; }
         grep -qa "arch-disk" "/proc/$p/cmdline" 2>/dev/null || continue
         proven="$proven $i"
     done
