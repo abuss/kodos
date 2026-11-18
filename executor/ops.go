@@ -1541,7 +1541,10 @@ func (e *executor) installBootloader(act map[string]any) error {
 			if err := e.genChrootSh("depmod " + shellQuote(j.Kver)); err != nil {
 				return fmt.Errorf("bootloader depmod %s: %w", j.Kver, err)
 			}
-			if err := e.genChrootSh("mkinitcpio -o /boot/initramfs-" + j.Flavor + ".img " + shellQuote(j.Kver)); err != nil {
+			// mkinitcpio 42.x CLI: -k kernel version, -g write image to
+			// path (no -o option exists in this world's mkinitcpio).
+			if err := e.genChrootSh("mkinitcpio -k " + shellQuote(j.Kver) +
+				" -g /boot/initramfs-" + j.Flavor + ".img"); err != nil {
 				return fmt.Errorf("bootloader mkinitcpio %s: %w", j.Flavor, err)
 			}
 			img := filepath.Join(gen, "boot", "initramfs-"+j.Flavor+".img")

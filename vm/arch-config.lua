@@ -71,16 +71,21 @@ return {
         -- this world's base meta stopped pulling mkinitcpio (measured: its
         -- %DEPENDS% has none); install_bootloader builds initramfs-<flavor>.img
         -- with it, and mkinitcpio drags mkinitcpio-busybox for the base hook.
-        { repo = "base", name = "mkinitcpio" } },
+        { repo = "base", name = "mkinitcpio" },
+        -- Arch split locale data out of glibc: without it locale-gen (the
+        -- activate hook) hits missing charmaps and produces no locales.
+        { repo = "base", name = "glibc-locales" } },
 
     files = {
         -- Explicit recipe: the package-default HOOKS carry no systemd hook
         -- (initramfsSaneArch requires systemd IN the cpio), and autodetect
-        -- inspects the BUILD host's loaded modules, not the guest's. Pin the
-        -- qemu virtio block stack via MODULES instead.
+        -- inspects the build host's loaded modules, not the guest's. Pin the
+        -- qemu virtio block stack via MODULES instead. Syntax: bash ARRAYS
+        -- (mkinitcpio SOURCES this; string-form MODULES="a b" becomes ONE
+        -- bogus module name).
         mkinitcpio = { path = "/etc/mkinitcpio.conf", content = [[
-MODULES="virtio_pci virtio_blk virtio_net"
-HOOKS="base systemd autodetect modconf block filesystems"
+MODULES=(virtio_pci virtio_blk virtio_net)
+HOOKS=(base systemd autodetect modconf block filesystems)
 ]] },
     },
 }
