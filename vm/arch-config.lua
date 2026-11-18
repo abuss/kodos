@@ -6,7 +6,10 @@
 
 return {
     repos = { base = { type = "arch",
-                       mirror = "https://geo.mirror.pkgbuild.com",
+                       -- community mirror syncing DB-last (DB-listed => file
+                       -- present); matches vm/run-arch.sh's $M. geo.mirror's
+                       -- edge cache served a stale DB beside fresh files.
+                       mirror = "https://mirror.rackspace.com/archlinux",
                        branches = { "core", "extra" } } },
 
     boot = {

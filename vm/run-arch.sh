@@ -109,7 +109,15 @@ fetch_dbs() {
     command -v pacman >/dev/null || { echo "ERROR: the arch harness needs host pacman as the sync-DB trust oracle"; exit 1; }
     mkdir -p "$D/arch/db" "$D/arch/cache"
     [ -n "${SUDO_USER:-}" ] && chown "$SUDO_USER" "$D" "$D/arch" "$D/arch/db" "$D/arch/cache" 2>/dev/null || true
-    M=https://geo.mirror.pkgbuild.com
+    # Community mirror, NOT geo.mirror: ordinary mirrors upload package files
+    # before refreshing the DB (the invariant pacman relies on: listed in DB =>
+    # tarball exists), and rackspace proved it during the pcsclite 2.5.3->2.5.4
+    # incident (its DB+files agreed while geo.mirror's edge served a stale DB
+    # next to fresh files -> guaranteed 404). TimeMachine archive (
+    # https://archive.archlinux.org/repos/<YYYY/MM/DD>/...) is the spec's
+    # pinned-snapshot fallback but is nested-path + aggressively throttled —
+    # unusable for 186-tarball e2e rounds.
+    M=https://mirror.rackspace.com/archlinux
     cat > "$D/arch/pacman.conf" <<EOF
 [options]
 DBPath = $D/arch/db/
