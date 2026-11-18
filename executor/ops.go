@@ -1050,6 +1050,16 @@ func (e *executor) configureLocale(act map[string]any) error {
 	if def == "" {
 		return fmt.Errorf("configure_locale: no default")
 	}
+	if e.meta != nil && e.meta.Distro == "arch" {
+		// glibc convention: enable the locale in /etc/locale.gen, expose
+		// LANG in /etc/locale.conf; locale-gen runs at activation (the
+		// live /etc only exists then — see the activate_generation hook).
+		if err := e.writeFileTo("/etc/locale.gen", def+" UTF-8\n", 0o644); err != nil {
+			return err
+		}
+		e.needLocaleGen = true
+		return e.writeFileTo("/etc/locale.conf", fmt.Sprintf("LANG=%q\n", def), 0o644)
+	}
 	return e.writeFileTo("/etc/env.d/02locale", fmt.Sprintf("LANG=%q\n", def), 0o644)
 }
 
@@ -1058,6 +1068,9 @@ func (e *executor) configureKeyboard(act map[string]any) error {
 	keymap := field(act, "console_keymap")
 	if keymap == "" {
 		keymap = layout
+	}
+	if e.meta != nil && e.meta.Distro == "arch" {
+		return e.writeFileTo("/etc/vconsole.conf", fmt.Sprintf("KEYMAP=%s\n", keymap), 0o644)
 	}
 	return e.writeFileTo("/etc/conf.d/keymaps",
 		fmt.Sprintf("KEYMAP=%q\nSETUNICODE=%q\n", keymap, "yes"), 0o644)
@@ -1068,16 +1081,43 @@ func (e *executor) configureTimezone(act map[string]any) error {
 	if tz == "" {
 		return fmt.Errorf("configure_timezone: no timezone")
 	}
-	if err := e.writeFileTo("/etc/timezone", tz+"\n", 0o644); err != nil {
-		return err
+	if e.meta == nil || e.meta.Distro != "arch" {
+		// arch: localtime only — modern Arch dropped /etc/timezone
+		// (RTC convention lives in /etc/adjtime, untouched here)
+		if err := e.writeFileTo("/etc/timezone", tz+"\n", 0o644); err != nil {
+			return err
+		}
 	}
 	link := filepath.Join(e.s.chroot, "etc/localtime")
+	os.MkdirAll(filepath.Dir(link), 0o755) // fresh roots: etc/ may not exist yet
 	os.Remove(link)
 	return os.Symlink("/usr/share/zoneinfo/"+tz, link) // resolves once /usr is activated
 }
 
 func (e *executor) loadKernelModules(act map[string]any) error {
 	mods := strList(act, "modules")
+	if e.meta != nil && e.meta.Distro == "arch" {
+		// systemd-modules-load reads /etc/modules-load.d/*.conf at boot
+		// (Alpine's /etc/modules is an OpenRC-only file)
+		p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules-load.d/kodos.conf"))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		b, _ := os.ReadFile(p) // idempotent: skip modules already listed
+		existing := strings.TrimRight(string(b), "\n")
+		var add []string
+		for _, m := range mods {
+			if !strings.Contains(existing, m) {
+				add = append(add, m)
+			}
+		}
+		if len(add) == 0 {
+			return nil
+		}
+		out := strings.Join(add, "\n") + "\n"
+		if existing != "" {
+			out = existing + "\n" + out
+		}
+		return os.WriteFile(p, []byte(out), 0o644)
+	}
 	// chrootResolve: live /etc/modules may be a chroot-rooted managed link;
 	// its target only resolves rooted at the chroot (see writeFileTo).
 	p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules"))

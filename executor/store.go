@@ -23,6 +23,8 @@ import (
 
 type system struct {
 	chroot string // host path of the target root (e.g. ./rootfs)
+	Distro string // "alpine" (zero value keeps alpine naming) | "arch":
+	// only the conf-conflict extension differs (.apknew vs .pacnew)
 }
 
 func (s *system) root() string  { return filepath.Join(s.chroot, "kod") }
@@ -594,17 +596,21 @@ func (s *system) installEtc(src, dst, rel string) error {
 			return nil
 		}
 		// Content conflict: keep the local version; drop tmp and place
-		// the new default as .apknew.
+		// the new default as <conflict-ext> (.apknew/.pacnew per distro).
 		os.Remove(tmp)
+		ext := ".apknew"
+		if s.Distro == "arch" {
+			ext = ".pacnew"
+		}
 		base := filepath.Base(dst)
 		n := 1
-		conflict := filepath.Join(dir, fmt.Sprintf("%s.apknew-%d", base, n))
+		conflict := filepath.Join(dir, fmt.Sprintf("%s%s-%d", base, ext, n))
 		for lexists(conflict) {
 			n++
-			conflict = filepath.Join(dir, fmt.Sprintf("%s.apknew-%d", base, n))
+			conflict = filepath.Join(dir, fmt.Sprintf("%s%s-%d", base, ext, n))
 		}
 		if err := s.hardlink(newP, conflict); err != nil {
-			return fmt.Errorf("installEtc %s: apknew hardlink: %w", rel, err)
+			return fmt.Errorf("installEtc %s: %s hardlink: %w", rel, ext, err)
 		}
 		fmt.Printf("config conflict: kept local %s; new default in %s\n",
 			strings.TrimPrefix(dst, s.chroot+"/"),

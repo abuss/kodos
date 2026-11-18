@@ -53,6 +53,8 @@ type executor struct {
 	declaredRunlevels map[string]bool // "runlevel/unit" this stream's enable_service set
 	hookRunlevels     map[string]bool // "runlevel/unit" package hooks enabled this run
 
+	needLocaleGen bool // arch: configure_locale armed locale-gen for activation
+
 	metadataFileBytes []byte // raw -metadata file for config_hash if provided
 	actionsFileBytes  []byte // raw actions file for config_hash fallback
 }
@@ -157,7 +159,7 @@ func cmdExec(args []string) error {
 		return err
 	}
 
-	e := &executor{s: &system{chroot: rootAbs}, meta: meta, arch: *arch, apk: *apkBin, metadataFileBytes: metaBytes, actionsFileBytes: afBytes}
+	e := &executor{s: &system{chroot: rootAbs, Distro: af.Distro}, meta: meta, arch: *arch, apk: *apkBin, metadataFileBytes: metaBytes, actionsFileBytes: afBytes}
 	if *secrets != "" {
 		if err := loadJSON(*secrets, &e.secrets); err != nil {
 			return err
@@ -268,7 +270,18 @@ func (e *executor) run(act map[string]any) error {
 		// just the flip: hooks already ran on this tree at create time;
 		// rollback streams carry no create_generation op, so they run none
 		// (spec amendment 969b171)
-		return e.s.activateGeneration(e.s.genDir(e.meta.Generation))
+		if err := e.s.activateGeneration(e.s.genDir(e.meta.Generation)); err != nil {
+			return err
+		}
+		// Review Focus 2: locale-gen needs the LIVE activated /etc — it can
+		// only run after the flip. ponytail: full file regen per activation
+		// (locale-gen is idempotent); add a per-locale check if it gets slow.
+		if e.meta.Distro == "arch" && e.needLocaleGen {
+			if err := e.chrootSh(e.s.chroot, "locale-gen"); err != nil {
+				return fmt.Errorf("activate_generation: locale-gen: %w", err)
+			}
+		}
+		return nil
 	case "create_user":
 		return e.createUser(act)
 	case "enable_service":
