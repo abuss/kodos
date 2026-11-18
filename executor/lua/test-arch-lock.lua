@@ -21,6 +21,9 @@ local idx = alpm.parse(text, "core")
 assert(idx.glibc.version == "2.40-1", "glibc version")
 assert(idx.glibc.checksum == string.rep("0", 63) .. "1", "glibc chksum")
 assert(idx.glibc.repo == "core", "repo passed through")
+-- FILENAME carries the tarball's own arch component (x86_64 | any)
+assert(idx.glibc.arch == "x86_64", "glibc tarball arch")
+assert(idx.base.arch == "any", "base is a noarch tarball")
 assert(#idx.glibc.depends == 2, "glibc depends count")
 assert(#idx.linux.provides == 2, "linux provides count")
 assert(idx.filesystem.depends[1] == nil, "empty DEPENDS stays empty")
@@ -36,6 +39,7 @@ local count = 0
 for _ in pairs(locked) do count = count + 1 end
 assert(count == 4, "glibc closure = glibc+linux+filesystem+core-utils, got " .. count)
 assert(locked.linux.version == "6.12-1", "linux pinned by depends linux>=6.6")
+assert(locked.linux.arch == "x86_64", "closure pins carry the tarball arch")
 assert(locked["core-utils"].checksum == string.rep("0", 63) .. "4", "transitive pin")
 
 -- a bare-name dep is satisfied through PROVIDES (kernel -> linux)
@@ -50,7 +54,7 @@ assert(locked.linux, "so:libcrypto.so.3 satisfied by linux's provides")
 -- "sh") are candidates too, and real sync DBs carry %SHA256SUM%
 local bare = alpm.parse([[
 %FILENAME%
-core/os/x86_64/dash-0.5.12-1.pkg.tar.zst
+core/os/x86_64/dash-0.5.12-1-x86_64.pkg.tar.zst
 %NAME%
 dash
 %VERSION%
@@ -65,7 +69,7 @@ deadbeef
 assert(bare.dash.checksum == "deadbeef", "%SHA256SUM% accepted as checksum")
 local shell_user = alpm.parse([[
 %FILENAME%
-core/os/x86_64/shell-user-1-1.pkg.tar.zst
+core/os/x86_64/shell-user-1-1-x86_64.pkg.tar.zst
 %NAME%
 shell-user
 %VERSION%
@@ -89,7 +93,7 @@ assert(not ok, "kernel>=7 against linux=6.12 must fail")
 -- "util-linux-libs=2.42.4" while the package is 2.42.4-1 (measured Nov 2026)
 local relax = alpm.parse([[
 %FILENAME%
-core/os/x86_64/util-linux-2.42.4-1.pkg.tar.zst
+core/os/x86_64/util-linux-2.42.4-1-x86_64.pkg.tar.zst
 %NAME%
 util-linux
 %VERSION%
@@ -102,7 +106,7 @@ util-linux-libs=2.42.4
 c1
 
 %FILENAME%
-core/os/x86_64/util-linux-libs-2.42.4-1.pkg.tar.zst
+core/os/x86_64/util-linux-libs-2.42.4-1-x86_64.pkg.tar.zst
 %NAME%
 util-linux-libs
 %VERSION%
@@ -120,7 +124,7 @@ assert(locked["util-linux-libs"], "= dep on pkgver must match pkg 2.42.4-1")
 -- dependency cycles terminate (a <-> b)
 local cyc = alpm.parse([[
 %FILENAME%
-core/os/x86_64/pa-1-1.pkg.tar.zst
+core/os/x86_64/pa-1-1-x86_64.pkg.tar.zst
 %NAME%
 pa
 %VERSION%
@@ -133,7 +137,7 @@ pb
 c1
 
 %FILENAME%
-core/os/x86_64/pb-1-1.pkg.tar.zst
+core/os/x86_64/pb-1-1-x86_64.pkg.tar.zst
 %NAME%
 pb
 %VERSION%

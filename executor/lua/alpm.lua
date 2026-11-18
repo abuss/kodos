@@ -16,6 +16,10 @@ function M.parse(text, repo)
     local function commit()
         if field then cur[field] = values field, values = nil, nil end
         if cur.NAME then
+            -- %FILENAME% = <repo>/os/<dirarch>/<name>-<ver>-<pkgarch>.pkg.tar.zst:
+            -- the tarball's OWN arch component (x86_64 | any) is what the
+            -- download URL needs (noarch pkgs still live under os/<dirarch>/).
+            local fn = cur.FILENAME and cur.FILENAME[1]
             into[cur.NAME[1]] = {
                 name = cur.NAME[1],
                 version = cur.VERSION and cur.VERSION[1],
@@ -25,6 +29,7 @@ function M.parse(text, repo)
                 checksum = (cur.CHKSUM and cur.CHKSUM[1])
                     or (cur.SHA256SUM and cur.SHA256SUM[1]),
                 repo = repo,
+                arch = fn and fn:match("%-([%w_]+)%.pkg%.tar%.zst$"),
                 depends = cur.DEPENDS or {},
                 provides = cur.PROVIDES or {},
             }
@@ -140,7 +145,8 @@ function M.closure(requests, index)
     local locked, queue = {}, {}
     local function add(rec)
         if not locked[rec.name] then
-            locked[rec.name] = { version = rec.version, checksum = rec.checksum, repo = rec.repo }
+            locked[rec.name] = { version = rec.version, checksum = rec.checksum,
+                repo = rec.repo, arch = rec.arch }
             queue[#queue + 1] = rec.name
         end
     end

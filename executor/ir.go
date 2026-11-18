@@ -15,7 +15,8 @@ import (
 type pkgPin struct {
 	Version  string `json:"version"`
 	Checksum string `json:"checksum"`
-	Repo     string `json:"repo,omitempty"` // ALPM section (core/extra); apk omits it
+	Repo     string `json:"repo,omitempty"`    // ALPM section (core/extra); apk omits it
+	Arch     string `json:"arch,omitempty"`    // ALPM tarball arch component (x86_64|any)
 }
 
 // checkDistro: this build implements the alpine/apk and arch/pacman-family

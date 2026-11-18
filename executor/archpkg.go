@@ -14,8 +14,11 @@ import (
 // unpackApkStream for .pkg.tar.zst. Trust chain: signed sync DB -> lockfile
 // pins (version+sha256) -> verifySha256 here. pacman is never invoked.
 
-func archPkgURL(mirror, repo, arch, name, version string) string {
-	return mirror + "/" + repo + "/os/" + arch + "/" + name + "-" + version + ".pkg.tar.zst"
+// archPkgURL: mirrors the DB's %FILENAME% layout — every tarball lives under
+// the DIR arch (os/x86_64) but its name carries its OWN arch component
+// (x86_64 or any for noarch packages).
+func archPkgURL(mirror, repo, dirArch, name, version, pkgArch string) string {
+	return mirror + "/" + repo + "/os/" + dirArch + "/" + name + "-" + version + "-" + pkgArch + ".pkg.tar.zst"
 }
 
 func verifySha256(path, want string) error {

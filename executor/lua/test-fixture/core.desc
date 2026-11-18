@@ -1,5 +1,5 @@
 %FILENAME%
-core/os/x86_64/glibc-2.40-1.pkg.tar.zst
+core/os/x86_64/glibc-2.40-1-x86_64.pkg.tar.zst
 %NAME%
 glibc
 %VERSION%
@@ -13,7 +13,7 @@ filesystem
 0000000000000000000000000000000000000000000000000000000000000001
 
 %FILENAME%
-core/os/x86_64/filesystem-2025.10-1.pkg.tar.zst
+core/os/x86_64/filesystem-2025.10-1-x86_64.pkg.tar.zst
 %NAME%
 filesystem
 %VERSION%
@@ -26,7 +26,7 @@ filesystem
 0000000000000000000000000000000000000000000000000000000000000002
 
 %FILENAME%
-core/os/x86_64/linux-6.12-1.pkg.tar.zst
+core/os/x86_64/linux-6.12-1-x86_64.pkg.tar.zst
 %NAME%
 linux
 %VERSION%
@@ -40,7 +40,7 @@ core-utils
 0000000000000000000000000000000000000000000000000000000000000003
 
 %FILENAME%
-core/os/x86_64/core-utils-1-1.pkg.tar.zst
+core/os/x86_64/core-utils-1-1-x86_64.pkg.tar.zst
 %NAME%
 core-utils
 %VERSION%
@@ -53,7 +53,7 @@ core-utils
 0000000000000000000000000000000000000000000000000000000000000004
 
 %FILENAME%
-core/os/x86_64/boot-helper-1-1.pkg.tar.zst
+core/os/x86_64/boot-helper-1-1-x86_64.pkg.tar.zst
 %NAME%
 boot-helper
 %VERSION%
@@ -66,7 +66,7 @@ kernel
 0000000000000000000000000000000000000000000000000000000000000005
 
 %FILENAME%
-core/os/x86_64/strict-boot-1-1.pkg.tar.zst
+core/os/x86_64/strict-boot-1-1-x86_64.pkg.tar.zst
 %NAME%
 strict-boot
 %VERSION%
@@ -79,7 +79,7 @@ kernel>=7
 0000000000000000000000000000000000000000000000000000000000000006
 
 %FILENAME%
-core/os/x86_64/ssl-user-1-1.pkg.tar.zst
+core/os/x86_64/ssl-user-1-1-x86_64.pkg.tar.zst
 %NAME%
 ssl-user
 %VERSION%
@@ -92,7 +92,7 @@ so:libcrypto.so.3
 0000000000000000000000000000000000000000000000000000000000000007
 
 %FILENAME%
-core/os/x86_64/base-3-1.pkg.tar.zst
+core/os/x86_64/base-3-1-any.pkg.tar.zst
 %NAME%
 base
 %VERSION%
@@ -106,7 +106,7 @@ core-utils
 0000000000000000000000000000000000000000000000000000000000000008
 
 %FILENAME%
-core/os/x86_64/tzdata-2026a-1.pkg.tar.zst
+core/os/x86_64/tzdata-2026a-1-x86_64.pkg.tar.zst
 %NAME%
 tzdata
 %VERSION%
@@ -119,7 +119,7 @@ tzdata
 0000000000000000000000000000000000000000000000000000000000000009
 
 %FILENAME%
-core/os/x86_64/linux-firmware-20260101-1.pkg.tar.zst
+core/os/x86_64/linux-firmware-20260101-1-any.pkg.tar.zst
 %NAME%
 linux-firmware
 %VERSION%
@@ -132,7 +132,7 @@ linux-firmware
 0000000000000000000000000000000000000000000000000000000000000010
 
 %FILENAME%
-core/os/x86_64/grub-2.14-1.pkg.tar.zst
+core/os/x86_64/grub-2.14-1-x86_64.pkg.tar.zst
 %NAME%
 grub
 %VERSION%
@@ -145,7 +145,7 @@ core-utils
 0000000000000000000000000000000000000000000000000000000000000011
 
 %FILENAME%
-core/os/x86_64/efibootmgr-18-2.pkg.tar.zst
+core/os/x86_64/efibootmgr-18-2-x86_64.pkg.tar.zst
 %NAME%
 efibootmgr
 %VERSION%

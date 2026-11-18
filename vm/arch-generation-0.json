@@ -1,0 +1,946 @@
+{
+  "distro": "arch",
+  "flatpak": {
+    "system": [],
+    "users": []
+  },
+  "generation": 0,
+  "kernel": "linux-7.3.4.arch1-2",
+  "kernel_variant": "default",
+  "kind": "kodos-generation",
+  "locked_count": 186,
+  "packages": {
+    "acl": {
+      "checksum": "dca9ec50cf51243b86a67367a55e78b1851d31240b1edaf9c011f8511765d999",
+      "repo": "core",
+      "version": "2.4.0-1"
+    },
+    "archlinux-keyring": {
+      "checksum": "6a8ea16f51d3b305c18322d5884ca959f12c32a3f186873090fdc18465605293",
+      "repo": "core",
+      "version": "20260909-1"
+    },
+    "attr": {
+      "checksum": "0db32b421f67000950f7b55b531291ce8c13985c5444425b22dce94d485daed1",
+      "repo": "core",
+      "version": "2.6.0-1"
+    },
+    "audit": {
+      "checksum": "6b2f7e400336d05bf9a4b1b65015e4a7ac3a3842fbc67790913f9748513b964e",
+      "repo": "core",
+      "version": "4.2.1-1"
+    },
+    "base": {
+      "checksum": "e144d83f03b1a003d31bf9c83990bfe0a503bb7bd8721dee88d72c74606acd37",
+      "repo": "core",
+      "version": "3-3"
+    },
+    "bash": {
+      "checksum": "73a67dc509ed4a6dd64e4c7eca2895643f48083940f49431782ce78c4d4619e1",
+      "repo": "core",
+      "version": "5.3.20-1"
+    },
+    "binutils": {
+      "checksum": "d9508ad848fd6c31473ac0925cf8c3ec0d2a71bbbb5c7e39274186338a285660",
+      "repo": "core",
+      "version": "2.47-4"
+    },
+    "booster": {
+      "checksum": "1b7faed5c72e25513c8bc09c3388cde1c82d5ea562c56fe2e53e251713d1e400",
+      "repo": "extra",
+      "version": "0.13-1"
+    },
+    "brotli": {
+      "checksum": "dff80818057da76e93c90045f7d9eef0469c35caa03b153cae02ba47bd3c4db2",
+      "repo": "core",
+      "version": "1.2.1-1"
+    },
+    "bzip2": {
+      "checksum": "8779003d659c441b952095c19907603a738c1366f25cc51be3fd139fa4e95748",
+      "repo": "core",
+      "version": "1.0.8-6"
+    },
+    "ca-certificates": {
+      "checksum": "982005bd5ecc998c05f561b57bb58b4457407779727e3c3d59e926d34a8b0712",
+      "repo": "core",
+      "version": "20240618-1"
+    },
+    "ca-certificates-mozilla": {
+      "checksum": "79cd453f56263cc36e0708c19f60dabad7ab6b2f5f9ba3c2437238e8f9b165c4",
+      "repo": "core",
+      "version": "3.133-1"
+    },
+    "ca-certificates-utils": {
+      "checksum": "aabd5b2b7030716ccdd465d607e734e851fe4a01adf8293a3968fe22eb89ce9b",
+      "repo": "core",
+      "version": "20240618-1"
+    },
+    "coreutils": {
+      "checksum": "cc26997b36bff4a8e175f7daaf060551b74cc6332e034fa1e4267f988b934ed3",
+      "repo": "core",
+      "version": "9.12-3"
+    },
+    "cryptsetup": {
+      "checksum": "014f8ef0a1398c33a6f2f83729c615efdb70add92f9a277340477b02569d1f2d",
+      "repo": "core",
+      "version": "2.8.8-2"
+    },
+    "curl": {
+      "checksum": "4d2bbf66b26c6dc7236e505c9d80644d3da6a28473c690365324edf276a68775",
+      "repo": "core",
+      "version": "8.23.0-2"
+    },
+    "db5.3": {
+      "checksum": "abac3474e766fa8a36fcae945f5e8c8e818665fc41a56daff92db81cd176d389",
+      "repo": "core",
+      "version": "5.3.28-7"
+    },
+    "dbus": {
+      "checksum": "04917312c828d336d78269cb1ccefa508a2dc4bca6de611c3988734b752337d4",
+      "repo": "core",
+      "version": "1.16.4-1"
+    },
+    "dbus-broker": {
+      "checksum": "c3a915bb57188e6a43b9df25c0bf11f87528bc20ac50718b1772ce917c6d6117",
+      "repo": "core",
+      "version": "37-3"
+    },
+    "dbus-broker-units": {
+      "checksum": "f3f73e7c8169f54e3e5447d266917ae7454bd984fc0ede0f85e2ca60e21d97df",
+      "repo": "core",
+      "version": "37-3"
+    },
+    "dbus-units": {
+      "checksum": "b3c4dee19391724893993ed993522846368bb38257daae4182de980255a995cc",
+      "repo": "core",
+      "version": "37-3"
+    },
+    "device-mapper": {
+      "checksum": "8cdc3e90c1ad75ea0c3e563645ac519b5517ee5dd0f817fb39e54f16d79678b1",
+      "repo": "core",
+      "version": "2.03.44-1"
+    },
+    "duktape": {
+      "checksum": "92452979e8cc6f34558ee4d9c3f34f8b7e0d7a8ebff94296b68c7926f00895cd",
+      "repo": "extra",
+      "version": "2.7.0-7"
+    },
+    "e2fsprogs": {
+      "checksum": "a78971bbbe0ae89d15a0cbbc952e64462edc5a6f991c1bb9cefd0539ca548bd4",
+      "repo": "core",
+      "version": "1.47.4-1"
+    },
+    "efibootmgr": {
+      "checksum": "1e6166d0024f3f0de37919a51f5c00981e42e6e087937858cf82f30edf71f17e",
+      "repo": "core",
+      "version": "18-4"
+    },
+    "efivar": {
+      "checksum": "9bfa2152203237d61f0e41819572e2fe19e9cf5613442b24f5f02573ab030e74",
+      "repo": "core",
+      "version": "39-2"
+    },
+    "expat": {
+      "checksum": "d6abf3bcd65696164476cbe1757eb669e2c25b748d2ac22c4029301fcfca29f0",
+      "repo": "core",
+      "version": "2.10.0-1"
+    },
+    "file": {
+      "checksum": "b77fe84e1dda2f32fcd11a004347c0a0c6bb9806376533c78abd78b4ea779af2",
+      "repo": "core",
+      "version": "5.48-1"
+    },
+    "filesystem": {
+      "checksum": "6b6c3fee7432204840d3b6afc9bc1a68c28f591a47fb220071715c40cca956df",
+      "repo": "core",
+      "version": "2025.10.12-1"
+    },
+    "findutils": {
+      "checksum": "76ac56a7f03039d163306701e5c02777b9b7170ad5388e66e46c363dd2792edf",
+      "repo": "core",
+      "version": "4.11.0-1"
+    },
+    "gawk": {
+      "checksum": "875761229b80b29078cd1fafc35a07add9ac4c2dbb9a429bd0b72ddcc14a31bd",
+      "repo": "core",
+      "version": "5.4.1-1"
+    },
+    "gcc-libs": {
+      "checksum": "dbeca7c4844e3112de98ba95f7c2b2618f4dd2b9c693c34076b7ba51ddf4611e",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "gdbm": {
+      "checksum": "7bb8768fc7f617c580ae4c7902aed5413984a8374915da42beeecbb085c2a29e",
+      "repo": "core",
+      "version": "1.26-2"
+    },
+    "gettext": {
+      "checksum": "bf1bd9d2f096f1446a645a89a26663371ab6ef78a8ed4b1c3f006b60569a2e28",
+      "repo": "core",
+      "version": "1.0-2"
+    },
+    "git": {
+      "checksum": "e03b17fa53ecb9af41a00b599f5304fafdaa04bd36c9fdd04eb18ad7d7f537ad",
+      "repo": "extra",
+      "version": "2.56.1-1"
+    },
+    "glib2": {
+      "checksum": "b7d930dae1b926dd8dfa9375183182ebc7a26689428fd109feaeace3aecf99a0",
+      "repo": "core",
+      "version": "2.90.1-1"
+    },
+    "glibc": {
+      "checksum": "b6db2293b5c5dde6e0fe2c7e1f916b01a2dd3775f089640d8f8aa7c891057ae0",
+      "repo": "core",
+      "version": "2.44+r78+gfcfb867c58ab-1"
+    },
+    "gmp": {
+      "checksum": "2969061e117d2a8c19d89427b0b88e1c956a6269bc0602087d41aecd15097064",
+      "repo": "core",
+      "version": "6.3.0-3"
+    },
+    "gnulib-l10n": {
+      "checksum": "86e6ea818cb331171018bef6e4486c1176064655e0d459bcecc9cc9c2bb74a2c",
+      "repo": "core",
+      "version": "20241231-1"
+    },
+    "gnupg": {
+      "checksum": "5c52520b4856eea5e12fc9f70eab9eafb5586725cce8ffc1ae3746cfce115dc1",
+      "repo": "core",
+      "version": "2.4.9-4"
+    },
+    "gnutls": {
+      "checksum": "a61d5d908aa83ad2ed6ddffda70ae2ddb5a81852dddcbf68ec42c1744e8a8ee9",
+      "repo": "core",
+      "version": "3.8.13-3"
+    },
+    "gpgme": {
+      "checksum": "d720cb9773612a993581e0478724ac0249087236b3e899d7dadc50ee143b279b",
+      "repo": "core",
+      "version": "2.2.0-1"
+    },
+    "gpm": {
+      "checksum": "c13146ba90f58ad4b561ffb15ae7d667718acca7865eb752b83d1530f3e67689",
+      "repo": "core",
+      "version": "1.20.7.r38.ge82d1a6-7"
+    },
+    "grep": {
+      "checksum": "9dd8a5dad99e8d388b1fb1406919de218d30c7e49924f615a12d3f2deaaecfe2",
+      "repo": "core",
+      "version": "3.12-2"
+    },
+    "grub": {
+      "checksum": "ba96d8453efb54ec909a5d11598b8032c5b30c6654170bd5e6438d4b01bc0ffd",
+      "repo": "core",
+      "version": "2:2.16-1"
+    },
+    "gzip": {
+      "checksum": "4a2d1fd90458bf9751b9aca418f8e8ae6d570cb4a406bd7dc646ad7162a720fa",
+      "repo": "core",
+      "version": "1.15-1"
+    },
+    "hwdata": {
+      "checksum": "cce4809b7fa0146464f41f5d6bd643e11624311007f79e8927818b438d7a6092",
+      "repo": "core",
+      "version": "0.412-1"
+    },
+    "iana-etc": {
+      "checksum": "f451da19de46e77177d959239e03b6ee837c93966ac72ca0b80a1e9a32abeb67",
+      "repo": "core",
+      "version": "20260617-1"
+    },
+    "icu": {
+      "checksum": "118fe41efa6c550f3fe67893946dcea2c6cbb5272299a6ddf4160fb17f3e4bb0",
+      "repo": "core",
+      "version": "78.3-1"
+    },
+    "iproute2": {
+      "checksum": "e7afcf7bee5976e3c01053e46ebd396091a5341e5f267210eff251902aca65e9",
+      "repo": "core",
+      "version": "7.3.0-1"
+    },
+    "iptables": {
+      "checksum": "c827ed573b29dd488317da6b61be22c5d12154378b6bceda35ced834e8bbbc94",
+      "repo": "core",
+      "version": "1:1.8.13-1"
+    },
+    "iputils": {
+      "checksum": "7b7ef18785a9fb7767ecf793a9c87b474eec64440a55258f5c127861100d3933",
+      "repo": "core",
+      "version": "20250605-1"
+    },
+    "jansson": {
+      "checksum": "ff1ff9da9ec0520b30cc4add6160ba5a171d9a478408863a2d99b61f5bb9866b",
+      "repo": "core",
+      "version": "2.15.1-1"
+    },
+    "json-c": {
+      "checksum": "a2ebb9395bfc18a29abd21b6dd756519114e4e6241d6321588ada285ded4d63f",
+      "repo": "core",
+      "version": "0.19-1"
+    },
+    "kbd": {
+      "checksum": "9322a5fb74f43341835d22d3ea0cf1d88d91eb4c98ab9fcb816955e2159b4b41",
+      "repo": "core",
+      "version": "2.10.0-1"
+    },
+    "keyutils": {
+      "checksum": "e3e5d4226bb7d213a6baddb997bf679a2b1106d95b5c2845b79bf8df1c3ef5fe",
+      "repo": "core",
+      "version": "1.6.3-4"
+    },
+    "kmod": {
+      "checksum": "1b177a2813d0bdc81d28e080404dccdc9cc8567a9b443dcdf573f9ee4d9357b4",
+      "repo": "core",
+      "version": "34.3-2"
+    },
+    "krb5": {
+      "checksum": "a546d2cc6a223de9ff1d06793c68c183844df54fc8cf5ef46babdc1bc47c7a9f",
+      "repo": "core",
+      "version": "1.22.2-2"
+    },
+    "leancrypto": {
+      "checksum": "0494b72775287ab8a9f87dbb9a579cdde1e39fbb855e9040cf7bae793f04339f",
+      "repo": "core",
+      "version": "1.9.1-1"
+    },
+    "libarchive": {
+      "checksum": "247efd1d162e80564c6a9cd9e6722bb2154129db15bcff2947c64fe35daa42f8",
+      "repo": "core",
+      "version": "3.8.11-2"
+    },
+    "libasan": {
+      "checksum": "7f6c602ea97c01b67cf8261b87afa1a47c1eb383ded769aaef71475e781defdc",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libassuan": {
+      "checksum": "1843d675b324c9d549f3413dcbe653ec86876ac2898fc94423926ed30eab25a1",
+      "repo": "core",
+      "version": "3.0.0-1"
+    },
+    "libatomic": {
+      "checksum": "920cfea3dcac82e3d7c8ebbf64dfe341821c1118277d55b6c1e96035cd943656",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libbpf": {
+      "checksum": "3f14dc1512ca84ceffdf73f5019313c3c0afc462ed6cc4a150d06963509bad4c",
+      "repo": "core",
+      "version": "1.8.0-1"
+    },
+    "libcap": {
+      "checksum": "3e984fe1d323b1c5a5fc60fef005776a4882fbca913d6fe3c41ad11128929ed1",
+      "repo": "core",
+      "version": "2.78-1"
+    },
+    "libcap-ng": {
+      "checksum": "05b0a8356f898e251845b2e5ffa5966be21ca85f3eaaf5aeb8a9e8df4148ba5c",
+      "repo": "core",
+      "version": "0.9.6-1"
+    },
+    "libdaemon": {
+      "checksum": "ece83006a468d5205ea45d1de8e9cdb3a864700f9d904fc4b7d52d69dce1b0b6",
+      "repo": "extra",
+      "version": "0.14-6"
+    },
+    "libedit": {
+      "checksum": "70cb736e4fdee330cd0dfab45875f6ea378ae819958dd15748c300b8d7285b42",
+      "repo": "core",
+      "version": "20260512_3.1-1"
+    },
+    "libelf": {
+      "checksum": "f8341a1e281ffd294d81891c95dfcd7cbcf9b5527b160d4b54848ec79a19abc1",
+      "repo": "core",
+      "version": "0.197-1"
+    },
+    "libevent": {
+      "checksum": "23d4c0165431fd26ae4b58f0799c1ae184e8cbac12407aee060256f49d2ded3c",
+      "repo": "core",
+      "version": "2.1.13-3"
+    },
+    "libffi": {
+      "checksum": "de2b807b473eea794d465a971e010ffac62fe9e779e95afd5d0dba97210b803d",
+      "repo": "core",
+      "version": "3.8.1-1"
+    },
+    "libgcc": {
+      "checksum": "7367dad49fc3229bde804816d412ab77306d433b1f92e4126b8b3ba3502c67d6",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libgcrypt": {
+      "checksum": "25ca27f53e0862e706b325d05893e43585be2bb0a0a4a750b8faa6e0e253e136",
+      "repo": "core",
+      "version": "1.12.4-1"
+    },
+    "libgfortran": {
+      "checksum": "0b40387c87793ed7b72fc3138c6877630ed66d8b5f841e436f4372a6405663e6",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libgomp": {
+      "checksum": "ffad807ed2ea36a29fe6da70dd77a6c476f1a1d5357cbec0b2481dbc84f303f4",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libgpg-error": {
+      "checksum": "7d5a5b39f588b275558f5e13bd792bff84cf89abb6d48e3e494d6c30e8ea9ca4",
+      "repo": "core",
+      "version": "1.61-1"
+    },
+    "libhwasan": {
+      "checksum": "299ad02f954643c8b0fb919b0d545ebba34816f0facc673399f79252b33ec018",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libidn2": {
+      "checksum": "1749bdd4c395913df18c57fdd42820d3de88738b7163b7aa254d13e3da7b1d9d",
+      "repo": "core",
+      "version": "2.3.8-1"
+    },
+    "libksba": {
+      "checksum": "6aa88da7314b620af39ae619625b6ffac55f347c1a977cec3c4a0e4bc6f6a79d",
+      "repo": "core",
+      "version": "1.8.1-1"
+    },
+    "libldap": {
+      "checksum": "645c593527caeb6cb5b3505c9a62f6b1725f250d7dec5f9db105b02dfcf0c899",
+      "repo": "core",
+      "version": "2.7.2-3"
+    },
+    "liblsan": {
+      "checksum": "11b69f544a6f3d1c58d5612ebc336837e76567f2413b96900a6eb33d5de06e21",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libmakepkg-dropins": {
+      "checksum": "78c4e32d3140d11d2fd7d1bac6bcfdbdd34d3b59b56620f987fd28fd4334648e",
+      "repo": "core",
+      "version": "20-2"
+    },
+    "libmm-glib": {
+      "checksum": "c0cf1baea2fbfa0b0dc858b32140b3560943b09cc27f814f349b47fd7b2a924b",
+      "repo": "extra",
+      "version": "1.24.2-2"
+    },
+    "libmnl": {
+      "checksum": "1ee554fe2637bbee1da61f0bdbd3f9d1dd89ddbb9809cd5ef012540a748ff4a0",
+      "repo": "core",
+      "version": "1.0.5-2"
+    },
+    "libndp": {
+      "checksum": "4285f52d6399cdd9edd740488f0efdb3c7bcc7f2559c6f0ff7c2233719f619d2",
+      "repo": "extra",
+      "version": "1.9-1"
+    },
+    "libnetfilter_conntrack": {
+      "checksum": "9315ab4571be5d9764367f2e3d56004a127a7dfe6fbbfb1850c05efb674a8bdb",
+      "repo": "core",
+      "version": "1.1.1-1"
+    },
+    "libnewt": {
+      "checksum": "a6f7192698b7b0a978317135f9218e1d6da550b1d50c5d823564b801df08362c",
+      "repo": "extra",
+      "version": "0.52.25-2"
+    },
+    "libnfnetlink": {
+      "checksum": "b06f0d8f2723ac33155bf4f584d88906c5be68d3c3c8b4f3f0694a5874672727",
+      "repo": "core",
+      "version": "1.0.2-2"
+    },
+    "libnftnl": {
+      "checksum": "99114ae2579be7e4cdd553209394572c75751e3af9a3581d742f59a558f08620",
+      "repo": "core",
+      "version": "1.3.2-1"
+    },
+    "libnghttp2": {
+      "checksum": "7eb61dcea3be052396ad596f546ff036802a62471e9b940f99764cae1acf31bd",
+      "repo": "core",
+      "version": "1.71.0-1"
+    },
+    "libnghttp3": {
+      "checksum": "76f4c2d5059ee5f39ffa737108207b1156ab49d57d9c7e567d0a02d7dd9c2978",
+      "repo": "core",
+      "version": "1.19.0-1"
+    },
+    "libngtcp2": {
+      "checksum": "6edf5055a2b8cd8229c5a9179e222986e5f515a56a029d9660ac4ceff062e4c5",
+      "repo": "core",
+      "version": "1.26.0-2"
+    },
+    "libnl": {
+      "checksum": "531827dac4f6d3de9a7e4c8c31f3243bf484b39c41648178c18dc027566b1bb4",
+      "repo": "core",
+      "version": "3.12.0-1"
+    },
+    "libnm": {
+      "checksum": "742a15cd381420004a8172d50d6b1706808b376108e85c751ec3e1de634927a9",
+      "repo": "extra",
+      "version": "1.58.1-3"
+    },
+    "libnsl": {
+      "checksum": "4ba7b85b42fbda5a1f07e15b8f91c60faa4c5f9168cc27d49fcd20e3a3be8bd8",
+      "repo": "core",
+      "version": "2.0.1-2"
+    },
+    "libobjc": {
+      "checksum": "b56770fbd0167ed14159744e3f18e220684f5acf65241b5110808ec49bdbffd6",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libp11-kit": {
+      "checksum": "d7aeee5e9f20e0af6d682c853ab9cf8fdc60f1140b222e23dc03be8e26e70669",
+      "repo": "core",
+      "version": "0.26.6-1"
+    },
+    "libpcap": {
+      "checksum": "ed40e51f84882865d254571015a8ad403bf9c0ec743cf454e8223199de34580d",
+      "repo": "core",
+      "version": "1.11.0-1"
+    },
+    "libpgm": {
+      "checksum": "cca617d50f88c96d93fbedb75ec5e948e4a3471680e708e88f7d4e391923be4d",
+      "repo": "extra",
+      "version": "5.3.128-4"
+    },
+    "libpsl": {
+      "checksum": "e07925c2487bd7deffdd57808b19561e80a4cb25a33e51dbd94efb673bc81944",
+      "repo": "core",
+      "version": "0.21.5-2"
+    },
+    "libquadmath": {
+      "checksum": "c6db8f6c787601f17fa812f2270f4e53fad1426fa9e372ab2e1a881c1368cee3",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libsasl": {
+      "checksum": "9b75f4798f35f6fb41a581a0903df8d275953ad8be417495ca2fa21f83dff1af",
+      "repo": "core",
+      "version": "2.1.28-6"
+    },
+    "libseccomp": {
+      "checksum": "3d3effb23898177d0faece196ac664859d29027b64cdeee3a09a2c3967b8401d",
+      "repo": "core",
+      "version": "2.6.0-1"
+    },
+    "libsecret": {
+      "checksum": "311a982a109a3814ebc8f467215f9c92660b85833e1c65b6da16ba21d6f406ad",
+      "repo": "core",
+      "version": "0.21.8.2-1"
+    },
+    "libsodium": {
+      "checksum": "fc0440c108fff0341f3cb7b4ee38f5a9406b45d9315205ce999e1b147b52f972",
+      "repo": "extra",
+      "version": "1.0.22-1"
+    },
+    "libssh2": {
+      "checksum": "bffde249160fa014b6adb2ee46babb1978d3188d51e24a4de0d83689d7c1887f",
+      "repo": "core",
+      "version": "1.11.1-8"
+    },
+    "libstdc++": {
+      "checksum": "15dc6bd2f3a2ee17fcd79a14325e9e0037722a592b2bdc55e1665d92112eaa51",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libsysprof-capture": {
+      "checksum": "4076158a6db4137615c241a7019309f8be3ceab9e5f91291385c4fb41a7c2921",
+      "repo": "extra",
+      "version": "51.0-1"
+    },
+    "libtasn1": {
+      "checksum": "00e50489d3c00951380d578cf89ebd7d7a38d97269e7ca9ccc9cde146f1e21da",
+      "repo": "core",
+      "version": "4.21.0-1"
+    },
+    "libteam": {
+      "checksum": "179c1120809f0a9ff4515ff75a700c1b57f57ac7327f6dab0570ce5504789018",
+      "repo": "extra",
+      "version": "1.32-3"
+    },
+    "libtirpc": {
+      "checksum": "4861eac60e6daffdf02366a09fc559ffe456e987410362793cd7faf91be22b30",
+      "repo": "core",
+      "version": "1.3.8-1"
+    },
+    "libtsan": {
+      "checksum": "8dd48336bb11dd0d15b9f5d0560166838802b21e3d279db25d6da96df19e0437",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libubsan": {
+      "checksum": "eba85316fdf63265285624baa22724fbb93e15901696f99d2c2cbde2162ad71d",
+      "repo": "core",
+      "version": "16.2.1+r23+gd564253eb6c8-1"
+    },
+    "libunistring": {
+      "checksum": "582625bc02e710b587f4ed319e5c7ad29fd5d4d424b6384f125fc094f07ce590",
+      "repo": "core",
+      "version": "1.4.2-1"
+    },
+    "libusb": {
+      "checksum": "8b75816afbb316dc92110d9ac542df3e20d9550fe949a1a1402b25366c0a2c6d",
+      "repo": "core",
+      "version": "1.0.30-1"
+    },
+    "libverto": {
+      "checksum": "d0965b1b256e330e300c2bc3c699afa24f2d800dc476541039d452b606309496",
+      "repo": "core",
+      "version": "0.3.2-6"
+    },
+    "libxcrypt": {
+      "checksum": "7d324b88963786491391468203701efd2c812798a9c3fbcc4ff8a4ddb2d9f276",
+      "repo": "core",
+      "version": "4.5.2-1"
+    },
+    "libxml2": {
+      "checksum": "a6b5c30f51a7ca7c85348de8e83280e6825a8f3e193cc6916ecd8e695d4a24bb",
+      "repo": "core",
+      "version": "2.15.4-1"
+    },
+    "licenses": {
+      "checksum": "47e9f4ad914da21f6326cc4eb84a788043523191f80d8e661b936b25d7fa1879",
+      "repo": "core",
+      "version": "20240728-1"
+    },
+    "linux": {
+      "checksum": "6106da072a3197ee9d1af0597e7bd1f94337eb828aea7a102ce1f18f354e9377",
+      "repo": "core",
+      "version": "7.3.4.arch1-2"
+    },
+    "linux-api-headers": {
+      "checksum": "a5a6f5fc8922ef454c54e65e321906183e6606acaadaf416896dcbc44f2194ed",
+      "repo": "core",
+      "version": "7.3-1"
+    },
+    "linux-firmware": {
+      "checksum": "1812b4ee41f0e331f4b6e89057e963483d441865ff6198f975f59dffc2fb2c0b",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-amd": {
+      "checksum": "dee2cafc91c92c7a00f44b342d727d6a8defda0028e158700d3ceae2c5cf43e9",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-amdgpu": {
+      "checksum": "3809f365db7bc136d53d7a8330f4ca59205ca9d51aac535e721822e28b86b79f",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-atheros": {
+      "checksum": "83d2ae3a1b79ca4f7b180f7a032c3d6a3dc9f77bb4f0ff47619c8556977f9787",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-broadcom": {
+      "checksum": "901efc603f0a7dd877b5b4b2f957af6ae47205cdbf92f19609da39af796a25eb",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-cirrus": {
+      "checksum": "4f443d248b0b8a8cf1119896c575546936ec559840c94b3cff84bb3c5952daf0",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-intel": {
+      "checksum": "16107109ab874b44344f3a64b5aec68621962b7cb2adbc63207547f09fed7ece",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-mediatek": {
+      "checksum": "8f844707523f80b847c6d1ab1f1bac6c09fc2ce324d6e2b2045154b9f7903623",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-nvidia": {
+      "checksum": "330b68ac3adbf9e7a33709a642db15238e2bd2baffe31580eaa8ce7f8e475520",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-other": {
+      "checksum": "0f5e551a2fd65b8409255510b707a0375ced56e3e1d4e57eafeb85e90ed278c0",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-radeon": {
+      "checksum": "02f62fb26656075246f32a76c2cc5bb13c2ce38e4d3ecc40754c33e26c6bc09f",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-realtek": {
+      "checksum": "b0f16f1721e1021400e3e9616c11a7e590b5267f2cc818d63b8ec31a0370c160",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-ti": {
+      "checksum": "ea53732ac10a8afbd81a1d6c1d6ce3468c4863a10d61a56ae6537e8d9669c2b3",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "linux-firmware-whence": {
+      "checksum": "3b7c99f7e72ad309d2edfc0ced6e92a2b999fde2994af67acb218b4a4009efc3",
+      "repo": "core",
+      "version": "20261019-1"
+    },
+    "lmdb": {
+      "checksum": "50ae8083860e1ffadf4fab3c173a043fd97be41f5ceda7d2e77c528cd84d2386",
+      "repo": "extra",
+      "version": "0.9.35-1"
+    },
+    "lz4": {
+      "checksum": "38ba71e406d8aae5bf90423959163e7a60933a0c0a540e84f32fdee02ca769e3",
+      "repo": "core",
+      "version": "1:1.11.1-1"
+    },
+    "mobile-broadband-provider-info": {
+      "checksum": "2cb997297670a5869391222d083433def3cabef548b1f0de6d3edf626b278356",
+      "repo": "extra",
+      "version": "20261111-1"
+    },
+    "mpfr": {
+      "checksum": "e765082b2c3260550887ccf34f6f0d24289fc5ca8c0949eb5c2e9937272ea80f",
+      "repo": "core",
+      "version": "4.2.2-1"
+    },
+    "ncurses": {
+      "checksum": "9b80390fd681121443a45a51b74e2e2ade245ce22af8769915d63165b727e27c",
+      "repo": "core",
+      "version": "6.6-2"
+    },
+    "nettle": {
+      "checksum": "679138a8405ca383aba7836d54fdc282db9394b7dc23c097b8965f70119adf13",
+      "repo": "core",
+      "version": "4.0-1"
+    },
+    "networkmanager": {
+      "checksum": "5ffec643ba59493cdee3f4a1881b729521d64ee9d159218f7acbbdb3a56defda",
+      "repo": "extra",
+      "version": "1.58.1-3"
+    },
+    "nftables": {
+      "checksum": "5a25cfdb19c370d01cfe81ce8c1e2e1fa9a2e05d51d1417578e8c425893a5b29",
+      "repo": "extra",
+      "version": "1:1.1.7-3"
+    },
+    "npth": {
+      "checksum": "2f045edab9f7fd2c04667c5ba7f70c47da7b6fcfe87a99a857ab7ef5a12f39b4",
+      "repo": "core",
+      "version": "1.8-1"
+    },
+    "nspr": {
+      "checksum": "00c276c71d748e5220757f26776f4ad340b1cb477eb835de0d088f9b36277ad7",
+      "repo": "core",
+      "version": "4.40-1"
+    },
+    "nss": {
+      "checksum": "00b84d9ed00073122197f078637a622d024cf3b08ec226420652124079afb694",
+      "repo": "core",
+      "version": "3.133-1"
+    },
+    "openssh": {
+      "checksum": "0031b2ae2d65211c8f85f0212277b420f8aa1e051e817de6b86cbfe3da016106",
+      "repo": "core",
+      "version": "10.6p2-1"
+    },
+    "openssl": {
+      "checksum": "424dd78c9225ffdc45d9862694a1bad83a404b73585cc1a7e6f78e1ef0eadfd4",
+      "repo": "core",
+      "version": "4.1.0-1"
+    },
+    "p11-kit": {
+      "checksum": "64c16ca1b6eba940050eb774f9a69baaa739bb034d31b083bf1472e299b3081e",
+      "repo": "core",
+      "version": "0.26.6-1"
+    },
+    "pacman": {
+      "checksum": "e7b847d2989de38ec17ce9e2ca2a7b585ca61604dda0c73bc285b44005b234b1",
+      "repo": "core",
+      "version": "7.1.0.r9.g54d9411-4"
+    },
+    "pacman-mirrorlist": {
+      "checksum": "f6008b33d950a4e4eb5930fe3852cceb0fe1fa5fdaff36125583201531fe4ae9",
+      "repo": "core",
+      "version": "20260610-1"
+    },
+    "pam": {
+      "checksum": "78edd987656671b1995412b60ac1a1ae92f7110a14ea3722c2ef3a81e928d7fb",
+      "repo": "core",
+      "version": "1.7.3-1"
+    },
+    "pambase": {
+      "checksum": "306265b486e3f7d2854d583202409cdd90f131368c92aa56f845822a5d2bbf65",
+      "repo": "core",
+      "version": "20260616-1"
+    },
+    "pciutils": {
+      "checksum": "994429cef5db515b020bc5125faab04a441677837ebc16f03da53aecca213915",
+      "repo": "core",
+      "version": "3.15.0-1"
+    },
+    "pcre": {
+      "checksum": "386dc0f4c46f359e9bdd033f07d37b43df1f63a2649566685dc0c86e19623274",
+      "repo": "core",
+      "version": "8.45-5"
+    },
+    "pcre2": {
+      "checksum": "e37f4152ff869a6ba050ad08307d7b6b474f4d48cbe0c6ccc01ce9118a774dbf",
+      "repo": "core",
+      "version": "10.49-1"
+    },
+    "pcsclite": {
+      "checksum": "bd80ba7f5d249a00f1cf4da0c77eba0635e230b1035c0bf219b3e2cad3bd02a2",
+      "repo": "extra",
+      "version": "2.5.3-1"
+    },
+    "perl": {
+      "checksum": "f7170b9ac09dfc4d46decd5e953888a379215af0207e361bbd426efa53968c70",
+      "repo": "core",
+      "version": "5.44.0-1"
+    },
+    "perl-error": {
+      "checksum": "8788bfae7b3ae6d6834dad55fec690f30a317dfc3d2b8d25039b7ede7ad04811",
+      "repo": "extra",
+      "version": "0.17031-1"
+    },
+    "perl-mailtools": {
+      "checksum": "d93f6c122fa2301c2bd02095b8aaf9c225b5f26f64bb25d2199bfa9a1d3f47ba",
+      "repo": "extra",
+      "version": "2.22-3"
+    },
+    "perl-timedate": {
+      "checksum": "225b05f5d301b7e168299240b9369cece8d0bddee8627117ce23a57880679715",
+      "repo": "extra",
+      "version": "2.35-1"
+    },
+    "pinentry": {
+      "checksum": "16dfcc18fc60f8c654687970a9b7253ce17a987c44119fe2ee37c760460fc557",
+      "repo": "core",
+      "version": "1.3.3-1"
+    },
+    "polkit": {
+      "checksum": "27a25617077c39f430ab5fe7aa8c9dd913711bd0f39745af123da0bf3fb1de07",
+      "repo": "extra",
+      "version": "128-1"
+    },
+    "popt": {
+      "checksum": "877635962b604efa79409c3d423f4fdffc4868776af3e0e804cc94a0b57ca151",
+      "repo": "core",
+      "version": "1.19-2"
+    },
+    "procps-ng": {
+      "checksum": "7a0b17ee89ad1a04f7c6c86be69c9c816ac2c14da9648dfdefb7ccf4b22c14d3",
+      "repo": "core",
+      "version": "4.0.7-1"
+    },
+    "psmisc": {
+      "checksum": "b6722605ae0f2912d7498e87839c702275bfd9280b076e92e80474a847561bd4",
+      "repo": "core",
+      "version": "23.7-2"
+    },
+    "readline": {
+      "checksum": "016b2aeebfbe9dfb89283c52bb49487d95ea23a875d477da42d000a793613020",
+      "repo": "core",
+      "version": "8.3.6-1"
+    },
+    "sed": {
+      "checksum": "90733f34fe5791b554b935998df858350bcea53061257dba06829ce3533f8e01",
+      "repo": "core",
+      "version": "4.10-2"
+    },
+    "shadow": {
+      "checksum": "615c819eb2d3e22158289f3cc2447f81ae981a6d11b3418da30b6085306b3e77",
+      "repo": "core",
+      "version": "4.20.0.arch1-1"
+    },
+    "slang": {
+      "checksum": "272e4afe2bff678a590d28abbeba8eda95b2041c5d0063e01a8a0f457b13a177",
+      "repo": "extra",
+      "version": "2.3.3-4"
+    },
+    "sqlite": {
+      "checksum": "d2584b4d8455bffe0f6acee34837f416248e624578ead28fe5b24d7ce94d1073",
+      "repo": "core",
+      "version": "3.54.1-1"
+    },
+    "sudo": {
+      "checksum": "62ab2b3292fa45bc2b7ab2ffacb9971c7f42ca384226e9bb49a87a5fcaf7625c",
+      "repo": "core",
+      "version": "1.9.17.p2-7"
+    },
+    "systemd": {
+      "checksum": "38a9c2d5e4f5db9bbb2c58d274de973d6637c87eba81c19c7a1b4fb1aca0b513",
+      "repo": "core",
+      "version": "262.2-1"
+    },
+    "systemd-libs": {
+      "checksum": "82c6dd9412435fd1df971419554fd1c156cf0dca541cf1d34a7b0017cbf264d3",
+      "repo": "core",
+      "version": "262.2-1"
+    },
+    "systemd-sysvcompat": {
+      "checksum": "50eb1cd7fb930a5d56de36f5214eeefd9bd70e562d956a1fa68ae235e5c530ef",
+      "repo": "core",
+      "version": "262.2-1"
+    },
+    "tar": {
+      "checksum": "e8a3baa1b4bd754442f92c1c25794b9225700f931e1d2c175bb2e7d9a28725e7",
+      "repo": "core",
+      "version": "1.35-5"
+    },
+    "tpm2-tss": {
+      "checksum": "71cb0492274b1b13c9a2270eb474ee2a6a99d5e0c886916814e1c4977cb475bb",
+      "repo": "core",
+      "version": "4.2.2s-1"
+    },
+    "tzdata": {
+      "checksum": "01436856cacfbac7eb539a25a91570f6c6a806d3bd2bfb2bcdf79e8bc49af5f4",
+      "repo": "core",
+      "version": "2026f-1"
+    },
+    "util-linux": {
+      "checksum": "95b7096bf4b45274645f6bb96f5b5508af6ea80e5fccba29244abaa53a341962",
+      "repo": "core",
+      "version": "2.42.4-1"
+    },
+    "util-linux-libs": {
+      "checksum": "56075bc7da9be4470da36a040195f98aac0afbc1edcc7e4f27e6d267dcaf9f37",
+      "repo": "core",
+      "version": "2.42.4-1"
+    },
+    "wpa_supplicant": {
+      "checksum": "4d9a85de0a109612d2d0adc8ffb07cf6a61631654d8e9f9fd8b73d8e0d6ab57b",
+      "repo": "core",
+      "version": "2:2.12-2"
+    },
+    "xz": {
+      "checksum": "89b8e777c8f7a39413e1b223d4c212caec6ddd9470b3d1ea1d5161bcc6215c04",
+      "repo": "core",
+      "version": "5.8.4-1"
+    },
+    "zeromq": {
+      "checksum": "e3ec5be13978db5ba53c86a2416fac800bc14da8d6c6c3325afd928ebf79d27b",
+      "repo": "extra",
+      "version": "4.3.5-3"
+    },
+    "zlib": {
+      "checksum": "a56796509f9b9e953e31b2fbeef5ae6bb61bff7e3e84cde3f4184581e9eb810c",
+      "repo": "core",
+      "version": "1:1.4-1"
+    },
+    "zlib-ng": {
+      "checksum": "52971dcf5ca5e763a070518da9d615be52ea8f645fd44ee323211b6251d1cc67",
+      "repo": "extra",
+      "version": "2.3.3-1"
+    },
+    "zstd": {
+      "checksum": "d4cf0049137124c8a025eedfad267a3e8a02310c9efb9d1ae4a61aa1d02789fc",
+      "repo": "core",
+      "version": "1.5.7-3"
+    }
+  },
+  "requested_count": 10,
+  "schema_version": 1
+}

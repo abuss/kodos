@@ -30,14 +30,17 @@ func TestCheckDistro(t *testing.T) {
 
 func TestPkgPinRepo(t *testing.T) {
 	var p pkgPin
-	if err := json.Unmarshal([]byte(`{"version":"6.1-1","checksum":"ab","repo":"core"}`), &p); err != nil {
+	if err := json.Unmarshal([]byte(`{"version":"6.1-1","checksum":"ab","repo":"core","arch":"any"}`), &p); err != nil {
 		t.Fatal(err)
 	}
 	if p.Repo != "core" {
 		t.Errorf("Repo = %q, want core", p.Repo)
 	}
+	if p.Arch != "any" {
+		t.Errorf("Arch = %q, want any", p.Arch)
+	}
 	b, _ := json.Marshal(pkgPin{Version: "1-1", Checksum: "ab"})
-	if strings.Contains(string(b), "repo") {
-		t.Errorf("empty Repo must be omitted, got %s", b)
+	if strings.Contains(string(b), "repo") || strings.Contains(string(b), "arch") {
+		t.Errorf("empty Repo/Arch must be omitted, got %s", b)
 	}
 }

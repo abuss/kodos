@@ -62,8 +62,15 @@ func TestUnpackArchStream(t *testing.T) {
 
 func TestArchPkgURL(t *testing.T) {
 	got := archPkgURL("https://geo.mirror.pkgbuild.com", "core", "x86_64",
-		"glibc", "2.40-1")
-	want := "https://geo.mirror.pkgbuild.com/core/os/x86_64/glibc-2.40-1.pkg.tar.zst"
+		"glibc", "2.40-1", "x86_64")
+	want := "https://geo.mirror.pkgbuild.com/core/os/x86_64/glibc-2.40-1-x86_64.pkg.tar.zst"
+	if got != want {
+		t.Errorf("got %s want %s", got, want)
+	}
+	// noarch packages live under the dir-arch but filename says "any"
+	got = archPkgURL("https://geo.mirror.pkgbuild.com", "core", "x86_64",
+		"linux-firmware", "20261019-1", "any")
+	want = "https://geo.mirror.pkgbuild.com/core/os/x86_64/linux-firmware-20261019-1-any.pkg.tar.zst"
 	if got != want {
 		t.Errorf("got %s want %s", got, want)
 	}
@@ -73,7 +80,7 @@ func TestInstallPackagesArch(t *testing.T) {
 	pkg := fixturePkgTzst(t)
 	sum := sha256.Sum256(pkg)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/core/os/x86_64/hello-1.0-1.pkg.tar.zst",
+	mux.HandleFunc("/core/os/x86_64/hello-1.0-1-x86_64.pkg.tar.zst",
 		func(w http.ResponseWriter, r *http.Request) { w.Write(pkg) })
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
@@ -81,7 +88,7 @@ func TestInstallPackagesArch(t *testing.T) {
 	root := t.TempDir()
 	e := &executor{s: &system{chroot: root}, arch: "x86_64",
 		meta: &metadata{Distro: "arch", Generation: 0, Packages: map[string]pkgPin{
-			"hello": {Version: "1.0-1", Checksum: hex.EncodeToString(sum[:]), Repo: "core"},
+			"hello": {Version: "1.0-1", Checksum: hex.EncodeToString(sum[:]), Repo: "core", Arch: "x86_64"},
 		}}}
 	e.mirror = ts.URL
 	e.branches = []string{"core"}

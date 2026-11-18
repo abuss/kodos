@@ -590,8 +590,8 @@ func (e *executor) fetchUnpack(name, version string) error {
 // and every attempted URL (rolling-mirror drift must be loud, never silent).
 func (e *executor) fetchUnpackArch(name, version string) error {
 	pin, ok := e.meta.Packages[name]
-	if !ok || pin.Repo == "" || pin.Checksum == "" {
-		return fmt.Errorf("arch fetch %s-%s: no repo/checksum pin", name, version)
+	if !ok || pin.Repo == "" || pin.Checksum == "" || pin.Arch == "" {
+		return fmt.Errorf("arch fetch %s-%s: no repo/checksum/arch pin", name, version)
 	}
 	repos := []string{pin.Repo}
 	for _, br := range e.branches {
@@ -603,7 +603,7 @@ func (e *executor) fetchUnpackArch(name, version string) error {
 	var lastErr error
 	var tried []string
 	for _, r := range repos {
-		url := archPkgURL(e.mirror, r, e.arch, name, version)
+		url := archPkgURL(e.mirror, r, e.arch, name, version, pin.Arch)
 		tried = append(tried, url)
 		resp, err := client.Get(url)
 		if err != nil {
