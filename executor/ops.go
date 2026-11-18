@@ -1234,11 +1234,19 @@ func (e *executor) createUser(act map[string]any) error {
 			}
 			fmt.Fprintf(&mkgroups, "grep -q '^%s:' /etc/group || groupadd %s; ", g, g)
 		}
+		// -G only when there ARE supplementary groups: shadow's useradd
+		// (arch) reads `-G ''` as asking for default-group membership and
+		// warns/falls back to /etc/default/useradd's GROUP=users, which
+		// Arch's /etc/group does not define. Busybox (alpine) tolerated it.
+		supFlag := ""
+		if sup := strList(act, "supplementary_groups"); len(sup) > 0 {
+			supFlag = " -G " + shellQuote(strings.Join(sup, ","))
+		}
 		script := fmt.Sprintf(
-			"%suseradd %s-d %s -s %s -g %s -G %s -c %s %s",
+			"%suseradd %s-d %s -s %s -g %s%s -c %s %s",
 			mkgroups.String(),
 			flags, shellQuote(field(act, "home_directory")), shellQuote(field(act, "shell")),
-			shellQuote(field(act, "group")), shellQuote(strings.Join(strList(act, "supplementary_groups"), ",")),
+			shellQuote(field(act, "group")), supFlag,
 			shellQuote(field(act, "name")), shellQuote(login))
 		if err := e.chrootSh(e.s.chroot, script); err != nil {
 			return fmt.Errorf("create_user %s: %w", login, err)

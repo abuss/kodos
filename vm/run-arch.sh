@@ -40,8 +40,12 @@ cleanup() {
     # is under the VM root (match realpath too; never assume host layout).
     # Disconnects need a qemu-nbd cmdline proof of OUR disk (arch-disk).
     Mreal=$(readlink -f "$MNT" 2>/dev/null || echo "$MNT")
+    # OWNERSHIP PROOF = target path: anything mounted UNDER our VM mountpoint
+    # is ours, whatever its source device. A crashed round leaves gen-chroot
+    # proc/sys/dev binds there (not /dev/nbd*): the old device-column filter
+    # kept them, and the next round's chroot hit EIO over the stale stack.
     awk -v m="$MNT" -v r="$Mreal" \
-        '$1 ~ /^\/dev\/nbd/ && (index($2, m) == 1 || index($2, r) == 1) {print $2}' \
+        '(index($2, m) == 1 || index($2, r) == 1) {print $2}' \
         /proc/mounts | while read -r mm; do
         # demote first: never propagate an unmount outward to the host
         mount --make-rprivate "$mm" >/dev/null 2>&1 || true

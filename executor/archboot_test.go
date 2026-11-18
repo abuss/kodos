@@ -36,6 +36,22 @@ func TestArchKernelJobs(t *testing.T) {
 		t.Errorf("orphan modules dir must name itself, got: %v", err)
 	}
 
+	// REAL collision from first e2e: linux-api-headers passes the kernel-name
+	// regex and pins 7.3-1; token-prefix matching let "7.3" claim the kernel
+	// dir 7.3.4-arch1-2 (dots are structure, not padding). The dir must END
+	// at pkgver or continue with a DASH reluffix - a DOT means deeper version.
+	pins2 := map[string]pkgPin{
+		"linux":             {Version: "7.3.4.arch1-2"},
+		"linux-api-headers": {Version: "7.3-1"},
+	}
+	jobs2, err := archKernelJobs(pins2, []string{"7.3.4-arch1-2"})
+	if err != nil {
+		t.Fatalf("headers 7.3 must not claim dir 7.3.4-arch1-2: %v", err)
+	}
+	if len(jobs2) != 1 || jobs2[0].Pkg != "linux" {
+		t.Errorf("jobs2 = %+v, want single linux job", jobs2)
+	}
+
 	// arch reality: modules dirs carry the -archN reluffix, e.g. pin
 	// linux 6.12.9-1 -> /usr/lib/modules/6.12.9-arch1-1
 	jobs, err = archKernelJobs(map[string]pkgPin{"linux": {Version: "6.12.9-1"}},

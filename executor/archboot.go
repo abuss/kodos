@@ -26,60 +26,26 @@ type kJob struct {
 
 var archKernelPkgRe = regexp.MustCompile(`^linux(-[a-z]+)*$`)
 
-// tokenVer: alpm/rpm-style tokenization into digit-runs and letter-runs
-// (separators . - _ dropped). "7.3.4.arch1" -> [7 3 4 arch 1].
-func tokenVer(s string) []string {
-	class := func(c byte) int {
-		switch {
-		case c >= '0' && c <= '9':
-			return 1
-		case (c|0x20) >= 'a' && (c|0x20) <= 'z':
-			return 2
-		}
-		return 0
-	}
-	var out []string
-	for i := 0; i < len(s); {
-		cl := class(s[i])
-		if cl == 0 {
-			i++
-			continue
-		}
-		j := i
-		for j < len(s) && class(s[j]) == cl {
-			j++
-		}
-		out = append(out, s[i:j])
-		i = j
-	}
-	return out
-}
-
-// pkgverTokens: token list of the pin's pkgver (version before the final
-// -pkgrel). 7.3.4.arch1-2 -> tokens of 7.3.4.arch1.
-func pkgverTokens(version string) []string {
+// ownsModulesDir reports whether kernel pkgver `base` claims modules dir
+// `dir`. Arch kernels name the dir from pkgver with the PKGBUILD rule
+// (dot->dash only where the dot precedes a NON-digit: 7.3.4.arch1 ->
+// 7.3.4-arch1) and the dir may add decorations ONLY after a dash
+// (pkgrel/reluffix). A dot continuing past the pkgver means a DEEPER
+// version — that false-prefix bit e2e for real: linux-api-headers 7.3-1
+// token-prefixed the kernel dir 7.3.4-arch1-2 (dots are structure).
+func ownsModulesDir(version, dir string) bool {
 	base := version
 	if i := strings.LastIndex(version, "-"); i > 0 {
 		base = version[:i]
 	}
-	return tokenVer(base)
-}
-
-// ownsModulesDir reports whether kernel pkgver `base` claims modules dir
-// `dir`: dir's tokens start with base's tokens (the dir then adds the
-// -archN / -pkgrel decorations). Handles every real arch kernel shape:
-// 6.12-1~6.12-1, 6.12.9-1~6.12.9-arch1-1, 7.3.4.arch1-2~7.3.4-arch1-2.
-func ownsModulesDir(version, dir string) bool {
-	bt, dt := pkgverTokens(version), tokenVer(dir)
-	if len(bt) > len(dt) {
-		return false
-	}
-	for i := range bt {
-		if bt[i] != dt[i] {
-			return false
+	t := make([]byte, len(base))
+	for i := 0; i < len(base); i++ {
+		t[i] = base[i]
+		if base[i] == '.' && i+1 < len(base) && !(base[i+1] >= '0' && base[i+1] <= '9') {
+			t[i] = '-'
 		}
 	}
-	return true
+	return dir == string(t) || strings.HasPrefix(dir, string(t)+"-")
 }
 
 // archKernelJobs pairs every pinned kernel package with the modules dir it
