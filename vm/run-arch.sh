@@ -87,8 +87,14 @@ attach_nbd() {
     for i in 0 1 2 3 4 5 6 7; do
         d=/dev/nbd$i
         [ -e "$d" ] || continue
-        # in use (live or wedged): leave it alone entirely
-        [ -e "/sys/block/nbd$i/pid" ] && continue
+        # In use only if the recorded pid is ALIVE. Measured on this kernel:
+        # qemu-nbd -d succeeds but the pid file (stale dead pid) survives, so
+        # file-existence would permanently burn every index after crashes.
+        # A live pid (foreign server, or rare pid recycling) is left alone.
+        if [ -e "/sys/block/nbd$i/pid" ]; then
+            p=$(cat "/sys/block/nbd$i/pid" 2>/dev/null || echo "")
+            [ -n "$p" ] && [ -d "/proc/$p" ] && continue
+        fi
         qemu-nbd -c "$d" "$DISK" >/dev/null 2>&1 || continue
         ok=0
         for t in 1 2 3; do
