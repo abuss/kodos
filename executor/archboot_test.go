@@ -90,15 +90,18 @@ func TestInitramfsSaneArch(t *testing.T) {
 func archGenFixture(t *testing.T, initTarget string) string {
 	t.Helper()
 	gen := t.TempDir()
-	// usrmerged shape exactly as the arch store assembles it: top-level
-	// bin/sbin are DIR links, init/sh live under usr.
+	// usrmerged shape EXACTLY as create_generation assembles it: top-level
+	// bin/sbin are DIR links rooted at /kod/generation/current (kod-rooted
+	// absolutes, NOT package-relative), init/sh live under usr.
 	os.MkdirAll(filepath.Join(gen, "usr/lib/systemd"), 0o755)
 	os.MkdirAll(filepath.Join(gen, "usr/bin"), 0o755)
 	os.MkdirAll(filepath.Join(gen, "usr/sbin"), 0o755)
+	os.MkdirAll(filepath.Join(gen, "usr/lib/modules/6.12-1"), 0o755)
 	os.WriteFile(filepath.Join(gen, "usr/lib/systemd/systemd"), []byte("e"), 0o755)
 	os.WriteFile(filepath.Join(gen, "usr/bin/sh"), []byte("e"), 0o755)
-	os.Symlink("usr/bin", filepath.Join(gen, "bin"))
-	os.Symlink("usr/sbin", filepath.Join(gen, "sbin"))
+	os.Symlink("/kod/generation/current/usr/bin", filepath.Join(gen, "bin"))
+	os.Symlink("/kod/generation/current/usr/sbin", filepath.Join(gen, "sbin"))
+	os.Symlink("/kod/generation/current/usr/lib", filepath.Join(gen, "lib"))
 	os.Symlink(initTarget, filepath.Join(gen, "usr/sbin/init"))
 	return gen
 }
@@ -120,6 +123,12 @@ func TestCheckGenRunnableArch(t *testing.T) {
 	gen2 := archGenFixture(t, "../lib/systemd/systemd")
 	if err := checkGenRunnable(gen2, 7, "arch"); err != nil {
 		t.Errorf("complete arch gen must pass: %v", err)
+	}
+	// same kod-rooted links for archModulesDirs (real e2e would otherwise
+	// glob a nonexistent <gen>/kod/... and see zero kernel modules)
+	mods := archModulesDirs(gen2)
+	if len(mods) != 1 || mods[0] != "6.12-1" {
+		t.Errorf("archModulesDirs via /kod-rooted lib link = %v, want [6.12-1]", mods)
 	}
 	// alpine semantics unchanged: raw entries
 	root := t.TempDir()

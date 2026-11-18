@@ -142,7 +142,15 @@ func genTreeResolve(root, rel string) string {
 				break
 			}
 			if filepath.IsAbs(tgt) {
-				cur = filepath.Join(root, tgt)
+				// Kod-generation dir links point at SYSTEM paths
+				// (/kod/generation/current/usr/bin): while checking gen N,
+				// "current" resolves to THIS tree — strip the system root
+				// and re-anchor inside. Bare absolutes re-anchor whole.
+				if rest, ok := strings.CutPrefix(tgt, "/kod/generation/current/"); ok {
+					cur = filepath.Join(root, rest)
+				} else {
+					cur = filepath.Join(root, tgt)
+				}
 			} else {
 				cur = filepath.Join(filepath.Dir(cur), tgt)
 			}
