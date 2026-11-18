@@ -201,6 +201,7 @@ func cmdSuitetest() error {
 		"test-equivalence.lua",
 		"test-generate.lua",
 		"test-lock.lua",
+		"test-arch-lock.lua",
 	}
 	for _, s := range suites {
 		out, err := runLuaScript(s, nil, "")
