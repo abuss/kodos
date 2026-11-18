@@ -67,5 +67,20 @@ return {
         },
     },
 
-    packages = { { repo = "base", name = "sudo" }, { repo = "base", name = "git" } },
+    packages = { { repo = "base", name = "sudo" }, { repo = "base", name = "git" },
+        -- this world's base meta stopped pulling mkinitcpio (measured: its
+        -- %DEPENDS% has none); install_bootloader builds initramfs-<flavor>.img
+        -- with it, and mkinitcpio drags mkinitcpio-busybox for the base hook.
+        { repo = "base", name = "mkinitcpio" } },
+
+    files = {
+        -- Explicit recipe: the package-default HOOKS carry no systemd hook
+        -- (initramfsSaneArch requires systemd IN the cpio), and autodetect
+        -- inspects the BUILD host's loaded modules, not the guest's. Pin the
+        -- qemu virtio block stack via MODULES instead.
+        mkinitcpio = { path = "/etc/mkinitcpio.conf", content = [[
+MODULES="virtio_pci virtio_blk virtio_net"
+HOOKS="base systemd autodetect modconf block filesystems"
+]] },
+    },
 }
