@@ -215,3 +215,14 @@ means the mkinitfs trim above did not land — see that bullet).
   On an older install: `chmod 1777 /tmp /var/tmp` (follows the generation
   symlink) and `chmod 0700 /root` unblocks login until you reinstall from a
   fresh ISO.
+- greetd says `unable to set working directory: No such file or directory`
+  on the VT right after `kodos apply` (and even a grub pick of the old
+  generation still fails while `current` points at the new one): the new
+  generation is missing `/var/lib/cosmic-greeter`. Alpine's
+  `cosmic-greeter-openrc` pre-install creates that home via `adduser -h`,
+  which silently no-ops when the user already exists in the generation's
+  seeded `/etc/passwd`, and `/var` is generation-scoped. Fixed in r139+:
+  the generation builder recreates every `/var/lib/<svc>` home named in
+  passwd after the package hooks. On an older install:
+  `mkdir -p /var/lib/cosmic-greeter && chown cosmic-greeter:cosmic-greeter /var/lib/cosmic-greeter`,
+  then `rc-service cosmic-greeter restart`.

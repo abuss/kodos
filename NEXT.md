@@ -134,6 +134,14 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   generations — a tmpfs mount op before activation makes `isMountpoint` skip
   it, fstab remounts it 1777 every boot; `/var/tmp` was already a shared real
   dir. `fstabMounts` skips tmpfs so rollback does not try to re-mount it.
+  Fifth round: `kodos apply` produced a generation whose
+  `/var/lib/cosmic-greeter` was missing — `cosmic-greeter-openrc`'s
+  `adduser -h` only creates the home when it first creates the user, so the
+  already-seeded user in gen1 no-op'd; since `/var -> current/var`, greetd's
+  chdir failed on that home ("unable to set working directory"), and booting
+  gen0 still used gen1's `/var`. Fix: after the hook sweep, create/chown
+  every `/var/lib/<svc>` home listed in the generation's passwd
+  (`homedirs.go`, `ensureSystemHomeDirs`), with unit tests.
 - **Kernel modules/initrd**: `boot.kernel.modules` exists but nothing
   says which mechanism loads them (/etc/modules + mkinitfs on Alpine).
 - Secrets: refs + `configure_network` plumbing **done**; the resolver side

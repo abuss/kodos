@@ -888,6 +888,9 @@ func (e *executor) runPostInstalls(genDir string, toInstall map[string]string) e
 		filepath.Join(genDir, "etc")); err != nil {
 		return err
 	}
+	if err := ensureSystemHomeDirs(genDir); err != nil {
+		return fmt.Errorf("system home dirs: %w", err)
+	}
 	return nil
 }
 
