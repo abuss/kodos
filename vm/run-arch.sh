@@ -189,16 +189,31 @@ do_install() {
         sed -i "s|nbd0|nbd${NBD#/dev/nbd}|g" "$VMDIR/arch-actions.json"
     fi
 
-    fetch_dbs
-    # closure lock straight from the desc snapshots (no apk-tools on arch:
-    # alpm.lua resolves against exactly these DBs)
-    lua lockfile.lua 0 "$D/arch/core.desc" "$D/arch/extra.desc" -- \
-        "$ARCH_LUA" > "$VMDIR/arch-generation-0.json"
-
     mkdir -p "$MNT"
-    "$REPO/executor/kodos" exec -actions "$VMDIR/arch-actions.json" \
-        -metadata "$VMDIR/arch-generation-0.json" -root "$MNT" \
-        -secrets "$VMDIR/secrets.json"
+    # Rolling-mirror DB-vs-tarball races bit repeatedly (both geo's edge and
+    # rackspace caught mid-sync: DB listing pcsclite 2.5.3 after its file was
+    # already purged). TimeMachine (archive/repos/last) is the textbook fix
+    # but throttles scripted clients hard (truncated/hung DB downloads under
+    # probing) - wrong tool for 186-tarball e2e rounds. Absorb the race
+    # instead: resync + relock + re-exec. kodos exec is idempotent (already
+    # fetched pins skip via the store), so retries cost only the delta.
+    for attempt in 1 2 3; do
+        fetch_dbs
+        # closure lock straight from the desc snapshots (no apk-tools on
+        # arch: alpm.lua resolves against exactly these DBs)
+        if ! lua lockfile.lua 0 "$D/arch/core.desc" "$D/arch/extra.desc" -- \
+            "$ARCH_LUA" > "$VMDIR/arch-generation-0.json"; then
+            [ "$attempt" = 3 ] && exit 1
+            echo "== lock failed (mirror moved a dep mid-sync?) - resyncing"
+            continue
+        fi
+        if "$REPO/executor/kodos" exec -actions "$VMDIR/arch-actions.json" \
+            -metadata "$VMDIR/arch-generation-0.json" -root "$MNT" \
+            -secrets "$VMDIR/secrets.json"; then break; fi
+        [ "$attempt" = 3 ] && exit 1
+        echo "== exec failed (attempt $attempt; if a fetch 404'd the mirror"
+        echo "   was mid-sync). Resyncing DBs and retrying from attempt $((attempt+1))"
+    done
     sync
     cleanup
 }
