@@ -146,11 +146,8 @@ func cmdExec(args []string) error {
 	if err != nil {
 		return err
 	}
-	if af.Distro != "alpine" {
-		return fmt.Errorf("spike implements the alpine/apk family only (got distro %q)", af.Distro)
-	}
-	if meta.Distro != af.Distro || meta.Generation < 0 {
-		return fmt.Errorf("actions and metadata disagree (distro/generation)")
+	if err := checkDistro(af, meta); err != nil {
+		return err
 	}
 	// system.chroot is used ABSOLUTE everywhere: chrootResolve turns host
 	// paths chroot-relative, so a relative -root would double the prefix and

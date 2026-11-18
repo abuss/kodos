@@ -15,6 +15,21 @@ import (
 type pkgPin struct {
 	Version  string `json:"version"`
 	Checksum string `json:"checksum"`
+	Repo     string `json:"repo,omitempty"` // ALPM section (core/extra); apk omits it
+}
+
+// checkDistro: this build implements the alpine/apk and arch/pacman-family
+// store models (milestone 1: arch bootstrap). Everything else fails closed.
+func checkDistro(af *actionsFile, meta *metadata) error {
+	switch af.Distro {
+	case "alpine", "arch":
+	default:
+		return fmt.Errorf("this build implements alpine/apk and arch store models only (got distro %q)", af.Distro)
+	}
+	if meta.Distro != af.Distro || meta.Generation < 0 {
+		return fmt.Errorf("actions and metadata disagree (distro/generation)")
+	}
+	return nil
 }
 
 type metadata struct {
