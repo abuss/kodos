@@ -52,9 +52,10 @@ cleanup() {
         umount -R "$mm" >/dev/null 2>&1 || umount -l -R "$mm" >/dev/null 2>&1 || true
     done
     proven=""
-    for i in 0 1 2 3 4 5 6 7; do
-        [ -e "/sys/block/nbd$i/pid" ] || continue
-        p=$(cat "/sys/block/nbd$i/pid" 2>/dev/null) || continue
+    for f in /sys/block/nbd*/pid; do
+        [ -e "$f" ] || continue
+        i=$(basename "$(dirname "$f")")   # nbdN
+        p=$(cat "$f" 2>/dev/null) || continue
         # Dead holder pid => nobody can serve that connection anymore: an
         # orphan from a killed/crashed run (a live nbd server ALWAYS leaves
         # a live /proc pid, so this can never steal a working foreign conn).
@@ -65,12 +66,12 @@ cleanup() {
         proven="$proven $i"
     done
     if [ -n "$proven" ]; then
-        alt=$(echo $proven | tr ' ' '|')
+        alt=$(echo $proven | tr ' ' '|' | sed 's/nbd//g')
         awk -v re="^/dev/nbd(${alt})p?[0-9]*$" '$1 ~ re {print $1}' /proc/swaps |
             while read -r s; do swapoff "$s" >/dev/null 2>&1 || true; done
         for i in $proven; do
             for t in 1 2 3 4 5; do
-                qemu-nbd -d "/dev/nbd$i" >/dev/null 2>&1 && break
+                qemu-nbd -d "/dev/$i" >/dev/null 2>&1 && break
                 sleep 1
             done
         done
@@ -80,25 +81,25 @@ cleanup() {
 attach_nbd() {
     # run.sh doctrine: NEVER disconnect an nbd we cannot prove is ours;
     # a wedged dead connection just burns one index, take the next free one.
-    modprobe nbd max_part=8 || { echo "ERROR: modprobe nbd failed"; exit 1; }
+    modprobe nbd max_part=8 num_devices=64 || { echo "ERROR: modprobe nbd failed"; exit 1; }
     if [ "$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || echo 0)" -lt 8 ]; then
         modprobe -r nbd >/dev/null 2>&1 || true
-        modprobe nbd max_part=8 2>/dev/null || true
+        modprobe nbd max_part=8 num_devices=64 2>/dev/null || true
         mp=$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || echo 0)
         [ "$mp" -ge 8 ] || { echo "ERROR: nbd loaded with max_part=$mp (someone else's module state): partition nodes will not exist"; exit 1; }
     fi
     [ -e /dev/nbd0 ] || sleep 1   # udev may be slow to create the nodes
-    for i in 0 1 2 3 4 5 6 7; do
-        d=/dev/nbd$i
-        [ -e "$d" ] || continue
-        # In use only if the recorded pid is ALIVE. Measured on this kernel:
-        # qemu-nbd -d succeeds but the pid file (stale dead pid) survives, so
-        # file-existence would permanently burn every index after crashes.
-        # A live pid (foreign server, or rare pid recycling) is left alone.
-        if [ -e "/sys/block/nbd$i/pid" ]; then
-            p=$(cat "/sys/block/nbd$i/pid" 2>/dev/null || echo "")
-            [ -n "$p" ] && [ -d "/proc/$p" ] && continue
-        fi
+    # Pool = EVERY existing /dev/nbdN (this host's module loaded ~40 devices;
+    # the old 0-7 window was self-imposed). Gate = NEVER-configured indices
+    # only (no pid file): measured on this kernel, once an index has been
+    # configured, qemu-nbd -d does NOT release the config and a fresh -c is
+    # a SILENT NO-OP (rc=0, old pid retained, reads EIO) - that index is
+    # dead until the module reloads (reboot / modprobe -r nbd). Live pids
+    # (foreign servers) are also left alone. The verify-read backstops
+    # any other dud index.
+    for d in /dev/nbd*; do
+        case "${d#/dev/nbd}" in ''|*[!0-9]*) continue ;; esac  # pure nbdN only
+        [ -e "/sys/block/${d#/dev/}/pid" ] && continue
         qemu-nbd -c "$d" "$DISK" >/dev/null 2>&1 || continue
         ok=0
         for t in 1 2 3; do
@@ -108,8 +109,9 @@ attach_nbd() {
         if [ "$ok" = 1 ]; then NBD=$d; return 0; fi
         qemu-nbd -d "$d" >/dev/null 2>&1 || true
     done
-    echo "ERROR: no free+readable /dev/nbd0-7 (foreign or wedged ones are left alone)."
-    echo "Ours die with the script; if a wedge burned every index, reboot clears them."
+    echo "ERROR: no never-configured readable /dev/nbd node left this module load."
+    echo "Configured-once indices are dead on this kernel (nbd configs are never"
+    echo "released); reboot or 'modprobe -r nbd' (if nothing holds it) revives them."
     exit 1
 }
 
