@@ -32,6 +32,15 @@ assert(pos(base, '"unit": "cupsd"') > 0,
 assert(pos(base, '"timeout": 10') > 0, "base bootloader timeout")
 assert(pos(base, '"shell": "/usr/bin/zsh"') > 0, "base abuss shell")
 
+-- /tmp is shared session state, not generation content: mount it as tmpfs
+-- before activation so activateGeneration's mountpoint skip leaves the live
+-- /tmp alone (no symlink into /kod/generation/current), and fstab remounts
+-- it on every boot (fresh, 1777).
+assert(base:find('tmpfs\\t/tmp\\ttmpfs\\t', 1, true),
+       "fstab must mount shared /tmp as tmpfs")
+assert(pos(base, '"partition": "tmpfs"') < pos(base, '"op": "create_generation"'),
+       "tmpfs /tmp must be mounted before generation activation")
+
 -- ====== layered: machine + user overlays change exactly what they say ======
 local out = run("system.lua ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua")
 

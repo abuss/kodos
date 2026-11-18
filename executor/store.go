@@ -66,6 +66,16 @@ func (s *system) symlinkTree(src, dst string) error {
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return err
 		}
+		// Directory modes are package content: alpine-baselayout ships
+		// /tmp + /var/tmp 1777, /root 0700, /var/empty 0555. Flattening
+		// them to 0755 makes /tmp unwritable for ordinary users, and
+		// start-cosmic's dbus-run-session then fails to create
+		// /tmp/dbus-XXXXXX at login.
+		if st, err := os.Stat(src); err == nil {
+			if err := os.Chmod(dst, st.Mode()); err != nil {
+				return err
+			}
+		}
 		entries, err := os.ReadDir(src)
 		if err != nil {
 			return err

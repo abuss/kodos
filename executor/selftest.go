@@ -70,6 +70,11 @@ func selftest() {
 	check(os.MkdirAll(filepath.Join(s.store(), "00base", "1.0", "var"), 0o755) == nil, "fake var dir")
 	check(os.Symlink("../run", filepath.Join(s.store(), "00base", "1.0", "var", "run")) == nil, "fake var/run symlink")
 	write(filepath.Join(s.store(), "pkgA", "1.0", "var", "run", "avahi-daemon", "pid"), "7\n")
+	// alpine-baselayout ships /tmp and /var/tmp as 1777; dir modes must
+	// survive into the generation (dbus-run-session needs a writable /tmp)
+	fakeTmp := filepath.Join(s.store(), "00base", "1.0", "tmp")
+	check(os.MkdirAll(fakeTmp, 0o777) == nil, "fake tmp dir")
+	check(os.Chmod(fakeTmp, os.ModeSticky|0o777) == nil, "fake tmp sticky")
 	check(os.MkdirAll(filepath.Join(chroot, "etc"), 0o755) == nil, "live etc")
 
 	// gen 0
@@ -128,6 +133,9 @@ func selftest() {
 	check(vr == "/run", "gen var/run re-anchored to /run, got %q", vr)
 	check(readOr(filepath.Join(chroot, "run", "avahi-daemon", "pid")) == "7\n",
 		"pkg content merged through the var/run symlink")
+	gt, err := os.Lstat(filepath.Join(g0, "tmp"))
+	check(err == nil && gt.IsDir() && gt.Mode().Perm() == 0o777 && gt.Mode()&os.ModeSticky != 0,
+		"generation dir keeps package mode 1777, got %v", gt.Mode())
 	// new contract (hooks run chrooted into the RAW gen tree at create
 	// time): gen/etc entries are HARDLINKS into the generation's store copy,
 	// not /kod-rooted links (those would dangle inside the gen chroot).
@@ -486,6 +494,7 @@ func selftestPure() {
 	zw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(zw)
 	for _, h := range []*tar.Header{
+		{Name: "tmp", Mode: 01777, Typeflag: tar.TypeDir},
 		{Name: "usr/bin/sudo", Mode: 04755, Size: 4, Typeflag: tar.TypeReg},
 		{Name: "usr/bin/sudodbg", Mode: 04755, Typeflag: tar.TypeLink, Linkname: "usr/bin/sudo"},
 		{Name: "usr/share/man/man8/sudo.8.gz", Mode: 0644, Size: 4, Typeflag: tar.TypeReg},
@@ -501,6 +510,9 @@ func selftestPure() {
 	check(err == nil, "unpack tempdir: %v", err)
 	defer os.RemoveAll(unpackDir)
 	check(unpackApkStream(bytes.NewReader(buf.Bytes()), unpackDir, "fake") == nil, "unpackApkStream")
+	dt, err := os.Lstat(filepath.Join(unpackDir, "tmp"))
+	check(err == nil && dt.IsDir() && dt.Mode().Perm() == 0o777 && dt.Mode()&os.ModeSticky != 0,
+		"apk dir keeps 1777 sticky, got %v", dt.Mode())
 	st, err := os.Lstat(filepath.Join(unpackDir, "usr/bin/sudo"))
 	check(err == nil && st.Mode().Perm() == 0o755 && st.Mode()&os.ModeSetuid != 0,
 		"sudo keeps setuid, got %v", st.Mode())

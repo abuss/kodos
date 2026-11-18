@@ -292,6 +292,7 @@ UUID=22222222-3333-4444-8555-666666666666	/home	ext4	noauto	0	2
 UUID=33333333-4444-4555-8666-777777777777	none	swap	sw	0	0
 /dev/sr0	/media/cdrom	auto	ro,noauto	0	0
 LABEL=kodos-no-such-volume	/data	ext4	defaults	0	2
+tmpfs	/tmp	tmpfs	mode=1777,nosuid,nodev,size=25%	0	0
 
 `
 	fstabPath := filepath.Join(root, "etc", "fstab")

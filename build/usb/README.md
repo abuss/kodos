@@ -204,3 +204,14 @@ means the mkinitfs trim above did not land — see that bullet).
   enough for login (`gkr-pam: gnome-keyring-daemon didn't start properly` in
   syslog is cosmetic); add `gnome-keyring` only if apps need the Secret
   Service.
+- COSMIC greeter shows but login says `failed to start /tmp/dbus-XXXXXX:
+  Permission denied`: `start-cosmic` runs `dbus-run-session`, which creates
+  its private socket dir in `/tmp`. Package directory modes are content too —
+  alpine-baselayout ships `/tmp` and `/var/tmp` as 1777, `/root` as 0700 —
+  and the image now preserves them through APK unpack and generation
+  assembly. `/tmp` is also no longer a per-generation symlink: it is a shared
+  tmpfs mount (1777, cleared each boot), so temp state never lands in a
+  generation snapshot. `/var/tmp` stays one shared on-disk directory.
+  On an older install: `chmod 1777 /tmp /var/tmp` (follows the generation
+  symlink) and `chmod 0700 /root` unblocks login until you reinstall from a
+  fresh ISO.

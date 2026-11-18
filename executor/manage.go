@@ -372,8 +372,8 @@ func fstabMounts(s *system) ([]map[string]any, error) {
 			continue
 		}
 		spec, point, fstype, options := f[0], f[1], f[2], f[3]
-		if fstype == "swap" || point == "none" {
-			continue // swap has no mountpoint for the executor to key off
+		if fstype == "swap" || point == "none" || fstype == "tmpfs" {
+			continue // pseudo filesystems have no device for the executor to mount
 		}
 		if strings.Contains(options, "noauto") {
 			continue // declared NOT to mount at boot: `mount -o noauto` would just fail

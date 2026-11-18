@@ -126,7 +126,14 @@ Snapshot 2026-11-13. Review of the config schema work (`example/eszkoz/`,
   are re-anchored absolute, since zbus hardcodes
   `/var/run/dbus/system_bus_socket`) and ship `gnome-keyring-pam`
   (`cosmic-greeter.pam` names the module; absent = faulty module = greetd
-  `pam_setcred: MODULE_UNKNOWN`).
+  `pam_setcred: MODULE_UNKNOWN`). Third round: package **directory modes**
+  must survive APK unpack and generation assembly — baselayout's `/tmp` is
+  1777, and `start-cosmic`'s `dbus-run-session` creates `/tmp/dbus-XXXXXX`
+  at login; flattened 0755 dirs made user login fail with permission denied
+  (`/root` also needs its shipped 0700). Fourth round: `/tmp` moved out of
+  generations — a tmpfs mount op before activation makes `isMountpoint` skip
+  it, fstab remounts it 1777 every boot; `/var/tmp` was already a shared real
+  dir. `fstabMounts` skips tmpfs so rollback does not try to re-mount it.
 - **Kernel modules/initrd**: `boot.kernel.modules` exists but nothing
   says which mechanism loads them (/etc/modules + mkinitfs on Alpine).
 - Secrets: refs + `configure_network` plumbing **done**; the resolver side

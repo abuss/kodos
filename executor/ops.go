@@ -578,7 +578,14 @@ func (e *executor) mount(act map[string]any) error {
 	if fsType, _ := runOut("blkid", "-o", "value", "-s", "TYPE", part); fsType != "" {
 		run("modprobe", fsType)
 	}
-	if err := run("mount", "-o", field(act, "options"), part, target); err != nil {
+	mountArgs := []string{}
+	// Pseudo filesystems (tmpfs /tmp) have no device for blkid to type;
+	// name their type explicitly instead of relying on fstab lookup.
+	if fs := field(act, "filesystem"); fs != "" {
+		mountArgs = append(mountArgs, "-t", fs)
+	}
+	mountArgs = append(mountArgs, "-o", field(act, "options"), part, target)
+	if err := run("mount", mountArgs...); err != nil {
 		return err
 	}
 	if point == "/" {

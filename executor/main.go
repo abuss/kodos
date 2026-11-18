@@ -545,6 +545,12 @@ func unpackApkStream(body io.Reader, dst, name string) error {
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			os.MkdirAll(p, 0o755)
+			// baselayout ships /tmp + /var/tmp 1777, /root 0700,
+			// /var/empty 0555 — dir modes are content too, and must
+			// survive the store as well as the generation.
+			if err := os.Chmod(p, hdr.FileInfo().Mode()); err != nil {
+				return err
+			}
 		case tar.TypeReg:
 			os.MkdirAll(filepath.Dir(p), 0o755)
 			os.Remove(p) // existing file would keep its OLD mode through O_TRUNC

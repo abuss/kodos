@@ -104,6 +104,14 @@ for _, m in ipairs(mounts) do
     act("mount", { partition = m.part, point = m.point, options = m.options })
 end
 
+-- /tmp is session state, not generation content: mounting it here makes it a
+-- mountpoint during activation (which then leaves live /tmp alone instead of
+-- symlinking it into /kod/generation/current). fstab remounts it fresh on
+-- every boot. /var/tmp stays one shared on-disk directory.
+local tmpfs_options = "mode=1777,nosuid,nodev,size=25%"
+act("mount", { partition = "tmpfs", point = "/tmp", filesystem = "tmpfs",
+               options = tmpfs_options })
+
 -- ====== 5. repos: copy_tree* + configure_repos, AFTER the storage mounts ======
 -- Both write INTO the target root (<root>/kod/repo, <root>/etc/apk/
 -- repositories + repos.d): at bootstrap they must land on the MOUNTED root,
@@ -152,6 +160,8 @@ for _, s in ipairs(swaps) do
     fstab[#fstab + 1] = table.concat(
         { "{UUID:" .. s.part .. "}", s.point, s.fs, s.options, 0, 0 }, "\t")
 end
+fstab[#fstab + 1] = table.concat(
+    { "tmpfs", "/tmp", "tmpfs", tmpfs_options, 0, 0 }, "\t")
 act("write_file", { path = "/etc/fstab",
                     content = table.concat(fstab, "\n") .. "\n" })
 act("write_file", { path = "/etc/hostname",
