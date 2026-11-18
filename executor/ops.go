@@ -234,10 +234,14 @@ func specsFromAction(act map[string]any) ([]partSpec, error) {
 
 // grubEntry: one boot menu entry per generation; dir is the ESP-relative
 // directory holding that generation's kernel+initramfs ("" = ESP root).
+// initExt is the initramfs filename extension: Alpine images are
+// initramfs-<kver>, arch images initramfs-<flavor>.img ("" keeps the
+// alpine byte-identical shape).
 type grubEntry struct {
-	gen  int
-	kver string
-	dir  string
+	gen     int
+	kver    string
+	dir     string
+	initExt string
 }
 
 // renderGrubCfg is pure (selftested): ESP-relative kernel paths (vfat,
@@ -259,9 +263,9 @@ terminal_output serial console
 	for _, en := range entries {
 		fmt.Fprintf(&b, `menuentry 'Kodos generation %d' {
 	linux %s/vmlinuz-%s %s
-	initrd %s/initramfs-%s
+	initrd %s/initramfs-%s%s
 }
-`, en.gen, en.dir, en.kver, cmdline, en.dir, en.kver)
+`, en.gen, en.dir, en.kver, cmdline, en.dir, en.kver, en.initExt)
 	}
 	return b.String()
 }
@@ -898,9 +902,17 @@ func (e *executor) runPostInstalls(genDir string, toInstall map[string]string) e
 // entries: /sbin/init and /bin/sh. Missing either means a package post-install
 // hook silently failed to create it (busybox's --install -s creates both).
 // Hard-error here — before activation can ever expose the incomplete tree.
-func checkGenRunnable(genDir string, n int) error {
+// arch (usrmerge): bin/sbin are dir links and init is itself a symlink —
+// RAW Lstat merely sees a link's existence even when it points OUT of the
+// tree (an absolute /kod-rooted or host-path target); resolve within the
+// tree before judging.
+func checkGenRunnable(genDir string, n int, distro string) error {
 	for _, p := range []string{"sbin/init", "bin/sh"} {
-		if _, err := os.Lstat(filepath.Join(genDir, p)); err != nil {
+		target := filepath.Join(genDir, p)
+		if distro == "arch" {
+			target = genTreeResolve(genDir, p)
+		}
+		if _, err := os.Lstat(target); err != nil {
 			return fmt.Errorf("generation %d incomplete: /%s missing after hooks"+
 				" (package post-install failure?)", n, p)
 		}
@@ -1501,8 +1513,39 @@ func (e *executor) installBootloader(act map[string]any) error {
 	// (suffix from kernel-suffix, matching the vmlinuz-<flavor> name).
 	// mkinitfs runs chrooted into the generation tree, so its output
 	// lands in <gen>/boot; the ESP copy below runs AFTER the build.
-	modsGen := filepath.Join(gen, "lib", "modules")
-	if dirs, _ := filepath.Glob(filepath.Join(modsGen, "*")); len(dirs) > 0 {
+	// arch: the lockfile pins ARE the kernel set — pair pins with modules
+	// dirs and run depmod + mkinitcpio per kernel (flavor = package name:
+	// initramfs-<Flavor>.img). No cleanInitramfs pass: mkinitcpio hooks
+	// copy file CONTENTS (our etc entries are hardlinks), nothing /kod-
+	// rooted enters the image; the systemd-content guard below covers
+	// hollowing.
+	var archJobs []kJob
+	if e.meta.Distro == "arch" {
+		// genTreeResolve: <gen>/lib is an usrmerged dir link; a raw
+		// genDir/lib glob would hit the HOST's /usr/lib/modules instead.
+		archModDirs := archModulesDirs(gen)
+		var err error
+		archJobs, err = archKernelJobs(e.meta.Packages, archModDirs)
+		if err != nil {
+			return fmt.Errorf("bootloader: %w (kernel packages half-installed?)", err)
+		}
+		for _, j := range archJobs {
+			if err := e.genChrootSh("depmod " + shellQuote(j.Kver)); err != nil {
+				return fmt.Errorf("bootloader depmod %s: %w", j.Kver, err)
+			}
+			if err := e.genChrootSh("mkinitcpio -o /boot/initramfs-" + j.Flavor + ".img " + shellQuote(j.Kver)); err != nil {
+				return fmt.Errorf("bootloader mkinitcpio %s: %w", j.Flavor, err)
+			}
+			img := filepath.Join(gen, "boot", "initramfs-"+j.Flavor+".img")
+			if _, err := os.Stat(img); err != nil {
+				return fmt.Errorf("bootloader: mkinitcpio %s wrote no initramfs-%s.img", j.Kver, j.Flavor)
+			}
+			if err := initramfsSaneArch(img); err != nil {
+				return fmt.Errorf("bootloader: %w (check mkinitcpio.conf HOOKS line; base+systemd needed)", err)
+			}
+			fmt.Printf("initramfs built: initramfs-%s.img (kernel %s)\n", j.Flavor, j.Kver)
+		}
+	} else if dirs, _ := filepath.Glob(filepath.Join(gen, "lib", "modules", "*")); len(dirs) > 0 {
 		for _, md := range dirs {
 			abi := filepath.Base(md)
 			// chrootResolve: gen-tree files are chroot-rooted links that
@@ -1606,20 +1649,27 @@ func (e *executor) installBootloader(act map[string]any) error {
 		return fmt.Errorf("bootloader: no %s/boot/vmlinuz-* (kernel package missing?)", gen)
 	}
 	kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
-	if _, err := os.Stat(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
-		return fmt.Errorf("bootloader: no initramfs for kernel %s (mkinitfs failed?)", kver)
-	}
-	// mkinitfs degrades SILENTLY: its file-collection stage runs through
-	// shell pipelines that swallow failures (missing lddtree, empty
-	// features files under /etc/mkinitfs), leaving a skeleton image with
-	// no busybox//bin/sh: the kernel unpacks an almost-empty rootfs and
-	// panics "No working init found" with zero console output. We saw a
-	// 3.5MB hollow image pass a size guard, so check CONTENTS: a real
-	// image always carries busybox in the cpio stream.
-	if err := initramfsSane(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
-		return fmt.Errorf("bootloader: initramfs-%s is skeleton (%v): "+
-			"mkinitfs degraded: check etc/mkinitfs/mkinitfs.conf features line and features.d/*.files",
-			kver, err)
+	initExt := ""
+	if e.meta.Distro == "arch" {
+		// arch images are named initramfs-<flavor>.img; per-kernel
+		// existence + content guards already ran in the build loop.
+		initExt = ".img"
+	} else {
+		if _, err := os.Stat(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
+			return fmt.Errorf("bootloader: no initramfs for kernel %s (mkinitfs failed?)", kver)
+		}
+		// mkinitfs degrades SILENTLY: its file-collection stage runs through
+		// shell pipelines that swallow failures (missing lddtree, empty
+		// features files under /etc/mkinitfs), leaving a skeleton image with
+		// no busybox//bin/sh: the kernel unpacks an almost-empty rootfs and
+		// panics "No working init found" with zero console output. We saw a
+		// 3.5MB hollow image pass a size guard, so check CONTENTS: a real
+		// image always carries busybox in the cpio stream.
+		if err := initramfsSane(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
+			return fmt.Errorf("bootloader: initramfs-%s is skeleton (%v): "+
+				"mkinitfs degraded: check etc/mkinitfs/mkinitfs.conf features line and features.d/*.files",
+				kver, err)
+		}
 	}
 	timeout := 5
 	if f, ok := act["timeout"].(float64); ok {
@@ -1633,7 +1683,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 	// SWITCHING remains kodos rollback.
 	bootDst := e.s.chrootResolve(filepath.Join(e.s.chroot, "boot"))
 	genIdx := e.meta.Generation
-	entries := []grubEntry{{genIdx, kver, ""}}
+	entries := []grubEntry{{genIdx, kver, "", initExt}}
 	genDirs, _ := filepath.Glob(filepath.Join(e.s.root(), "generation", "[0-9]*"))
 	slices.SortFunc(genDirs, func(a, b string) int {
 		x, _ := strconv.Atoi(filepath.Base(a))
@@ -1667,7 +1717,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 		}); err != nil {
 			return fmt.Errorf("bootloader: generation %d boot copy: %w", g, err)
 		}
-		entries = append(entries, grubEntry{g, gkv, fmt.Sprintf("/gen-%d", g)})
+		entries = append(entries, grubEntry{g, gkv, fmt.Sprintf("/gen-%d", g), initExt})
 	}
 	// prune ESP gen-N trees whose generation was pruned away
 	alive := map[string]bool{}

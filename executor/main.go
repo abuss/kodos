@@ -265,7 +265,7 @@ func (e *executor) run(act map[string]any) error {
 		if err := e.runPostInstalls(genDir, e.lastGen); err != nil {
 			return err
 		}
-		return checkGenRunnable(genDir, e.meta.Generation)
+		return checkGenRunnable(genDir, e.meta.Generation, e.meta.Distro)
 	case "activate_generation":
 		// just the flip: hooks already ran on this tree at create time;
 		// rollback streams carry no create_generation op, so they run none

@@ -227,7 +227,7 @@ func TestRollbackRefusesUnusableTargets(t *testing.T) {
 	// nil rollback from gen 7 must skip gens 0,3,5,6 (bad manifest or no kernel
 	// or no sbin/init) and land on gen 1.
 	rollbackTarget_got, rtErr := rollbackTarget(7, nil, []int{0, 1, 3, 5, 6, 7}, func(g int) bool {
-		return checkGenRunnable(filepath.Join(root, "kod", "generation", strconv.Itoa(g)), g) == nil
+		return checkGenRunnable(filepath.Join(root, "kod", "generation", strconv.Itoa(g)), g, "alpine") == nil
 	})
 	if rtErr != nil || rollbackTarget_got != 1 {
 		t.Errorf("nil rollback must skip non-runnable and pick gen 1, got %d err %v", rollbackTarget_got, rtErr)
