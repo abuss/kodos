@@ -182,12 +182,15 @@ do_install() {
     fi
 
     cd "$REPO/executor/lua"
-    lua generate.lua "$ARCH_LUA" > "$VMDIR/arch-actions.json"
-    # actions carry the config's nbd0 device names; swap in the index we
-    # actually attached (foreign/wedged nbd0 may have forced us higher)
-    if [ "${NBD#/dev/nbd}" != 0 ]; then
-        sed -i "s|nbd0|nbd${NBD#/dev/nbd}|g" "$VMDIR/arch-actions.json"
-    fi
+    gen_actions() {
+        lua generate.lua "$ARCH_LUA" > "$VMDIR/arch-actions.json"
+        # actions carry the config's nbd0 device names; swap in the index we
+        # actually attached (foreign/wedged nbd0 may have forced us higher)
+        if [ "${NBD#/dev/nbd}" != 0 ]; then
+            sed -i "s|nbd0|nbd${NBD#/dev/nbd}|g" "$VMDIR/arch-actions.json"
+        fi
+    }
+    gen_actions
 
     mkdir -p "$MNT"
     # Rolling-mirror DB-vs-tarball races bit repeatedly (both geo's edge and
@@ -213,6 +216,12 @@ do_install() {
         [ "$attempt" = 3 ] && exit 1
         echo "== exec failed (attempt $attempt; if a fetch 404'd the mirror"
         echo "   was mid-sync). Resyncing DBs and retrying from attempt $((attempt+1))"
+        # exec leaves the disk mounted: attempt 2 would then repartition a
+        # LIVE nbd (refused, correctly). Tear down + reattach first; the
+        # index may move, so regenerate actions too.
+        cleanup
+        attach_nbd
+        gen_actions
     done
     sync
     cleanup
