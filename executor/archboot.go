@@ -26,12 +26,60 @@ type kJob struct {
 
 var archKernelPkgRe = regexp.MustCompile(`^linux(-[a-z]+)*$`)
 
-// pkgverOf strips the trailing -rel: pin 6.12.9-1 has pkgver 6.12.9.
-func pkgverOf(v string) string {
-	if i := strings.LastIndex(v, "-"); i > 0 {
-		return v[:i]
+// tokenVer: alpm/rpm-style tokenization into digit-runs and letter-runs
+// (separators . - _ dropped). "7.3.4.arch1" -> [7 3 4 arch 1].
+func tokenVer(s string) []string {
+	class := func(c byte) int {
+		switch {
+		case c >= '0' && c <= '9':
+			return 1
+		case (c|0x20) >= 'a' && (c|0x20) <= 'z':
+			return 2
+		}
+		return 0
 	}
-	return v
+	var out []string
+	for i := 0; i < len(s); {
+		cl := class(s[i])
+		if cl == 0 {
+			i++
+			continue
+		}
+		j := i
+		for j < len(s) && class(s[j]) == cl {
+			j++
+		}
+		out = append(out, s[i:j])
+		i = j
+	}
+	return out
+}
+
+// pkgverTokens: token list of the pin's pkgver (version before the final
+// -pkgrel). 7.3.4.arch1-2 -> tokens of 7.3.4.arch1.
+func pkgverTokens(version string) []string {
+	base := version
+	if i := strings.LastIndex(version, "-"); i > 0 {
+		base = version[:i]
+	}
+	return tokenVer(base)
+}
+
+// ownsModulesDir reports whether kernel pkgver `base` claims modules dir
+// `dir`: dir's tokens start with base's tokens (the dir then adds the
+// -archN / -pkgrel decorations). Handles every real arch kernel shape:
+// 6.12-1~6.12-1, 6.12.9-1~6.12.9-arch1-1, 7.3.4.arch1-2~7.3.4-arch1-2.
+func ownsModulesDir(version, dir string) bool {
+	bt, dt := pkgverTokens(version), tokenVer(dir)
+	if len(bt) > len(dt) {
+		return false
+	}
+	for i := range bt {
+		if bt[i] != dt[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // archKernelJobs pairs every pinned kernel package with the modules dir it
@@ -51,9 +99,9 @@ func archKernelJobs(pins map[string]pkgPin, modDirs []string) ([]kJob, error) {
 		if !archKernelPkgRe.MatchString(pkg) {
 			continue
 		}
-		pv := pkgverOf(pins[pkg].Version)
+		pv := pins[pkg].Version
 		for _, md := range modDirs {
-			if md != pv && !strings.HasPrefix(md, pv+"-") {
+			if !ownsModulesDir(pv, md) {
 				continue
 			}
 			if prev, dup := owner[md]; dup {

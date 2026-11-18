@@ -46,9 +46,76 @@ assert(locked.linux and locked.linux.version == "6.12-1", "kernel provided by li
 locked = alpm.closure({ "ssl-user" }, idx)
 assert(locked.linux, "so:libcrypto.so.3 satisfied by linux's provides")
 
+-- versionless PROVIDES entries (the REAL arch shape: bash provides bare
+-- "sh") are candidates too, and real sync DBs carry %SHA256SUM%
+local bare = alpm.parse([[
+%FILENAME%
+core/os/x86_64/dash-0.5.12-1.pkg.tar.zst
+%NAME%
+dash
+%VERSION%
+0.5.12-1
+%PROVIDES%
+sh
+%DEPENDS%
+
+%SHA256SUM%
+deadbeef
+]], "core")
+assert(bare.dash.checksum == "deadbeef", "%SHA256SUM% accepted as checksum")
+local shell_user = alpm.parse([[
+%FILENAME%
+core/os/x86_64/shell-user-1-1.pkg.tar.zst
+%NAME%
+shell-user
+%VERSION%
+1-1
+%PROVIDES%
+
+%DEPENDS%
+sh
+%CHKSUM%
+cafe
+]], "core")
+for k, v in pairs(shell_user) do bare[k] = v end
+locked = alpm.closure({ "shell-user" }, bare)
+assert(locked.dash, "bare 'sh' provides must satisfy dep sh")
+
 -- a versioned dep the only provider cannot satisfy fails closed
 local ok = pcall(alpm.closure, { "strict-boot" }, idx)
 assert(not ok, "kernel>=7 against linux=6.12 must fail")
+
+-- real arch dep specs cite pkgver WITHOUT pkgrel: util-linux depends on
+-- "util-linux-libs=2.42.4" while the package is 2.42.4-1 (measured Nov 2026)
+local relax = alpm.parse([[
+%FILENAME%
+core/os/x86_64/util-linux-2.42.4-1.pkg.tar.zst
+%NAME%
+util-linux
+%VERSION%
+2.42.4-1
+%PROVIDES%
+
+%DEPENDS%
+util-linux-libs=2.42.4
+%CHKSUM%
+c1
+
+%FILENAME%
+core/os/x86_64/util-linux-libs-2.42.4-1.pkg.tar.zst
+%NAME%
+util-linux-libs
+%VERSION%
+2.42.4-1
+%PROVIDES%
+
+%DEPENDS%
+
+%CHKSUM%
+c2
+]], "core")
+locked = alpm.closure({ "util-linux" }, relax)
+assert(locked["util-linux-libs"], "= dep on pkgver must match pkg 2.42.4-1")
 
 -- dependency cycles terminate (a <-> b)
 local cyc = alpm.parse([[

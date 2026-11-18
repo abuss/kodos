@@ -19,7 +19,11 @@ function M.parse(text, repo)
             into[cur.NAME[1]] = {
                 name = cur.NAME[1],
                 version = cur.VERSION and cur.VERSION[1],
-                checksum = cur.CHKSUM and cur.CHKSUM[1],
+                -- real sync DBs carry %SHA256SUM%; %CHKSUM% is the older
+                -- short form (and what our fixtures use). Either becomes
+                -- the pin checksum the executor verifies against.
+                checksum = (cur.CHKSUM and cur.CHKSUM[1])
+                    or (cur.SHA256SUM and cur.SHA256SUM[1]),
                 repo = repo,
                 depends = cur.DEPENDS or {},
                 provides = cur.PROVIDES or {},
@@ -31,7 +35,7 @@ function M.parse(text, repo)
         if line == "" then
             if field then cur[field] = values field, values = nil, nil end
         else
-            local f = line:match("^%%([A-Z]+)%%$")
+            local f = line:match("^%%([A-Z0-9]+)%%$")
             if f then
                 if f == "FILENAME" then commit() end
                 if field then cur[field] = values end
@@ -95,19 +99,29 @@ local function dep_split(d)
     return d, nil, nil
 end
 
+-- returns (found, version): found is the provider-match signal; version
+-- may be nil for a versionless PROVIDES entry (real arch: bash provides "sh").
 local function provide_version(rec, dn)
     for _, p in ipairs(rec.provides) do
         local pn, pv = p:match("^([^=]+)=(.+)$")
         if not pn then pn, pv = p, nil end
-        if pn == dn then return pv end
+        if pn == dn then return true, pv end
     end
-    return nil
+    return false, nil
+end
+
+-- constraint_ok: Arch dep specs ALWAYS reference pkgver, never pkgrel
+-- (real: util-linux depends on "util-linux-libs=2.42.4" while the package
+-- is 2.42.4-1; alpm dep matching compares pkgver-vs-pkgver). Strip the
+-- pkgrel from the candidate side before comparing.
+local function pkgver_only(v)
+    return (v:gsub("%-[^-]*$", "", 1))
 end
 
 local function constraint_ok(ver, op, want)
     if not op then return true end
     if not ver or not want then return false end
-    local c = M.vercmp(ver, want)
+    local c = M.vercmp(pkgver_only(ver), pkgver_only(want))
     if op == "=" then return c == 0 end
     if op == ">=" then return c >= 0 end
     if op == "<=" then return c <= 0 end
@@ -146,8 +160,8 @@ function M.closure(requests, index)
             else
                 local cands = {}
                 for _, r in pairs(index) do
-                    local pv = provide_version(r, dn)
-                    if pv ~= nil and constraint_ok(pv, op, want) then
+                    local found, pv = provide_version(r, dn)
+                    if found and constraint_ok(pv, op, want) then
                         cands[#cands + 1] = r
                     end
                 end

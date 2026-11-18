@@ -43,6 +43,14 @@ func TestArchKernelJobs(t *testing.T) {
 	if err != nil || len(jobs) != 1 || jobs[0].Kver != "6.12.9-arch1-1" {
 		t.Errorf("pkgver-vs-modulesdir pairing (6.12.9-1 ~ 6.12.9-arch1-1): %v %v", jobs, err)
 	}
+
+	// and the CURRENT real shape: pkgver dots become dashes in the modules
+	// dir (measured Nov 2026: linux-7.3.4.arch1-2 -> 7.3.4-arch1-2)
+	jobs, err = archKernelJobs(map[string]pkgPin{"linux": {Version: "7.3.4.arch1-2"}},
+		[]string{"7.3.4-arch1-2"})
+	if err != nil || len(jobs) != 1 || jobs[0].Kver != "7.3.4-arch1-2" {
+		t.Errorf("pkgver-vs-modulesdir pairing (7.3.4.arch1-2 ~ 7.3.4-arch1-2): %v %v", jobs, err)
+	}
 }
 
 func gzipCpio(t *testing.T, names ...string) string {

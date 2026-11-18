@@ -51,8 +51,8 @@ references. The split therefore differs from the apk flow:
 
 | Piece | Owner | Mechanism |
 |---|---|---|
-| Sync DB trust | host pacman keyring | `run-arch.sh` fetches `core`/`extra` `.db.tar.gz` + `.db.sig`, verifies `gpg --homedir /etc/pacman.d/gnupg --verify`, then `bsdtar -xO` extracts the flat-text DB into `/tmp/opencode/` snapshots (same pattern as the Alpine APKINDEX snapshots) |
-| Dependency closure + pins | `lockfile.lua` | new ALPM DB parser + resolver. DB record format is flat text stanzas: `%NAME% %VERSION% %DESC% %CSIZE% %MD5SUM% %SHA256SUM% %BUILDDATE% %PACKAGER% %URL% %LICENSE% %PROVIDES% %DEPENDS% %OPTDEPENDS% %CHECKSUM% %BUILDDIR% %FILES%` (check `%CHKSUM%` for the file hash). Resolution: iterative closure over `%DEPENDS%` + `%PROVIDES%` (versioned provides respected), optdeps excluded. Output pins: `{name, version, checksum(sha256), repo}` in `generation-N.json` |
+| Sync DB trust | host pacman | **Amended during Task 10 (measured Nov 2026):** Arch sync DBs are UNSIGNED — no `core.db.sig` exists on geo.mirror.pkgbuild.com or any probed mirror (Arch's own default `SigLevel = Required DatabaseOptional` documents it). The oracle is therefore a real `pacman -Sy --config <generated conf, these Server lines, tmp DBPath>` in `run-arch.sh`: pacman does the fetch + its own validation (TLS + SigLevel rules; would enforce sigs the day Arch signs DBs), and the harness lifts desc records out of pacman's synced `core.db`/`extra.db` (tar members are `<pkg-ver>/desc`, there is no `<repo>.desc`). The executor itself still never invokes pacman. |
+| Dependency closure + pins | `lockfile.lua` | new ALPM DB parser + resolver. DB record format is flat text stanzas: `%NAME% %VERSION% %DESC% %CSIZE% %SHA256SUM% %BUILDDATE% %PACKAGER% %PGPSIG% %URL% %LICENSE% %PROVIDES% %DEPENDS% %OPTDEPENDS% %CHKSUM% ...` — the file hash is `%SHA256SUM%` in current DBs (`%CHKSUM%` accepted as the older short form). Dep version specs cite pkgver WITHOUT pkgrel (`util-linux-libs=2.42.4` matches `2.42.4-1`); PROVIDES may be versionless (`sh`). Resolution: iterative closure over `%DEPENDS%` + `%PROVIDES%` (versioned provides respected), optdeps excluded. Output pins: `{name, version, checksum(sha256), repo}` in `generation-N.json` |
 | Package fetch | executor | download `$mirror/$repo/os/$arch/${name}-${version}.pkg.tar.zst`, verify sha256 against the pin, then extract. Chain of trust: signed DB → lockfile pins → checksum-verified tarballs |
 | File placement | executor | own `.pkg.tar.zst` extraction into the generation store (unchanged architecture: read-only store + hardlinked generation) |
 
@@ -117,8 +117,8 @@ executor Go code that scans `gen/lib/modules` must scan `gen/usr/lib/modules`).
 ## VM harness
 
 `vm/run-arch.sh`: same cleanup/nbd/idempotence skeleton as `run.sh`
-(structure copied, Alpine specifics swapped): Arch DB snapshot fetch + sig
-verify, `generate.lua` with an `arch-layer.lua` vm layer (new: sets
+(structure copied, Alpine specifics swapped): Arch DB snapshot sync via the
+host pacman oracle (see amendment above), `generate.lua` with an `arch-layer.lua` vm layer (new: sets
 `repos.base = { type = "arch", mirror, branches = {core, extra} }`, kernel
 variant default, keeps users/services/ssh test facts), `lockfile.lua` in ALPM
 mode, no `mkrepo/mkapk`, `kodos exec` without `-apk`.
@@ -143,7 +143,7 @@ mode, no `mkrepo/mkapk`, `kodos exec` without `-apk`.
 ## Error handling
 
 Same posture as the Alpine spike: fail closed before mutating — unknown
-distro, missing pin checksum, sha256 mismatch, missing `%CHKSUM%`, no
-`vmlinuz-<flavor>` for a modules dir, hollow initramfs, unverified DB
-signature (script aborts before exec). No silent fallbacks from arch to alpine
+distro, missing pin checksum, sha256 mismatch, missing `%SHA256SUM%`/`%CHKSUM%`, no
+`vmlinuz-<flavor>` for a modules dir, hollow initramfs, failed DB sync via the
+pacman oracle (script aborts before exec). No silent fallbacks from arch to alpine
 paths: every branch is explicit.
