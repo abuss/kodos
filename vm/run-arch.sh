@@ -124,7 +124,11 @@ Server = $M/core/os/x86_64
 Server = $M/extra/os/x86_64
 EOF
     for r in core extra; do
-        [ -s "$D/arch/$r.desc" ] && continue
+        # ALWAYS resync: the mirror is rolling, and a cached snapshot drifts
+        # (real incident: pcsclite 2.5.3 -> 2.5.4 between runs -> 404). The
+        # spec's mitigation is refetch-immediately-before-exec; pacman -Sy is
+        # seconds when nothing moved. Residual race (DB synced, tarball not
+        # yet uploaded) is the known ceiling: upgrade path = TimeMachine pin.
         echo "syncing $r DB snapshot via pacman (trust oracle: TLS + SigLevel rules)"
         pacman -Sy --config "$D/arch/pacman.conf" "$r" || { echo "ERROR: pacman -Sy $r failed"; exit 1; }
         # the DB tarball's members are <pkg-ver>/desc (no <repo>.desc member)
