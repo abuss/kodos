@@ -123,14 +123,17 @@ Server = $M/core/os/x86_64
 [extra]
 Server = $M/extra/os/x86_64
 EOF
+    # ONE plain -Sy syncs exactly the repos in our generated conf (core,
+    # extra): pacman 7 removed the old "-Sy <repo>" repo-name form (the
+    # positional args are package targets now).
+    # ALWAYS resync: the mirror is rolling, and a cached snapshot drifts
+    # (real incident: pcsclite 2.5.3 -> 2.5.4 between runs -> 404). The
+    # spec's mitigation is refetch-immediately-before-exec; pacman -Sy is
+    # seconds when nothing moved. Residual race (DB synced, tarball not
+    # yet uploaded) is the known ceiling: upgrade path = TimeMachine pin.
+    echo "syncing core+extra DB snapshots via pacman (trust oracle: TLS + SigLevel rules)"
+    pacman -Sy --config "$D/arch/pacman.conf" || { echo "ERROR: pacman -Sy failed"; exit 1; }
     for r in core extra; do
-        # ALWAYS resync: the mirror is rolling, and a cached snapshot drifts
-        # (real incident: pcsclite 2.5.3 -> 2.5.4 between runs -> 404). The
-        # spec's mitigation is refetch-immediately-before-exec; pacman -Sy is
-        # seconds when nothing moved. Residual race (DB synced, tarball not
-        # yet uploaded) is the known ceiling: upgrade path = TimeMachine pin.
-        echo "syncing $r DB snapshot via pacman (trust oracle: TLS + SigLevel rules)"
-        pacman -Sy --config "$D/arch/pacman.conf" "$r" || { echo "ERROR: pacman -Sy $r failed"; exit 1; }
         # the DB tarball's members are <pkg-ver>/desc (no <repo>.desc member)
         tar -xzOf "$D/arch/db/$r.db" --wildcards '*/desc' > "$D/arch/$r.desc"
         # we run under sudo: leave snapshots writable by the real user
