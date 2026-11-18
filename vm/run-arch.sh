@@ -81,16 +81,16 @@ cleanup() {
 attach_nbd() {
     # run.sh doctrine: NEVER disconnect an nbd we cannot prove is ours;
     # a wedged dead connection just burns one index, take the next free one.
-    modprobe nbd max_part=8 num_devices=64 || { echo "ERROR: modprobe nbd failed"; exit 1; }
+    modprobe nbd max_part=8 nbds_max=64 || { echo "ERROR: modprobe nbd failed"; exit 1; }
     if [ "$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || echo 0)" -lt 8 ]; then
         modprobe -r nbd >/dev/null 2>&1 || true
-        modprobe nbd max_part=8 num_devices=64 2>/dev/null || true
+        modprobe nbd max_part=8 nbds_max=64 2>/dev/null || true
         mp=$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || echo 0)
         [ "$mp" -ge 8 ] || { echo "ERROR: nbd loaded with max_part=$mp (someone else's module state): partition nodes will not exist"; exit 1; }
     fi
     [ -e /dev/nbd0 ] || sleep 1   # udev may be slow to create the nodes
-    # Pool = EVERY existing /dev/nbdN (this host's module loaded ~40 devices;
-    # the old 0-7 window was self-imposed). Gate = NEVER-configured indices
+    # Pool = EVERY existing /dev/nbdN (nbds_max sized; the old 0-7 window was
+    # self-imposed). Gate = NEVER-configured indices
     # only (no pid file): measured on this kernel, once an index has been
     # configured, qemu-nbd -d does NOT release the config and a fresh -c is
     # a SILENT NO-OP (rc=0, old pid retained, reads EIO) - that index is
