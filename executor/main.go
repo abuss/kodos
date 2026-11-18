@@ -494,6 +494,9 @@ func (e *executor) apkSimulate(addArgs []string) (map[string]string, error) {
 }
 
 func (e *executor) fetchUnpack(name, version string) error {
+	if e.meta.Distro == "arch" {
+		return e.fetchUnpackArch(name, version)
+	}
 	client := &http.Client{Timeout: 5 * time.Minute}
 	var body io.ReadCloser
 	var lastErr error
@@ -544,6 +547,77 @@ func (e *executor) fetchUnpack(name, version string) error {
 	return unpackApkStream(body, dst, name)
 }
 
+// fetchUnpackArch: pinned version+sha256 are the contract — the URL list is
+// tried repo by repo (pin's repo first), the download is verified BEFORE any
+// store mutation, and a mismatch or 404 fails closed naming name, version
+// and every attempted URL (rolling-mirror drift must be loud, never silent).
+func (e *executor) fetchUnpackArch(name, version string) error {
+	pin, ok := e.meta.Packages[name]
+	if !ok || pin.Repo == "" || pin.Checksum == "" {
+		return fmt.Errorf("arch fetch %s-%s: no repo/checksum pin", name, version)
+	}
+	repos := []string{pin.Repo}
+	for _, br := range e.branches {
+		if br != pin.Repo {
+			repos = append(repos, br)
+		}
+	}
+	client := &http.Client{Timeout: 5 * time.Minute}
+	var lastErr error
+	var tried []string
+	for _, r := range repos {
+		url := archPkgURL(e.mirror, r, e.arch, name, version)
+		tried = append(tried, url)
+		resp, err := client.Get(url)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", url, err)
+			continue
+		}
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
+			continue
+		}
+		os.MkdirAll(e.s.cache(), 0o755)
+		tmp := filepath.Join(e.s.cache(), name+"-"+version+".pkg.tar.zst.kodos-tmp")
+		f, err := os.Create(tmp)
+		if err != nil {
+			resp.Body.Close()
+			return err
+		}
+		_, err = io.Copy(f, resp.Body)
+		resp.Body.Close()
+		f.Close()
+		if err != nil {
+			os.Remove(tmp)
+			lastErr = fmt.Errorf("%s: download: %w", url, err)
+			continue
+		}
+		if err := verifySha256(tmp, pin.Checksum); err != nil {
+			os.Remove(tmp)
+			return fmt.Errorf("arch fetch %s-%s: %w", name, version, err)
+		}
+		dst := filepath.Join(e.s.store(), name, version)
+		os.RemoveAll(dst)
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			os.Remove(tmp)
+			return err
+		}
+		rf, err := os.Open(tmp)
+		if err != nil {
+			return err
+		}
+		err = unpackArchStream(rf, dst, name)
+		rf.Close()
+		os.Remove(tmp)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("fetch %s-%s: %w (tried: %s)", name, version, lastErr, strings.Join(tried, ", "))
+}
+
 // unpackApkStream unpacks a .apk (tar.gz) stream into dst (pure,
 // selftested). Modes come from hdr.FileInfo().Mode() IN FULL: .Perm()
 // silently drops the setuid/setgid bits, and a sudo/su/passwd that lost
@@ -554,7 +628,13 @@ func unpackApkStream(body io.Reader, dst, name string) error {
 		return fmt.Errorf("unpack %s: %w", name, err)
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
+	return unpackTarStream(gz, dst, name)
+}
+
+// unpackTarStream walks an already-decompressed tar into dst (shared by
+// apk's tar.gz and arch's .pkg.tar.zst).
+func unpackTarStream(r io.Reader, dst, name string) error {
+	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
