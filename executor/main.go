@@ -302,9 +302,36 @@ func summarize(act map[string]any) string {
 
 // ---- implemented ops ----
 
+// renderMirrorList/renderPacmanConf: arch repo config, distro-neutral action
+// fields (mirror/branches) -> pacman's files. Defaults stay pacman's own.
+func renderMirrorList(mirror string) string {
+	return "## kodos-managed: repos.base.mirror\nServer = " + mirror + "/$repo/os/$arch\n"
+}
+
+func renderPacmanConf(branches []string) string {
+	var b strings.Builder
+	b.WriteString("[options]\n")
+	b.WriteString("HoldPkg = pacman glibc\n")
+	b.WriteString("CleanMethod = KeepCurrent\n")
+	b.WriteString("SigLevel = Required DatabaseOptional\n")
+	b.WriteString("LocalFileSigLevel = Optional\n")
+	b.WriteString("ParallelDownloads = 5\n")
+	for _, br := range branches {
+		b.WriteString("\n[" + br + "]\nInclude = /etc/pacman.d/mirrorlist\n")
+	}
+	return b.String()
+}
+
 func (e *executor) configureRepos(act map[string]any) error {
 	e.mirror, _ = act["mirror"].(string)
 	e.branches = strList(act, "branches")
+	if e.meta != nil && e.meta.Distro == "arch" {
+		// arch: one mirror pattern covers every repo; sections only list names
+		if err := e.writeFileTo("/etc/pacman.d/mirrorlist", renderMirrorList(e.mirror), 0o644); err != nil {
+			return err
+		}
+		return e.writeFileTo("/etc/pacman.conf", renderPacmanConf(e.branches), 0o644)
+	}
 	var b strings.Builder
 	for _, br := range e.branches {
 		b.WriteString(e.mirror + "/" + br + "\n")
