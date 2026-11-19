@@ -70,10 +70,16 @@ cleanup() {
         awk -v re="^/dev/nbd(${alt})p?[0-9]*$" '$1 ~ re {print $1}' /proc/swaps |
             while read -r s; do swapoff "$s" >/dev/null 2>&1 || true; done
         for i in $proven; do
+            p=$(cat "/sys/block/$i/pid" 2>/dev/null || true)
             for t in 1 2 3 4 5; do
                 qemu-nbd -d "/dev/$i" >/dev/null 2>&1 && break
                 sleep 1
             done
+            # measured: -d can exit 0 yet leave the server process (and its
+            # qcow2 write lock) alive forever -- debug's cleanup left nbd15
+            # attached+mounted after the script exited. The pid above is
+            # ownership-proven (arch-disk cmdline), so killing is safe.
+            [ -n "$p" ] && [ -d "/proc/$p" ] && kill "$p" 2>/dev/null || true
         done
     fi
 }
