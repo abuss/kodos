@@ -12,6 +12,29 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
+// e2e finding: Arch's linux package ships the kernel ONLY at
+// usr/lib/modules/<kver>/vmlinuz; there is no boot/vmlinuz-* unless a
+// package script (kernel-install) runs -- which this executor never does.
+// The usrmerged gen tree has /lib -> usr/lib, so resolve WITHIN the tree.
+func TestArchVmlinuzSource(t *testing.T) {
+	root := t.TempDir()
+	md := filepath.Join(root, "usr/lib/modules/7.3.4-arch1-2")
+	if err := os.MkdirAll(md, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(md, "vmlinuz"), []byte("kernel"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("usr/lib", filepath.Join(root, "lib")); err != nil {
+		t.Fatal(err)
+	}
+	got := archVmlinuzSource(root, "7.3.4-arch1-2")
+	want := filepath.Join(md, "vmlinuz")
+	if got != want {
+		t.Fatalf("archVmlinuzSource = %q, want %q", got, want)
+	}
+}
+
 func TestArchKernelJobs(t *testing.T) {
 	pins := map[string]pkgPin{
 		"linux":          {Version: "6.12-1"},

@@ -1554,6 +1554,18 @@ func (e *executor) installBootloader(act map[string]any) error {
 			if err := initramfsSaneArch(img); err != nil {
 				return fmt.Errorf("bootloader: %w (check mkinitcpio.conf HOOKS line; base+systemd needed)", err)
 			}
+			// Arch ships the kernel at /usr/lib/modules/<kver>/vmlinuz;
+			// nothing places it in /boot (no package scripts on this path).
+			// Stage it under the FLAVOR name so the shared ESP copy and
+			// grub /vmlinuz-<flavor> + /initramfs-<flavor>.img paths agree.
+			kbin := archVmlinuzSource(gen, j.Kver)
+			kb, err := os.ReadFile(kbin)
+			if err != nil {
+				return fmt.Errorf("bootloader kernel %s: read %s: %w", j.Kver, kbin, err)
+			}
+			if err := os.WriteFile(filepath.Join(gen, "boot", "vmlinuz-"+j.Flavor), kb, 0o644); err != nil {
+				return fmt.Errorf("bootloader kernel %s: stage vmlinuz-%s: %w", j.Kver, j.Flavor, err)
+			}
 			fmt.Printf("initramfs built: initramfs-%s.img (kernel %s)\n", j.Flavor, j.Kver)
 		}
 	} else if dirs, _ := filepath.Glob(filepath.Join(gen, "lib", "modules", "*")); len(dirs) > 0 {
@@ -1660,6 +1672,12 @@ func (e *executor) installBootloader(act map[string]any) error {
 		return fmt.Errorf("bootloader: no %s/boot/vmlinuz-* (kernel package missing?)", gen)
 	}
 	kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
+	if e.meta.Distro == "arch" && len(archJobs) > 0 {
+		// Arch image name is flavor-based (initramfs-<flavor>.img) and the
+		// staged kernel uses the same flavor: renderGrubCfg uses kver for
+		// BOTH paths, so it must be the flavor here, not the modules dir.
+		kver = archJobs[0].Flavor
+	}
 	initExt := ""
 	if e.meta.Distro == "arch" {
 		// arch images are named initramfs-<flavor>.img; per-kernel

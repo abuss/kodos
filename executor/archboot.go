@@ -86,6 +86,15 @@ func archKernelJobs(pins map[string]pkgPin, modDirs []string) ([]kJob, error) {
 	return jobs, nil
 }
 
+// archVmlinuzSource: Arch's kernel package ships vmlinuz under
+// /usr/lib/modules/<kver>/, NOT /boot (kernel-install is a package script
+// and never runs on the executor path). Resolve "lib" WITHIN the gen tree:
+// usrmerged layouts have /lib -> usr/lib, raw host reads hit the HOST's
+// modules instead.
+func archVmlinuzSource(genDir, kver string) string {
+	return genTreeResolve(genDir, filepath.Join("lib", "modules", kver, "vmlinuz"))
+}
+
 // genTreeResolve resolves rel inside the tree rooted at root, following
 // symlinks (final component included) but re-anchoring absolute targets at
 // root. The usrmerged gen tree's bin/sbin/lib are dir links and store links
