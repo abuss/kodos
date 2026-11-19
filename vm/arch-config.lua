@@ -77,6 +77,11 @@ return {
         { repo = "base", name = "glibc-locales" } },
 
     files = {
+        -- The generation tree makes /etc read-only, so systemd cannot
+        -- generate an ID on first boot (and dbus-broker will not start
+        -- without one). Ship a fixed test-VM identity instead.
+        machine_id = { path = "/etc/machine-id", mode = "0444",
+                       content = "0a1b2c3d4e5f60718293a4b5c6d7e8f9\n" },
         -- Explicit recipe: the package-default HOOKS carry no systemd hook
         -- (initramfsSaneArch requires systemd IN the cpio), and autodetect
         -- inspects the build host's loaded modules, not the guest's. Pin the
