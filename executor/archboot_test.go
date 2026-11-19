@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 func TestArchKernelJobs(t *testing.T) {
@@ -87,6 +90,77 @@ func gzipCpio(t *testing.T, names ...string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// cpioNewc renders a tiny newc cpio (name,size per entry) ending with the
+// TRAILER record — enough header fidelity for our readers' record walk.
+func cpioNewc(t *testing.T, entries [][2]any) []byte {
+	t.Helper()
+	var out []byte
+	rec := func(name string, size int, isTrailer bool) {
+		var body []byte
+		if !isTrailer {
+			body = append(body, []byte(name+"\x00")...)
+			pad := (4 - (110+len(name)+1)%4) % 4 // newc pads header+name to 4
+			body = append(body, make([]byte, pad)...)
+			body = append(body, make([]byte, size)...)
+			sizePad := (4 - (110+len(body))%4) % 4 // whole record (hdr+name+data) 4-aligned
+			body = append(body, make([]byte, sizePad)...)
+		} else {
+			body = append([]byte(name+"\x00"), make([]byte, (4-(110+len(name)+1)%4)%4)...)
+		}
+		nsize := len(name) + 1
+		hdr := fmt.Sprintf("070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
+			0, 0o100644, 0, 0, 1, 0, size, 0, 0, 0, 0, nsize, 0)
+		out = append(out, []byte(hdr)...)
+		out = append(out, body...)
+	}
+	for _, e := range entries {
+		rec(e[0].(string), e[1].(int), false)
+	}
+	rec("TRAILER!!!", 0, true)
+	// cpio streams pad to a 512-byte block after the trailer
+	for len(out)%512 != 0 {
+		out = append(out, 0)
+	}
+	return out
+}
+
+// e2e finding: mkinitcpio images are CONCATENATED — early uncompressed
+// cpio + zero padding + zstd-compressed main cpio. A single-magic sniff
+// saw the early cpio, fell through to "plain", and bytes.Contains scanned
+// compressed bytes: a fully sane image failed the guard ("cpio has no
+// usr/lib/systemd/systemd (22413280 bytes unpacked)" where 22413280 was
+// the FILE size, not an unpacked size).
+func TestInitramfsSaneArchEarlyCpioConcat(t *testing.T) {
+	early := cpioNewc(t, [][2]any{{"early_cpio", 0}, {"usr/lib/modules/x/intel.ko.zst", 64}})
+	mainCpio := cpioNewc(t, [][2]any{{"init", 0}, {"usr/lib/systemd/systemd", 8}})
+	var zbuf bytes.Buffer
+	zw, _ := zstd.NewWriter(&zbuf)
+	zw.Write(mainCpio)
+	zw.Close()
+	img := append(early, zbuf.Bytes()...)
+	tar := filepath.Join(t.TempDir(), "initramfs-linux.img")
+	if err := os.WriteFile(tar, img, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := initramfsSaneArch(tar); err != nil {
+		t.Fatalf("early-cpio concat image must pass: %v", err)
+	}
+	// hollow variant: early cpio + zstd WITHOUT systemd must still fail
+	hollow := cpioNewc(t, [][2]any{{"usr/lib/systemd/network/99-default.link", 0}, {"usr/bin/busybox", 4}})
+	var hbuf bytes.Buffer
+	hw, _ := zstd.NewWriter(&hbuf)
+	hw.Write(hollow)
+	hw.Close()
+	himg := append(cpioNewc(t, [][2]any{{"early_cpio", 0}}), hbuf.Bytes()...)
+	hpath := filepath.Join(t.TempDir(), "hollow.img")
+	if err := os.WriteFile(hpath, himg, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := initramfsSaneArch(hpath); err == nil {
+		t.Fatal("hollow early-cpio concat image must fail")
+	}
 }
 
 func TestInitramfsSaneArch(t *testing.T) {

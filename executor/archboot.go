@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
@@ -141,42 +142,97 @@ func archModulesDirs(genDir string) []string {
 
 // initramfsSaneArch: arch form of the hollow-image guard. A real mkinitcpio
 // image always carries usr/lib/systemd/systemd (switch_root's target); a
-// skeleton image boots straight to a "no working init" panic. Compression
-// is sniffed (gzip default; zstd/plain tolerated) so a COMPRESS=zstd
-// mkinitcpio.conf never false-alarms this guard. bytes.Contains also
-// matches "./usr/lib/..."-prefixed cpio name encodings.
+// skeleton image boots straight to a "no working init" panic. The image is
+// a SEGMENT STREAM: early uncompressed cpio + zero padding + compressed
+// main cpio (zstd/gzip; plain when COMPRESS=none). A single magic sniff at
+// offset 0 saw the early cpio, took the plain branch and scanned
+// COMPRESSED bytes: a fully sane image failed as "skeleton" with the
+// UNPACKED count equal to the FILE size. Walk segments instead: parse each
+// cpio to its TRAILER, sniff each tail. bytes.Contains also matches
+// "./usr/lib/..."-prefixed cpio name encodings.
 func initramfsSaneArch(path string) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 	var blob []byte
-	switch {
-	case bytes.HasPrefix(b, []byte{0x1f, 0x8b}):
-		zr, err := gzip.NewReader(bytes.NewReader(b))
-		if err != nil {
-			return fmt.Errorf("not gzip: %w", err)
+	for len(b) > 0 {
+		switch {
+		case bytes.HasPrefix(b, []byte("070701")), bytes.HasPrefix(b, []byte("070702")):
+			end, err := cpioSegmentEnd(b)
+			if err != nil {
+				return err
+			}
+			blob = append(blob, b[:end]...)
+			b = b[end:]
+		case bytes.HasPrefix(b, []byte{0x1f, 0x8b}):
+			zr, err := gzip.NewReader(bytes.NewReader(b))
+			if err != nil {
+				return fmt.Errorf("not gzip: %w", err)
+			}
+			dec, err := io.ReadAll(zr)
+			zr.Close()
+			if err != nil {
+				return err
+			}
+			blob = append(blob, dec...)
+			b = nil
+		case bytes.HasPrefix(b, []byte{0x28, 0xb5, 0x2f, 0xfd}):
+			zr, err := zstd.NewReader(bytes.NewReader(b))
+			if err != nil {
+				return fmt.Errorf("not zstd: %w", err)
+			}
+			dec, err := io.ReadAll(zr)
+			zr.Close()
+			if err != nil {
+				return err
+			}
+			blob = append(blob, dec...)
+			b = nil
+		case b[0] == 0: // cpio 512-block zero padding between segments
+			b = bytes.TrimLeft(b, "\x00")
+		default:
+			blob = append(blob, b...) // mkinitcpio -c none: plain cpio
+			b = nil
 		}
-		blob, err = io.ReadAll(zr)
-		zr.Close()
-		if err != nil {
-			return err
-		}
-	case bytes.HasPrefix(b, []byte{0x28, 0xb5, 0x2f, 0xfd}):
-		zr, err := zstd.NewReader(bytes.NewReader(b))
-		if err != nil {
-			return fmt.Errorf("not zstd: %w", err)
-		}
-		blob, err = io.ReadAll(zr)
-		zr.Close()
-		if err != nil {
-			return err
-		}
-	default:
-		blob = b // mkinitcpio -c none: plain cpio
 	}
 	if !bytes.Contains(blob, []byte("usr/lib/systemd/systemd")) {
 		return fmt.Errorf("initramfs is skeleton: cpio has no usr/lib/systemd/systemd (%d bytes unpacked)", len(blob))
 	}
 	return nil
+}
+
+// cpioSegmentEnd: offset just past the TRAILER record of the newc/crc-newc
+// stream starting at b[0] (name+NUL padded so header+name is 4-aligned,
+// then filesize bytes of data, 4-aligned).
+func cpioSegmentEnd(b []byte) (int, error) {
+	i := 0
+	for i+110 <= len(b) {
+		m := b[i : i+6]
+		if !bytes.Equal(m, []byte("070701")) && !bytes.Equal(m, []byte("070702")) {
+			return 0, fmt.Errorf("cpio sync lost at %d", i)
+		}
+		fsz, err := strconv.ParseUint(string(b[i+54:i+62]), 16, 64)
+		if err != nil {
+			return 0, fmt.Errorf("cpio filesize at %d: %w", i, err)
+		}
+		nsize, err := strconv.ParseUint(string(b[i+94:i+102]), 16, 32)
+		if err != nil {
+			return 0, fmt.Errorf("cpio namesize at %d: %w", i, err)
+		}
+		end := i + 110 + int(nsize)
+		end += (4 - end%4) % 4
+		if end > len(b) {
+			return 0, fmt.Errorf("cpio name truncated at %d", i)
+		}
+		if nsize >= 11 && string(b[i+110:i+120]) == "TRAILER!!!" {
+			return end, nil
+		}
+		i = end + int(fsz)
+		i += (4 - i%4) % 4
+		if i > len(b) {
+			return 0, fmt.Errorf("cpio file truncated at %d", i)
+		}
+	}
+	return 0, fmt.Errorf("cpio stream truncated (no TRAILER)")
 }
