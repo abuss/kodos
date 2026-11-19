@@ -15,7 +15,7 @@
 - No new IR ops; op names/ranks (`executor/ir.go` `opRank`) unchanged. Distro branches live inside op implementations.
 - Every task ends with Alpine untouched: `cd executor && go test ./... && go run . suitetest` passes.
 - Arch pins: `{"name": {"version": ..., "checksum": ..., "repo": ...}}`; `checksum` is the ALPM `%CHKSUM%` (sha256 of the package file); `repo` is the DB section name (`core`/`extra`). Alpine pins keep omitting `repo`.
-- `pacman` is never invoked by executor or `lockfile.lua`. GPG verification of sync DBs happens only in `vm/run-arch.sh` using `gpg --homedir /etc/pacman.d/gnupg`.
+- `pacman` is never invoked by executor or `lockfile.lua`. Arch sync DBs are unsigned (measured), so a manual `curl` + `gpg --verify db.sig` cannot work: `vm/run-arch.sh` uses a real `pacman -Sy --config <generated conf>` (isolated DBPath) as the TLS/SigLevel trust oracle and lifts `desc` records out of pacman's synced `core.db`/`extra.db`. See design §Trust and resolution model (amended Nov 2026).
 - Lua suite files must run under gopher-lua (`go run . suitetest`): pure data transformation, no `io.popen`/`os.execute` in the new suite module.
 - All commands run from `executor/` unless stated. Test fixture package file shape: `<name>-<version>.pkg.tar.zst` (e.g. `hello-1.0-1.pkg.tar.zst`).
 - Commit after every task (one commit per task minimum).
@@ -276,18 +276,31 @@ Note: `manage.go` rollback gate stays Alpine-only by design (milestone 2).
 
 - [ ] **Step 1: Implement** phases `fresh|install|boot|guest|all` exactly like `run.sh` with these substitutions: DB snapshot step replaces APKINDEX step —
   ```sh
-  M=https://geo.mirror.pkgbuild.com
+  # Arch sync DBs are UNSIGNED (measured Nov 2026): there is no .sig for a
+  # manual gpg --verify. pacman is the trust oracle (TLS + SigLevel rules),
+  # against the SAME Server lines, in an isolated DBPath.
+  M=https://mirror.rackspace.com/archlinux
+  cat > "$D/arch/pacman.conf" <<EOF
+  [options]
+  DBPath = $D/arch/db/
+  CacheDir = $D/arch/cache/
+  GPGDir = /etc/pacman.d/gnupg/
+  SigLevel = Required DatabaseOptional
+  [core]
+  Server = $M/core/os/x86_64
+  [extra]
+  Server = $M/extra/os/x86_64
+  EOF
+  pacman -Sy --config "$D/arch/pacman.conf"    # ALWAYS resync: rolling mirror
   for r in core extra; do
-      curl -sfO $M/$r/os/x86_64/$r.db.tar.gz       # into $D/arch/
-      curl -sfO $M/$r/os/x86_64/$r.db.tar.gz.sig
-      gpg --homedir /etc/pacman.d/gnupg --verify $r.db.tar.gz.sig $r.db.tar.gz || {
-          echo "ERROR: $r.db signature FAILED (host keyring: pacman-key --init && pacman-key --populate archlinux)"; exit 1; }
-      tar -xOzf $r.db.tar.gz $r.desc > $D/arch/$r.desc
+      dbf="$D/arch/db/sync/$r.db"              # pacman >= 6.1 layout
+      [ -e "$dbf" ] || { echo "ERROR: no $dbf"; exit 1; }
+      tar -xzOf "$dbf" --wildcards '*/desc' > "$D/arch/$r.desc"
   done
   ```
   then `lua lockfile.lua 0 $D/arch/core.desc $D/arch/extra.desc -- "$REPO/vm/arch-config.lua" > "$VMDIR/arch-generation-0.json"`, `lua generate.lua vm/arch-config.lua` step (with the nbd-index sed like run.sh), and `kodos exec -actions ... -metadata ... -root $MNT -secrets $VMDIR/secrets.json` (no `-apk`, no mkrepo/mkapk). Same nbd attach/cleanup/idempotence functions, same secrets generation, same OVMF probing boot function, guest ssh stays port 2222 with the same test creds.
-- [ ] **Step 2: Smoke (non-root, network):** `sh -n vm/run-arch.sh` passes; run the DB fetch + `lockfile.lua` steps manually on the real snapshots and eyeball `arch-generation-0.json`: base/linux/openssh/networkmanager present, every pin has version+checksum+repo.
-- [ ] **Step 3: Commit** `git add vm/run-arch.sh && git commit -m "vm: arch end-to-end harness (DB sig verify, lock, exec, boot)"`
+- [ ] **Step 2: Smoke (non-root, network):** `sh -n vm/run-arch.sh` passes; run the pacman DB sync + `lockfile.lua` steps manually on the real snapshots and eyeball `arch-generation-0.json`: base/linux/openssh/networkmanager present, every pin has version+checksum+repo.
+- [ ] **Step 3: Commit** `git add vm/run-arch.sh && git commit -m "vm: arch end-to-end harness (pacman DB oracle, lock, exec, boot)"`
 
 ### Task 11: End-to-end round + guest assertions + final gates
 
