@@ -5,13 +5,10 @@ set -eu
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 TDIR=${TMPDIR:-/tmp/opencode}
 STAGE=$TDIR/arch-stage-test
+PAYLOAD=$STAGE
 DESC_DIR=${ARCH_DESC_DIR:-/tmp/opencode/arch}
 export ARCH_DESC_DIR=$DESC_DIR
 mkdir -p "$TDIR"
-
-# Task 4 replaces these with the real installer and docs; staging copies them.
-: > "$REPO/build/usb/arch-run-install.sh"
-: > "$REPO/build/usb/README-arch.md"
 
 sh -n "$REPO/build/usb/mkinstall-arch-usb.sh" || {
     echo "FAIL: staging script syntax"; exit 1;
@@ -71,11 +68,31 @@ ISO=$TDIR/kodos-arch-install-test.iso
 STAGE=$STAGE STAGE_SCRIPT="$REPO/build/usb/mkinstall-arch-usb.sh" \
     sh "$REPO/build/usb/mkinstall-iso.sh" "$ISO" >/dev/null
 [ -s "$ISO" ] || { echo "no Arch ISO"; exit 1; }
-xorriso -indev "$ISO" -find /kodos -maxdepth 1 2>/dev/null | grep -q run-install.sh \
+xorriso -indev "$ISO" -find /kodos -maxdepth 1 2>/dev/null | grep -q arch-run-install.sh \
     || { echo "ISO missing /kodos payload"; exit 1; }
 git -C "$REPO" diff --exit-code -- build/usb/mkinstall-usb.sh build/usb/run-install.sh build/usb/config \
     || { echo "Alpine media changed"; exit 1; }
 grep -Fq 'STAGE_SCRIPT:-$REPO/build/usb/mkinstall-usb.sh' "$REPO/build/usb/mkinstall-iso.sh" \
     || { echo "ISO builder default override missing"; exit 1; }
 
-echo "test-arch-media iso: ok"
+DRY=$("$PAYLOAD/arch-run-install.sh" --dry-run --device /dev/nbd99 2>&1)
+printf '%s\n' "$DRY" | grep -q 'DRY-RUN configure_repos' \
+  || { echo "dry-run has no repo op"; exit 1; }
+printf '%s\n' "$DRY" | grep -q 'https://mirror.rackspace.com/archlinux' \
+  || { echo "dry-run lost Arch mirror"; exit 1; }
+printf '%s\n' "$DRY" | grep -q 'DRY-RUN install_packages' \
+  || { echo "dry-run has no package op"; exit 1; }
+if printf '%s\n' "$DRY" | grep -qE 'APKINDEX|"type": "apk"|file:///'; then
+  echo "Arch dry-run leaked apk/local-repo ops"; exit 1
+fi
+mkdir -p "$TDIR/fakebin"
+printf '#!/bin/sh\n[ "$1" = -n -o "$1" = --mountpoint ] && echo /dev/nbd99\nexit 0\n' > "$TDIR/fakebin/findmnt"
+printf '#!/bin/sh\necho nbd99\nexit 0\n' > "$TDIR/fakebin/lsblk"
+chmod +x "$TDIR/fakebin/findmnt" "$TDIR/fakebin/lsblk"
+if PATH="$TDIR/fakebin:$PATH" "$PAYLOAD/arch-run-install.sh" --dry-run --device /dev/nbd99 2>&1 | grep -q 'USB stick'; then
+  : # expected refusal
+else
+  echo "installer did not refuse the live stick"; exit 1
+fi
+
+echo "test-arch-media installer: ok"
