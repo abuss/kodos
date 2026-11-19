@@ -249,7 +249,7 @@ func rollback(chroot string, n *int, apkBin string) error {
 	cur, why := currentGeneration(rootAbs)
 	// Runnable predicate: used by the nil-case walk to skip stranded generations.
 	runnableFn := func(g int) bool {
-		return checkGenRunnable(s.genDir(g), g) == nil
+		return checkGenRunnable(s.genDir(g), g, s.Distro) == nil
 	}
 	target, err := rollbackTarget(cur, n, gens, runnableFn)
 	if err != nil {
@@ -286,7 +286,7 @@ func rollback(chroot string, n *int, apkBin string) error {
 	// checks pass (the nil walk already skipped non-runnable gens silently).
 	// Fail closed: current alias + grub.cfg untouched.
 	if n != nil {
-		if err := checkGenRunnable(s.genDir(target), target); err != nil {
+		if err := checkGenRunnable(s.genDir(target), target, s.Distro); err != nil {
 			return fmt.Errorf("rollback: %w", err)
 		}
 	}

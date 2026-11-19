@@ -454,7 +454,7 @@ func selftestPure() {
 	// -nographic; current generation first (default=0), every other
 	// surviving generation as its own entry from its ESP gen-N dir
 	cfg := renderGrubCfg(5, "UUID-X", []string{"quiet"}, []grubEntry{
-		{4, "6.18.63-r0", ""}, {3, "6.18.60-r0", "/gen-3"}})
+		{4, "6.18.63-r0", "", ""}, {3, "6.18.60-r0", "/gen-3", ""}})
 	check(strings.Contains(cfg, "linux /vmlinuz-6.18.63-r0 root=UUID=UUID-X ro quiet"),
 		"grub cmdline, got:\n%s", cfg)
 	check(strings.Contains(cfg, "initrd /gen-3/initramfs-6.18.60-r0"),
@@ -545,16 +545,16 @@ func selftestPure() {
 		check(os.MkdirAll(filepath.Join(dir, "bin"), 0o755) == nil, "mkdir bin")
 		check(os.WriteFile(filepath.Join(dir, "bin", "sh"), []byte{}, 0o755) == nil, "write bin/sh")
 		check(os.Symlink("/bin/busybox", filepath.Join(dir, "sbin", "init")) == nil, "symlink sbin/init")
-		check(checkGenRunnable(dir, 99) == nil, "complete gen must pass runnable check")
+		check(checkGenRunnable(dir, 99, "alpine") == nil, "complete gen must pass runnable check")
 		// missing /sbin/init → hard error
 		os.Remove(filepath.Join(dir, "sbin", "init"))
-		err = checkGenRunnable(dir, 99)
+		err = checkGenRunnable(dir, 99, "alpine")
 		check(err != nil && strings.Contains(err.Error(), "incomplete"),
 			"missing sbin/init must hard-error, got: %v", err)
 		// missing /bin/sh → hard error
 		check(os.Symlink("/bin/busybox", filepath.Join(dir, "sbin", "init")) == nil, "restore init")
 		os.Remove(filepath.Join(dir, "bin", "sh"))
-		err = checkGenRunnable(dir, 99)
+		err = checkGenRunnable(dir, 99, "alpine")
 		check(err != nil && strings.Contains(err.Error(), "incomplete"),
 			"missing bin/sh must hard-error, got: %v", err)
 		os.RemoveAll(dir)
@@ -833,7 +833,7 @@ func selftestHookSweepNS() {
 	check(shErr == nil, "bin/sh must exist after sweep")
 	bmarker, _ := os.ReadFile(filepath.Join(genDir, "etc", "bmarker"))
 	check(strings.TrimSpace(string(bmarker)) == "bmarker", "pkgB bmarker content, got %q", string(bmarker))
-	check(checkGenRunnable(genDir, 0) == nil, "positive sweep: checkGenRunnable must pass")
+	check(checkGenRunnable(genDir, 0, "alpine") == nil, "positive sweep: checkGenRunnable must pass")
 
 	// NEGATIVE: remove the busybox-style link hook; pkgB's #!/bin/sh exec
 	// will fail (ENOENT for /bin/sh interpreter) → sweep error.

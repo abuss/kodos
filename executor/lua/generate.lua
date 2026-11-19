@@ -171,11 +171,14 @@ act("write_file", { path = "/etc/hostname",
 -- getty line COMMENTED OUT, so OpenRC boots fine but nothing ever reads
 -- the serial line: silent boot ending with no login prompt).
 if conf.system.serial_console then
-    if not backend.inittab then
+    if backend.inittab then
+        act("write_file", { path = "/etc/inittab", content = backend.inittab })
+    elseif not backend.serial_console_unit then
         error("system.serial_console: backend '" .. backend.name ..
               "' has no serial getty support")
     end
-    act("write_file", { path = "/etc/inittab", content = backend.inittab })
+    -- serial_console_unit backends get their enable_service below, in the
+    -- services section (op rank: after activation, like any unit)
 end
 
 -- sudoers: Alpine's sudo ships the %wheel rule COMMENTED OUT (upstream
@@ -301,6 +304,11 @@ for _, s in ipairs(plan) do
         act("enable_service", { name = s.name, unit = x.unit,
                                 runlevel = x.runlevel })
     end
+end
+if conf.system.serial_console and backend.serial_console_unit then
+    act("enable_service", { name = "serial-console",
+                            unit = backend.serial_console_unit,
+                            runlevel = "getty" })
 end
 for _, s in ipairs(hplan) do
     act("enable_home_service", { user = s.user, name = s.name,

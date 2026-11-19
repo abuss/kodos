@@ -99,4 +99,10 @@ M.home_services = {
 -- locale (incl. en_CA.UTF-8) can be compiled; nothing to pre-validate.
 M.locale_packages = {}
 
+-- Serial console: systemd instantiates serial-getty@ from the template unit
+-- that systemd ships; the executor enables it as a getty.target.wants link
+-- (Alpine instead ships a full /etc/inittab — see generate.lua's
+-- serial_console branch: backend.inittab OR backend.serial_console_unit).
+M.serial_console_unit = "serial-getty@ttyS0"
+
 return M

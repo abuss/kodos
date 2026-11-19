@@ -53,6 +53,8 @@ type executor struct {
 	declaredRunlevels map[string]bool // "runlevel/unit" this stream's enable_service set
 	hookRunlevels     map[string]bool // "runlevel/unit" package hooks enabled this run
 
+	needLocaleGen bool // arch: configure_locale armed locale-gen for activation
+
 	metadataFileBytes []byte // raw -metadata file for config_hash if provided
 	actionsFileBytes  []byte // raw actions file for config_hash fallback
 }
@@ -146,11 +148,8 @@ func cmdExec(args []string) error {
 	if err != nil {
 		return err
 	}
-	if af.Distro != "alpine" {
-		return fmt.Errorf("spike implements the alpine/apk family only (got distro %q)", af.Distro)
-	}
-	if meta.Distro != af.Distro || meta.Generation < 0 {
-		return fmt.Errorf("actions and metadata disagree (distro/generation)")
+	if err := checkDistro(af, meta); err != nil {
+		return err
 	}
 	// system.chroot is used ABSOLUTE everywhere: chrootResolve turns host
 	// paths chroot-relative, so a relative -root would double the prefix and
@@ -160,7 +159,7 @@ func cmdExec(args []string) error {
 		return err
 	}
 
-	e := &executor{s: &system{chroot: rootAbs}, meta: meta, arch: *arch, apk: *apkBin, metadataFileBytes: metaBytes, actionsFileBytes: afBytes}
+	e := &executor{s: &system{chroot: rootAbs, Distro: af.Distro}, meta: meta, arch: *arch, apk: *apkBin, metadataFileBytes: metaBytes, actionsFileBytes: afBytes}
 	if *secrets != "" {
 		if err := loadJSON(*secrets, &e.secrets); err != nil {
 			return err
@@ -204,6 +203,7 @@ func cmdSuitetest() error {
 		"test-equivalence.lua",
 		"test-generate.lua",
 		"test-lock.lua",
+		"test-arch-lock.lua",
 	}
 	for _, s := range suites {
 		out, err := runLuaScript(s, nil, "")
@@ -265,12 +265,23 @@ func (e *executor) run(act map[string]any) error {
 		if err := e.runPostInstalls(genDir, e.lastGen); err != nil {
 			return err
 		}
-		return checkGenRunnable(genDir, e.meta.Generation)
+		return checkGenRunnable(genDir, e.meta.Generation, e.meta.Distro)
 	case "activate_generation":
 		// just the flip: hooks already ran on this tree at create time;
 		// rollback streams carry no create_generation op, so they run none
 		// (spec amendment 969b171)
-		return e.s.activateGeneration(e.s.genDir(e.meta.Generation))
+		if err := e.s.activateGeneration(e.s.genDir(e.meta.Generation)); err != nil {
+			return err
+		}
+		// Review Focus 2: locale-gen needs the LIVE activated /etc — it can
+		// only run after the flip. ponytail: full file regen per activation
+		// (locale-gen is idempotent); add a per-locale check if it gets slow.
+		if e.meta.Distro == "arch" && e.needLocaleGen {
+			if err := e.chrootSh(e.s.chroot, "locale-gen"); err != nil {
+				return fmt.Errorf("activate_generation: locale-gen: %w", err)
+			}
+		}
+		return nil
 	case "create_user":
 		return e.createUser(act)
 	case "enable_service":
@@ -304,9 +315,36 @@ func summarize(act map[string]any) string {
 
 // ---- implemented ops ----
 
+// renderMirrorList/renderPacmanConf: arch repo config, distro-neutral action
+// fields (mirror/branches) -> pacman's files. Defaults stay pacman's own.
+func renderMirrorList(mirror string) string {
+	return "## kodos-managed: repos.base.mirror\nServer = " + mirror + "/$repo/os/$arch\n"
+}
+
+func renderPacmanConf(branches []string) string {
+	var b strings.Builder
+	b.WriteString("[options]\n")
+	b.WriteString("HoldPkg = pacman glibc\n")
+	b.WriteString("CleanMethod = KeepCurrent\n")
+	b.WriteString("SigLevel = Required DatabaseOptional\n")
+	b.WriteString("LocalFileSigLevel = Optional\n")
+	b.WriteString("ParallelDownloads = 5\n")
+	for _, br := range branches {
+		b.WriteString("\n[" + br + "]\nInclude = /etc/pacman.d/mirrorlist\n")
+	}
+	return b.String()
+}
+
 func (e *executor) configureRepos(act map[string]any) error {
 	e.mirror, _ = act["mirror"].(string)
 	e.branches = strList(act, "branches")
+	if e.meta != nil && e.meta.Distro == "arch" {
+		// arch: one mirror pattern covers every repo; sections only list names
+		if err := e.writeFileTo("/etc/pacman.d/mirrorlist", renderMirrorList(e.mirror), 0o644); err != nil {
+			return err
+		}
+		return e.writeFileTo("/etc/pacman.conf", renderPacmanConf(e.branches), 0o644)
+	}
 	var b strings.Builder
 	for _, br := range e.branches {
 		b.WriteString(e.mirror + "/" + br + "\n")
@@ -382,6 +420,30 @@ func (e *executor) installPackages(act map[string]any) error {
 		return fmt.Errorf("install_packages before configure_repos: no repos captured")
 	}
 	names := strList(act, "names")
+	if e.meta.Distro == "arch" {
+		// lockfile.lua already emitted the FULL closure as pins: the pins
+		// ARE the resolved set; no live solver on the arch exec path.
+		for _, n := range names {
+			if _, ok := e.meta.Packages[n]; !ok {
+				return fmt.Errorf("install_packages %s: not pinned in generation metadata", n)
+			}
+		}
+		resolved := map[string]string{}
+		for n, pin := range e.meta.Packages {
+			resolved[n] = pin.Version
+		}
+		for name, ver := range resolved {
+			if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
+				if err := e.fetchUnpack(name, ver); err != nil {
+					return err
+				}
+			}
+		}
+		e.resolved = resolved
+		fmt.Printf("install_packages: %d requested -> %d pinned (arch: lockfile closure is authoritative)\n",
+			len(names), len(resolved))
+		return nil
+	}
 	addArgs := []string{}
 	for _, n := range names {
 		if pin, ok := e.meta.Packages[n]; ok {
@@ -469,6 +531,9 @@ func (e *executor) apkSimulate(addArgs []string) (map[string]string, error) {
 }
 
 func (e *executor) fetchUnpack(name, version string) error {
+	if e.meta.Distro == "arch" {
+		return e.fetchUnpackArch(name, version)
+	}
 	client := &http.Client{Timeout: 5 * time.Minute}
 	var body io.ReadCloser
 	var lastErr error
@@ -519,6 +584,77 @@ func (e *executor) fetchUnpack(name, version string) error {
 	return unpackApkStream(body, dst, name)
 }
 
+// fetchUnpackArch: pinned version+sha256 are the contract — the URL list is
+// tried repo by repo (pin's repo first), the download is verified BEFORE any
+// store mutation, and a mismatch or 404 fails closed naming name, version
+// and every attempted URL (rolling-mirror drift must be loud, never silent).
+func (e *executor) fetchUnpackArch(name, version string) error {
+	pin, ok := e.meta.Packages[name]
+	if !ok || pin.Repo == "" || pin.Checksum == "" || pin.Arch == "" {
+		return fmt.Errorf("arch fetch %s-%s: no repo/checksum/arch pin", name, version)
+	}
+	repos := []string{pin.Repo}
+	for _, br := range e.branches {
+		if br != pin.Repo {
+			repos = append(repos, br)
+		}
+	}
+	client := &http.Client{Timeout: 5 * time.Minute}
+	var lastErr error
+	var tried []string
+	for _, r := range repos {
+		url := archPkgURL(e.mirror, r, e.arch, name, version, pin.Arch)
+		tried = append(tried, url)
+		resp, err := client.Get(url)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", url, err)
+			continue
+		}
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
+			continue
+		}
+		os.MkdirAll(e.s.cache(), 0o755)
+		tmp := filepath.Join(e.s.cache(), name+"-"+version+".pkg.tar.zst.kodos-tmp")
+		f, err := os.Create(tmp)
+		if err != nil {
+			resp.Body.Close()
+			return err
+		}
+		_, err = io.Copy(f, resp.Body)
+		resp.Body.Close()
+		f.Close()
+		if err != nil {
+			os.Remove(tmp)
+			lastErr = fmt.Errorf("%s: download: %w", url, err)
+			continue
+		}
+		if err := verifySha256(tmp, pin.Checksum); err != nil {
+			os.Remove(tmp)
+			return fmt.Errorf("arch fetch %s-%s: %w", name, version, err)
+		}
+		dst := filepath.Join(e.s.store(), name, version)
+		os.RemoveAll(dst)
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			os.Remove(tmp)
+			return err
+		}
+		rf, err := os.Open(tmp)
+		if err != nil {
+			return err
+		}
+		err = unpackArchStream(rf, dst, name)
+		rf.Close()
+		os.Remove(tmp)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("fetch %s-%s: %w (tried: %s)", name, version, lastErr, strings.Join(tried, ", "))
+}
+
 // unpackApkStream unpacks a .apk (tar.gz) stream into dst (pure,
 // selftested). Modes come from hdr.FileInfo().Mode() IN FULL: .Perm()
 // silently drops the setuid/setgid bits, and a sudo/su/passwd that lost
@@ -529,7 +665,13 @@ func unpackApkStream(body io.Reader, dst, name string) error {
 		return fmt.Errorf("unpack %s: %w", name, err)
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
+	return unpackTarStream(gz, dst, name)
+}
+
+// unpackTarStream walks an already-decompressed tar into dst (shared by
+// apk's tar.gz and arch's .pkg.tar.zst).
+func unpackTarStream(r io.Reader, dst, name string) error {
+	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {

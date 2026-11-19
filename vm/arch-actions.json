@@ -1,0 +1,185 @@
+{
+  "actions": [
+    {
+      "device": "/dev/nbd5",
+      "efi": true,
+      "op": "partition_disk",
+      "partitions": [
+        {
+          "index": 1,
+          "name": "boot",
+          "size": "512MB",
+          "type": "esp"
+        },
+        {
+          "index": 2,
+          "name": "root",
+          "size": "100%",
+          "type": "linux"
+        }
+      ],
+      "table": "gpt"
+    },
+    {
+      "filesystem": "vfat",
+      "op": "format",
+      "partition": "/dev/nbd5p1"
+    },
+    {
+      "filesystem": "ext4",
+      "op": "format",
+      "partition": "/dev/nbd5p2"
+    },
+    {
+      "op": "mount",
+      "options": "noatime",
+      "partition": "/dev/nbd5p2",
+      "point": "/"
+    },
+    {
+      "op": "mount",
+      "options": "defaults",
+      "partition": "/dev/nbd5p1",
+      "point": "/boot"
+    },
+    {
+      "filesystem": "tmpfs",
+      "op": "mount",
+      "options": "mode=1777,nosuid,nodev,size=25%",
+      "partition": "tmpfs",
+      "point": "/tmp"
+    },
+    {
+      "branches": [
+        "core",
+        "extra"
+      ],
+      "mirror": "https://geo.mirror.pkgbuild.com",
+      "op": "configure_repos",
+      "type": "arch"
+    },
+    {
+      "content": "{UUID:/dev/nbd5p2}\t/\text4\tnoatime\t0\t1\n{UUID:/dev/nbd5p1}\t/boot\tvfat\tdefaults\t0\t0\ntmpfs\t/tmp\ttmpfs\tmode=1777,nosuid,nodev,size=25%\t0\t0\n",
+      "op": "write_file",
+      "path": "/etc/fstab"
+    },
+    {
+      "content": "kodos-vm\n",
+      "op": "write_file",
+      "path": "/etc/hostname"
+    },
+    {
+      "content": "# kodos: wheel members are administrators\n%wheel ALL=(ALL:ALL) ALL\n",
+      "op": "write_file",
+      "path": "/etc/sudoers.d/60-kodos-admin"
+    },
+    {
+      "names": [
+        "base",
+        "efibootmgr",
+        "git",
+        "grub",
+        "linux",
+        "linux-firmware",
+        "networkmanager",
+        "openssh",
+        "sudo",
+        "tzdata"
+      ],
+      "op": "install_packages"
+    },
+    {
+      "default": "en_US.UTF-8",
+      "op": "configure_locale"
+    },
+    {
+      "console_keymap": "us",
+      "layout": "us",
+      "op": "configure_keyboard"
+    },
+    {
+      "op": "configure_timezone",
+      "timezone": "America/Edmonton"
+    },
+    {
+      "arguments": [
+        "console=ttyS0"
+      ],
+      "op": "set_kernel_arguments"
+    },
+    {
+      "name": "ssh",
+      "op": "configure_service",
+      "settings": {
+        "permit_root_login": true
+      },
+      "settings_file": "/etc/ssh/sshd_config"
+    },
+    {
+      "generations_keep": 5,
+      "op": "create_generation",
+      "packages": [
+        "base",
+        "efibootmgr",
+        "git",
+        "grub",
+        "linux",
+        "linux-firmware",
+        "networkmanager",
+        "openssh",
+        "sudo",
+        "tzdata"
+      ],
+      "root": "/kod"
+    },
+    {
+      "op": "activate_generation",
+      "root": "/kod"
+    },
+    {
+      "create_home": true,
+      "group": "wheel",
+      "home_directory": "/home/abuss",
+      "name": "Test User",
+      "op": "create_user",
+      "shell": "/bin/bash",
+      "supplementary_groups": [],
+      "user": "abuss"
+    },
+    {
+      "create_home": false,
+      "group": "root",
+      "home_directory": "/root",
+      "name": "Root account",
+      "op": "create_user",
+      "shell": "/bin/bash",
+      "user": "root"
+    },
+    {
+      "name": "networkmanager",
+      "op": "enable_service",
+      "runlevel": "default",
+      "unit": "NetworkManager"
+    },
+    {
+      "name": "ssh",
+      "op": "enable_service",
+      "runlevel": "default",
+      "unit": "sshd"
+    },
+    {
+      "name": "serial-console",
+      "op": "enable_service",
+      "runlevel": "getty",
+      "unit": "serial-getty@ttyS0"
+    },
+    {
+      "efi": true,
+      "op": "install_bootloader",
+      "timeout": 5,
+      "type": "grub"
+    }
+  ],
+  "distro": "arch",
+  "schema_version": 1
+}

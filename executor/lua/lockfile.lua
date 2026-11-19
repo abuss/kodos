@@ -5,9 +5,12 @@
 -- version+checksum found in the index. The executor installs EXACTLY
 -- these; rollback = activate an older generation file.
 --
--- Usage: lua lockfile.lua <generation-number> <APKINDEX...> -- <config.lua> [layer.lua ...]
+-- Usage: lua lockfile.lua <generation-number> <APKINDEX|<repo>.desc...> -- <config.lua> [layer.lua ...]
 -- Index input: extracted apk index text (`tar -xzOf main.apkindex.tar.gz APKINDEX`),
--- or .tar.gz directly (auto-extracted via tar). Output: JSON on stdout.
+-- or .tar.gz directly (auto-extracted via tar). ALPM (arch) sync DBs: pass the
+-- extracted `desc` member text named after its repo (core.desc, extra.desc);
+-- detected by format, closure resolved internally (no apk-tools needed).
+-- Output: JSON on stdout.
 --
 -- Deviation from the GENERATION_STORAGE_SUMMARY sketch: packages map to
 -- {version, checksum} records (the IR {name,version,checksum} hook), and
@@ -16,6 +19,7 @@
 local resolve = require("resolve")
 local validate = require("validate")
 local json = require("json")
+local alpm = require("alpm")
 
 -- parse one apk index (stanza-per-package; P=name V=version C=checksum,
 -- single-letter field keys, blank-line separated)
@@ -38,18 +42,20 @@ local function parse_apk_index(text, into)
     commit()
 end
 
-local function read_index(path)
-    local text
+local function read_text(path)
     if path:match("%.tar%.gz$") then
         local h = assert(io.popen("tar -xzOf '" .. path .. "' APKINDEX"),
                          "cannot extract APKINDEX from " .. path)
-        text = h:read("*a")
+        local t = h:read("*a")
         h:close()
-    else
-        text = assert(io.open(path)):read("*a")
+        return t
     end
+    return assert(io.open(path)):read("*a")
+end
+
+local function read_index(path)
     local pkgs = {}
-    parse_apk_index(text, pkgs)
+    parse_apk_index(read_text(path), pkgs)
     return pkgs
 end
 
@@ -64,13 +70,23 @@ if not sep or sep < 3 then
 end
 local generation = assert(tonumber(arg[1]), "generation number must be an integer")
 local index, allrec, ipaths = {}, {}, {}
+local archMode = false
 for i = 2, sep - 1 do
     ipaths[#ipaths + 1] = arg[i]
-    for name, rec in pairs(read_index(arg[i])) do
-        allrec[name .. "|" .. rec.version] = rec.checksum
-        -- first index wins (apk resolution order: repos later in the file
-        -- are lower priority; pass main before community)
-        if not index[name] then index[name] = rec end
+    local text = read_text(arg[i])
+    if alpm.is_alpm(text) then
+        archMode = true
+        local repo = (arg[i]:match("([^/]-)%.%w+$") or arg[i]):match("([^/]+)$")
+        for name, rec in pairs(alpm.parse(text, repo)) do
+            if not index[name] then index[name] = rec end
+        end
+    else
+        for name, rec in pairs(read_index(arg[i])) do
+            allrec[name .. "|" .. rec.version] = rec.checksum
+            -- first index wins (apk resolution order: repos later in the file
+            -- are lower priority; pass main before community)
+            if not index[name] then index[name] = rec end
+        end
     end
 end
 local cfiles = {}
@@ -99,11 +115,21 @@ end
 
 -- ====== closure lock ======
 -- config names are REQUESTS, not a closure: busybox/musl/so: providers
--- arrive only via depends. Lock the FULL closure with the same solver the
--- executor uses (the repo's static apk-tools), simulating the pinned
--- request set against exactly these index snapshots (packaged as
--- file:// repos). Every package the machine needs ends up pinned; the
--- executor then re-resolves live and hard-errors on any version drift.
+-- arrive only via depends. Lock the FULL closure: arch resolves it with
+-- alpm.lua against exactly these DB snapshots (no external tool); apk uses
+-- the same solver the executor uses (the repo's static apk-tools),
+-- simulating the pinned request set against exactly these index snapshots
+-- (packaged as file:// repos). Every package the machine needs ends up
+-- pinned; the executor then re-resolves live and hard-errors on any
+-- version drift.
+if archMode then
+    local ok, res = pcall(alpm.closure, names, index)
+    if not ok then
+        io.stderr:write("LOCK ERROR: " .. tostring(res) .. "\n")
+        os.exit(1)
+    end
+    locked = res
+else
 local apkbin = os.getenv("KODOS_APK") or "../../vm/apk-tools-static"
 if not io.open(apkbin) then
     io.stderr:write("LOCK ERROR: closure lock needs static apk-tools "
@@ -166,6 +192,7 @@ if closure == 0 then
     io.stderr:write("LOCK ERROR: apk closure resolve produced nothing:\n" .. simout)
     os.exit(1)
 end
+end -- else (apk closure path)
 
 -- flatpak apps cannot be version-locked offline (Flathub is the authority);
 -- recorded as floating ids until an online lock exists

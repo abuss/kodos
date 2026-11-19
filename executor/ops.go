@@ -234,10 +234,14 @@ func specsFromAction(act map[string]any) ([]partSpec, error) {
 
 // grubEntry: one boot menu entry per generation; dir is the ESP-relative
 // directory holding that generation's kernel+initramfs ("" = ESP root).
+// initExt is the initramfs filename extension: Alpine images are
+// initramfs-<kver>, arch images initramfs-<flavor>.img ("" keeps the
+// alpine byte-identical shape).
 type grubEntry struct {
-	gen  int
-	kver string
-	dir  string
+	gen     int
+	kver    string
+	dir     string
+	initExt string
 }
 
 // renderGrubCfg is pure (selftested): ESP-relative kernel paths (vfat,
@@ -259,9 +263,9 @@ terminal_output serial console
 	for _, en := range entries {
 		fmt.Fprintf(&b, `menuentry 'Kodos generation %d' {
 	linux %s/vmlinuz-%s %s
-	initrd %s/initramfs-%s
+	initrd %s/initramfs-%s%s
 }
-`, en.gen, en.dir, en.kver, cmdline, en.dir, en.kver)
+`, en.gen, en.dir, en.kver, cmdline, en.dir, en.kver, en.initExt)
 	}
 	return b.String()
 }
@@ -898,9 +902,17 @@ func (e *executor) runPostInstalls(genDir string, toInstall map[string]string) e
 // entries: /sbin/init and /bin/sh. Missing either means a package post-install
 // hook silently failed to create it (busybox's --install -s creates both).
 // Hard-error here — before activation can ever expose the incomplete tree.
-func checkGenRunnable(genDir string, n int) error {
+// arch (usrmerge): bin/sbin are dir links and init is itself a symlink —
+// RAW Lstat merely sees a link's existence even when it points OUT of the
+// tree (an absolute /kod-rooted or host-path target); resolve within the
+// tree before judging.
+func checkGenRunnable(genDir string, n int, distro string) error {
 	for _, p := range []string{"sbin/init", "bin/sh"} {
-		if _, err := os.Lstat(filepath.Join(genDir, p)); err != nil {
+		target := filepath.Join(genDir, p)
+		if distro == "arch" {
+			target = genTreeResolve(genDir, p)
+		}
+		if _, err := os.Lstat(target); err != nil {
 			return fmt.Errorf("generation %d incomplete: /%s missing after hooks"+
 				" (package post-install failure?)", n, p)
 		}
@@ -1050,6 +1062,16 @@ func (e *executor) configureLocale(act map[string]any) error {
 	if def == "" {
 		return fmt.Errorf("configure_locale: no default")
 	}
+	if e.meta != nil && e.meta.Distro == "arch" {
+		// glibc convention: enable the locale in /etc/locale.gen, expose
+		// LANG in /etc/locale.conf; locale-gen runs at activation (the
+		// live /etc only exists then — see the activate_generation hook).
+		if err := e.writeFileTo("/etc/locale.gen", def+" UTF-8\n", 0o644); err != nil {
+			return err
+		}
+		e.needLocaleGen = true
+		return e.writeFileTo("/etc/locale.conf", fmt.Sprintf("LANG=%q\n", def), 0o644)
+	}
 	return e.writeFileTo("/etc/env.d/02locale", fmt.Sprintf("LANG=%q\n", def), 0o644)
 }
 
@@ -1058,6 +1080,9 @@ func (e *executor) configureKeyboard(act map[string]any) error {
 	keymap := field(act, "console_keymap")
 	if keymap == "" {
 		keymap = layout
+	}
+	if e.meta != nil && e.meta.Distro == "arch" {
+		return e.writeFileTo("/etc/vconsole.conf", fmt.Sprintf("KEYMAP=%s\n", keymap), 0o644)
 	}
 	return e.writeFileTo("/etc/conf.d/keymaps",
 		fmt.Sprintf("KEYMAP=%q\nSETUNICODE=%q\n", keymap, "yes"), 0o644)
@@ -1068,16 +1093,43 @@ func (e *executor) configureTimezone(act map[string]any) error {
 	if tz == "" {
 		return fmt.Errorf("configure_timezone: no timezone")
 	}
-	if err := e.writeFileTo("/etc/timezone", tz+"\n", 0o644); err != nil {
-		return err
+	if e.meta == nil || e.meta.Distro != "arch" {
+		// arch: localtime only — modern Arch dropped /etc/timezone
+		// (RTC convention lives in /etc/adjtime, untouched here)
+		if err := e.writeFileTo("/etc/timezone", tz+"\n", 0o644); err != nil {
+			return err
+		}
 	}
 	link := filepath.Join(e.s.chroot, "etc/localtime")
+	os.MkdirAll(filepath.Dir(link), 0o755) // fresh roots: etc/ may not exist yet
 	os.Remove(link)
 	return os.Symlink("/usr/share/zoneinfo/"+tz, link) // resolves once /usr is activated
 }
 
 func (e *executor) loadKernelModules(act map[string]any) error {
 	mods := strList(act, "modules")
+	if e.meta != nil && e.meta.Distro == "arch" {
+		// systemd-modules-load reads /etc/modules-load.d/*.conf at boot
+		// (Alpine's /etc/modules is an OpenRC-only file)
+		p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules-load.d/kodos.conf"))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		b, _ := os.ReadFile(p) // idempotent: skip modules already listed
+		existing := strings.TrimRight(string(b), "\n")
+		var add []string
+		for _, m := range mods {
+			if !strings.Contains(existing, m) {
+				add = append(add, m)
+			}
+		}
+		if len(add) == 0 {
+			return nil
+		}
+		out := strings.Join(add, "\n") + "\n"
+		if existing != "" {
+			out = existing + "\n" + out
+		}
+		return os.WriteFile(p, []byte(out), 0o644)
+	}
 	// chrootResolve: live /etc/modules may be a chroot-rooted managed link;
 	// its target only resolves rooted at the chroot (see writeFileTo).
 	p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules"))
@@ -1182,11 +1234,19 @@ func (e *executor) createUser(act map[string]any) error {
 			}
 			fmt.Fprintf(&mkgroups, "grep -q '^%s:' /etc/group || groupadd %s; ", g, g)
 		}
+		// -G only when there ARE supplementary groups: shadow's useradd
+		// (arch) reads `-G ''` as asking for default-group membership and
+		// warns/falls back to /etc/default/useradd's GROUP=users, which
+		// Arch's /etc/group does not define. Busybox (alpine) tolerated it.
+		supFlag := ""
+		if sup := strList(act, "supplementary_groups"); len(sup) > 0 {
+			supFlag = " -G " + shellQuote(strings.Join(sup, ","))
+		}
 		script := fmt.Sprintf(
-			"%suseradd %s-d %s -s %s -g %s -G %s -c %s %s",
+			"%suseradd %s-d %s -s %s -g %s%s -c %s %s",
 			mkgroups.String(),
 			flags, shellQuote(field(act, "home_directory")), shellQuote(field(act, "shell")),
-			shellQuote(field(act, "group")), shellQuote(strings.Join(strList(act, "supplementary_groups"), ",")),
+			shellQuote(field(act, "group")), supFlag,
 			shellQuote(field(act, "name")), shellQuote(login))
 		if err := e.chrootSh(e.s.chroot, script); err != nil {
 			return fmt.Errorf("create_user %s: %w", login, err)
@@ -1205,6 +1265,9 @@ func (e *executor) createUser(act map[string]any) error {
 
 func (e *executor) enableService(act map[string]any) error {
 	unit, runlevel := field(act, "unit"), field(act, "runlevel")
+	if e.meta != nil && e.meta.Distro == "arch" {
+		return e.enableServiceSystemd(act, unit, runlevel)
+	}
 	os.MkdirAll(filepath.Join(e.s.chroot, "etc/runlevels", runlevel), 0o755)
 	out, err := e.chrootShOut(fmt.Sprintf("rc-update add %s %s", shellQuote(unit), shellQuote(runlevel)))
 	if err != nil && !strings.Contains(out, "already been added") {
@@ -1217,11 +1280,98 @@ func (e *executor) enableService(act map[string]any) error {
 	return nil
 }
 
+// enableServiceSystemd: systemd "enable" is just a wants-symlink under
+// /etc/systemd/system — offline-safe, no systemctl in the chroot. Review
+// Focus 1: the unit file MUST exist in the activated generation tree before
+// linking: systemd silently skips dangling wants links, so a typo'd unit
+// would ship a service that never starts. runlevel maps to target:
+// boot/default -> multi-user.target, getty -> getty.target.
+func (e *executor) enableServiceSystemd(act map[string]any, unit, runlevel string) error {
+	var target string
+	switch runlevel {
+	case "boot", "default":
+		target = "multi-user.target"
+	case "getty":
+		target = "getty.target"
+	default:
+		return fmt.Errorf("arch enable_service: runlevel %q unsupported", runlevel)
+	}
+	unitFile := unit
+	if !strings.Contains(unitFile, ".") {
+		unitFile += ".service"
+	}
+	hdrFile := unitFile // link NAME is the instance; its TARGET may be the template
+	genDir := e.s.genDir(e.meta.Generation)
+	lookup := func(rel string) bool {
+		return lexists(e.s.chrootResolve(filepath.Join(genDir, "usr/lib/systemd/system", rel)))
+	}
+	if !lookup(unitFile) {
+		// templated instance: serial-getty@ttyS0.service <- serial-getty@.service
+		if i := strings.Index(unitFile, "@"); i >= 0 {
+			if dot := strings.Index(unitFile[i:], "."); dot >= 0 {
+				hdrFile = unitFile[:i+1] + unitFile[i+dot:]
+				if !lookup(hdrFile) {
+					return fmt.Errorf("enable_service %s: unit %s not shipped by any package", field(act, "name"), unitFile)
+				}
+			} else {
+				return fmt.Errorf("enable_service %s: unit %s not shipped by any package", field(act, "name"), unitFile)
+			}
+		} else {
+			return fmt.Errorf("enable_service %s: unit %s not shipped by any package", field(act, "name"), unitFile)
+		}
+	}
+	wants := filepath.Join(e.s.chroot, "etc/systemd/system", target+".wants")
+	if err := os.MkdirAll(wants, 0o755); err != nil {
+		return err
+	}
+	link := filepath.Join(wants, unitFile)
+	hdr := "/usr/lib/systemd/system/" + hdrFile
+	if st, err := os.Lstat(link); err == nil {
+		if st.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("enable_service %s: %s is not a symlink", field(act, "name"), link)
+		}
+		if cur, _ := os.Readlink(link); cur != hdr {
+			os.Remove(link)
+			if err := os.Symlink(hdr, link); err != nil {
+				return fmt.Errorf("enable_service %s: %w", field(act, "name"), err)
+			}
+		} // else: idempotent rerun
+	} else if err := os.Symlink(hdr, link); err != nil {
+		return fmt.Errorf("enable_service %s: %w", field(act, "name"), err)
+	}
+	if e.declaredRunlevels == nil {
+		e.declaredRunlevels = map[string]bool{}
+	}
+	e.declaredRunlevels[target+".wants/"+unitFile] = true
+	return nil
+}
+
 // snapshotRunlevels indexes <root>/etc/runlevels entries as "runlevel/unit"
 // (rootDir = where the hooks/ops write: the raw gen tree at create time, the
 // live chroot everywhere else).
 func (e *executor) snapshotRunlevels(rootDir string) map[string]bool {
 	set := map[string]bool{}
+	if e.meta != nil && e.meta.Distro == "arch" {
+		// same key space as declaredRunlevels: "<target>.wants/<unitFile>"
+		sysDir := filepath.Join(rootDir, "etc/systemd/system")
+		sysDirs, err := os.ReadDir(sysDir)
+		if err != nil {
+			return set
+		}
+		for _, d := range sysDirs {
+			if !d.IsDir() || !strings.HasSuffix(d.Name(), ".wants") {
+				continue
+			}
+			units, err := os.ReadDir(filepath.Join(sysDir, d.Name()))
+			if err != nil {
+				continue
+			}
+			for _, u := range units {
+				set[d.Name()+"/"+u.Name()] = true
+			}
+		}
+		return set
+	}
 	roots, err := os.ReadDir(filepath.Join(rootDir, "etc/runlevels"))
 	if err != nil {
 		return set
@@ -1251,6 +1401,9 @@ func (e *executor) snapshotRunlevels(rootDir string) map[string]bool {
 func (e *executor) reconcileRunlevels() error {
 	if len(e.declaredRunlevels) == 0 {
 		return nil // this stream does not manage services: hands off
+	}
+	if e.meta != nil && e.meta.Distro == "arch" {
+		return e.reconcileWants()
 	}
 	rlRoot := filepath.Join(e.s.chroot, "etc/runlevels")
 	roots, err := os.ReadDir(rlRoot)
@@ -1283,6 +1436,46 @@ func (e *executor) reconcileRunlevels() error {
 				return fmt.Errorf("reconcile runlevels %s: %w", key, err)
 			}
 			fmt.Printf("runlevel reconcile: removed stale %s\n", key)
+		}
+	}
+	return nil
+}
+
+// reconcileWants: arch form of the runlevel sweep — declares services
+// declaratively through wants-symlinks under /etc/systemd/system. Only
+// symlinks are swept (a real file there is the admin's); static package
+// enables live under /usr and are never touched.
+func (e *executor) reconcileWants() error {
+	sysDir := filepath.Join(e.s.chroot, "etc/systemd/system")
+	dirs, err := os.ReadDir(sysDir)
+	if err != nil {
+		return nil
+	}
+	for _, d := range dirs {
+		if !d.IsDir() || !strings.HasSuffix(d.Name(), ".wants") {
+			continue
+		}
+		units, err := os.ReadDir(filepath.Join(sysDir, d.Name()))
+		if err != nil {
+			continue
+		}
+		for _, u := range units {
+			key := d.Name() + "/" + u.Name()
+			if e.declaredRunlevels[key] || e.hookRunlevels[key] {
+				continue
+			}
+			p := filepath.Join(sysDir, d.Name(), u.Name())
+			st, err := os.Lstat(p)
+			if err != nil {
+				continue
+			}
+			if st.Mode()&os.ModeSymlink == 0 {
+				continue // not a link we manage: hands off
+			}
+			if err := os.Remove(p); err != nil {
+				return fmt.Errorf("reconcile wants %s: %w", key, err)
+			}
+			fmt.Printf("wants reconcile: removed stale %s\n", key)
 		}
 	}
 	return nil
@@ -1330,8 +1523,54 @@ func (e *executor) installBootloader(act map[string]any) error {
 	// (suffix from kernel-suffix, matching the vmlinuz-<flavor> name).
 	// mkinitfs runs chrooted into the generation tree, so its output
 	// lands in <gen>/boot; the ESP copy below runs AFTER the build.
-	modsGen := filepath.Join(gen, "lib", "modules")
-	if dirs, _ := filepath.Glob(filepath.Join(modsGen, "*")); len(dirs) > 0 {
+	// arch: the lockfile pins ARE the kernel set — pair pins with modules
+	// dirs and run depmod + mkinitcpio per kernel (flavor = package name:
+	// initramfs-<Flavor>.img). No cleanInitramfs pass: mkinitcpio hooks
+	// copy file CONTENTS (our etc entries are hardlinks), nothing /kod-
+	// rooted enters the image; the systemd-content guard below covers
+	// hollowing.
+	var archJobs []kJob
+	if e.meta.Distro == "arch" {
+		// genTreeResolve: <gen>/lib is an usrmerged dir link; a raw
+		// genDir/lib glob would hit the HOST's /usr/lib/modules instead.
+		archModDirs := archModulesDirs(gen)
+		var err error
+		archJobs, err = archKernelJobs(e.meta.Packages, archModDirs)
+		if err != nil {
+			return fmt.Errorf("bootloader: %w (kernel packages half-installed?)", err)
+		}
+		for _, j := range archJobs {
+			if err := e.genChrootSh("depmod " + shellQuote(j.Kver)); err != nil {
+				return fmt.Errorf("bootloader depmod %s: %w", j.Kver, err)
+			}
+			// mkinitcpio 42.x CLI: -k kernel version, -g write image to
+			// path (no -o option exists in this world's mkinitcpio).
+			if err := e.genChrootSh("mkinitcpio -k " + shellQuote(j.Kver) +
+				" -g /boot/initramfs-" + j.Flavor + ".img"); err != nil {
+				return fmt.Errorf("bootloader mkinitcpio %s: %w", j.Flavor, err)
+			}
+			img := filepath.Join(gen, "boot", "initramfs-"+j.Flavor+".img")
+			if _, err := os.Stat(img); err != nil {
+				return fmt.Errorf("bootloader: mkinitcpio %s wrote no initramfs-%s.img", j.Kver, j.Flavor)
+			}
+			if err := initramfsSaneArch(img); err != nil {
+				return fmt.Errorf("bootloader: %w (check mkinitcpio.conf HOOKS line; base+systemd needed)", err)
+			}
+			// Arch ships the kernel at /usr/lib/modules/<kver>/vmlinuz;
+			// nothing places it in /boot (no package scripts on this path).
+			// Stage it under the FLAVOR name so the shared ESP copy and
+			// grub /vmlinuz-<flavor> + /initramfs-<flavor>.img paths agree.
+			kbin := archVmlinuzSource(gen, j.Kver)
+			kb, err := os.ReadFile(kbin)
+			if err != nil {
+				return fmt.Errorf("bootloader kernel %s: read %s: %w", j.Kver, kbin, err)
+			}
+			if err := os.WriteFile(filepath.Join(gen, "boot", "vmlinuz-"+j.Flavor), kb, 0o644); err != nil {
+				return fmt.Errorf("bootloader kernel %s: stage vmlinuz-%s: %w", j.Kver, j.Flavor, err)
+			}
+			fmt.Printf("initramfs built: initramfs-%s.img (kernel %s)\n", j.Flavor, j.Kver)
+		}
+	} else if dirs, _ := filepath.Glob(filepath.Join(gen, "lib", "modules", "*")); len(dirs) > 0 {
 		for _, md := range dirs {
 			abi := filepath.Base(md)
 			// chrootResolve: gen-tree files are chroot-rooted links that
@@ -1435,20 +1674,33 @@ func (e *executor) installBootloader(act map[string]any) error {
 		return fmt.Errorf("bootloader: no %s/boot/vmlinuz-* (kernel package missing?)", gen)
 	}
 	kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
-	if _, err := os.Stat(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
-		return fmt.Errorf("bootloader: no initramfs for kernel %s (mkinitfs failed?)", kver)
+	if e.meta.Distro == "arch" && len(archJobs) > 0 {
+		// Arch image name is flavor-based (initramfs-<flavor>.img) and the
+		// staged kernel uses the same flavor: renderGrubCfg uses kver for
+		// BOTH paths, so it must be the flavor here, not the modules dir.
+		kver = archJobs[0].Flavor
 	}
-	// mkinitfs degrades SILENTLY: its file-collection stage runs through
-	// shell pipelines that swallow failures (missing lddtree, empty
-	// features files under /etc/mkinitfs), leaving a skeleton image with
-	// no busybox//bin/sh: the kernel unpacks an almost-empty rootfs and
-	// panics "No working init found" with zero console output. We saw a
-	// 3.5MB hollow image pass a size guard, so check CONTENTS: a real
-	// image always carries busybox in the cpio stream.
-	if err := initramfsSane(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
-		return fmt.Errorf("bootloader: initramfs-%s is skeleton (%v): "+
-			"mkinitfs degraded: check etc/mkinitfs/mkinitfs.conf features line and features.d/*.files",
-			kver, err)
+	initExt := ""
+	if e.meta.Distro == "arch" {
+		// arch images are named initramfs-<flavor>.img; per-kernel
+		// existence + content guards already ran in the build loop.
+		initExt = ".img"
+	} else {
+		if _, err := os.Stat(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
+			return fmt.Errorf("bootloader: no initramfs for kernel %s (mkinitfs failed?)", kver)
+		}
+		// mkinitfs degrades SILENTLY: its file-collection stage runs through
+		// shell pipelines that swallow failures (missing lddtree, empty
+		// features files under /etc/mkinitfs), leaving a skeleton image with
+		// no busybox//bin/sh: the kernel unpacks an almost-empty rootfs and
+		// panics "No working init found" with zero console output. We saw a
+		// 3.5MB hollow image pass a size guard, so check CONTENTS: a real
+		// image always carries busybox in the cpio stream.
+		if err := initramfsSane(filepath.Join(gen, "boot", "initramfs-"+kver)); err != nil {
+			return fmt.Errorf("bootloader: initramfs-%s is skeleton (%v): "+
+				"mkinitfs degraded: check etc/mkinitfs/mkinitfs.conf features line and features.d/*.files",
+				kver, err)
+		}
 	}
 	timeout := 5
 	if f, ok := act["timeout"].(float64); ok {
@@ -1462,7 +1714,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 	// SWITCHING remains kodos rollback.
 	bootDst := e.s.chrootResolve(filepath.Join(e.s.chroot, "boot"))
 	genIdx := e.meta.Generation
-	entries := []grubEntry{{genIdx, kver, ""}}
+	entries := []grubEntry{{genIdx, kver, "", initExt}}
 	genDirs, _ := filepath.Glob(filepath.Join(e.s.root(), "generation", "[0-9]*"))
 	slices.SortFunc(genDirs, func(a, b string) int {
 		x, _ := strconv.Atoi(filepath.Base(a))
@@ -1496,7 +1748,7 @@ func (e *executor) installBootloader(act map[string]any) error {
 		}); err != nil {
 			return fmt.Errorf("bootloader: generation %d boot copy: %w", g, err)
 		}
-		entries = append(entries, grubEntry{g, gkv, fmt.Sprintf("/gen-%d", g)})
+		entries = append(entries, grubEntry{g, gkv, fmt.Sprintf("/gen-%d", g), initExt})
 	}
 	// prune ESP gen-N trees whose generation was pruned away
 	alive := map[string]bool{}
