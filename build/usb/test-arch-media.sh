@@ -6,6 +6,7 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 TDIR=${TMPDIR:-/tmp/opencode}
 STAGE=$TDIR/arch-stage-test
 DESC_DIR=${ARCH_DESC_DIR:-/tmp/opencode/arch}
+export ARCH_DESC_DIR=$DESC_DIR
 mkdir -p "$TDIR"
 
 # Task 4 replaces these with the real installer and docs; staging copies them.
@@ -65,4 +66,16 @@ ARCH_DESC_DIR=$DESC_DIR STAGE_ONLY=1 OUT="$STAGE" \
     sh "$REPO/build/usb/mkinstall-arch-usb.sh" \
     > "$TDIR/arch-stage-restore.log" 2>&1
 
-echo "test-arch-media staging: ok"
+sh -n "$REPO/build/usb/mkinstall-arch-iso.sh"
+ISO=$TDIR/kodos-arch-install-test.iso
+STAGE=$STAGE STAGE_SCRIPT="$REPO/build/usb/mkinstall-arch-usb.sh" \
+    sh "$REPO/build/usb/mkinstall-iso.sh" "$ISO" >/dev/null
+[ -s "$ISO" ] || { echo "no Arch ISO"; exit 1; }
+xorriso -indev "$ISO" -find /kodos -maxdepth 1 2>/dev/null | grep -q run-install.sh \
+    || { echo "ISO missing /kodos payload"; exit 1; }
+git -C "$REPO" diff --exit-code -- build/usb/mkinstall-usb.sh build/usb/run-install.sh build/usb/config \
+    || { echo "Alpine media changed"; exit 1; }
+grep -Fq 'STAGE_SCRIPT:-$REPO/build/usb/mkinstall-usb.sh' "$REPO/build/usb/mkinstall-iso.sh" \
+    || { echo "ISO builder default override missing"; exit 1; }
+
+echo "test-arch-media iso: ok"

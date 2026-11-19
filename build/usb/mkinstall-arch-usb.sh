@@ -19,6 +19,7 @@ PACMAN_BIN=${PACMAN_BIN:-pacman}
 # Optional pre-staged desc snapshots: lets a non-root host stage media without
 # sudo. Real builds leave this unset so pacman remains the DB trust oracle.
 ARCH_DESC_DIR=${ARCH_DESC_DIR:-}
+export ARCH_DESC_DIR
 DBROOT=/tmp/opencode/arch-media
 DBPATH=$DBROOT/db
 PACMAN_CACHE=$DBROOT/cache
@@ -100,4 +101,36 @@ stage_payload() {
 }
 
 stage_payload
-[ -z "${STAGE_ONLY:-}" ] || exit 0
+if [ -n "${STAGE_ONLY:-}" ]; then
+    echo "STAGE_ONLY: no device touched"
+    exit 0
+fi
+
+DEV=${1:-}
+[ -b "$DEV" ] || { echo "usage: $0 /dev/sdX  (the WHOLE USB stick; it is erased)"; exit 2; }
+if lsblk -n -o MOUNTPOINT "$DEV" 2>/dev/null | grep -q '[^[:space:]]'; then
+    echo "ERROR: $DEV (or a partition of it) is mounted. Not the stick you mean?"
+    exit 1
+fi
+
+echo "ALL DATA ON $DEV WILL BE DESTROYED (kodos install USB, Arch x86_64)."
+printf 'type the device name to confirm: '
+read -r CONFIRM
+[ "$CONFIRM" = "$DEV" ] || { echo "not confirmed; aborted"; exit 1; }
+
+KISO=$CACHE/kodos-arch-install-$REL.iso
+sh "$(dirname "$0")/mkinstall-arch-iso.sh"
+[ -s "$KISO" ] || { echo "ERROR: mkinstall-arch-iso.sh produced no $KISO"; exit 1; }
+echo "dd $KISO -> $DEV"
+dd if="$KISO" of="$DEV" bs=4M status=progress oflag=sync
+sync
+
+echo
+echo "USB ready. Full walkthrough: /kodos/README-arch.md in the ISO (also on the stick)."
+echo "Boot the target from it (BIOS or UEFI, Secure Boot OFF), on the live system:"
+echo "  ifconfig eth0 up && udhcpc -i <if>   # network is required"
+echo "  D=\$(find /media /run/media -maxdepth 4 -name run-install.sh | head -1)"
+echo "  cp -a \"\${D%/*}\" /root/kodos"
+echo "  vi /root/kodos/config/arch-machine.lua    # the /dev/... disk line (lsblk)"
+echo "  sh /root/kodos/arch-run-install.sh --dry-run"
+echo "  sh /root/kodos/arch-run-install.sh"
