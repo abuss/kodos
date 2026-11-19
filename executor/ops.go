@@ -1300,6 +1300,7 @@ func (e *executor) enableServiceSystemd(act map[string]any, unit, runlevel strin
 	if !strings.Contains(unitFile, ".") {
 		unitFile += ".service"
 	}
+	hdrFile := unitFile // link NAME is the instance; its TARGET may be the template
 	genDir := e.s.genDir(e.meta.Generation)
 	lookup := func(rel string) bool {
 		return lexists(e.s.chrootResolve(filepath.Join(genDir, "usr/lib/systemd/system", rel)))
@@ -1308,7 +1309,8 @@ func (e *executor) enableServiceSystemd(act map[string]any, unit, runlevel strin
 		// templated instance: serial-getty@ttyS0.service <- serial-getty@.service
 		if i := strings.Index(unitFile, "@"); i >= 0 {
 			if dot := strings.Index(unitFile[i:], "."); dot >= 0 {
-				if !lookup(unitFile[:i+1] + unitFile[i+dot:]) {
+				hdrFile = unitFile[:i+1] + unitFile[i+dot:]
+				if !lookup(hdrFile) {
 					return fmt.Errorf("enable_service %s: unit %s not shipped by any package", field(act, "name"), unitFile)
 				}
 			} else {
@@ -1323,7 +1325,7 @@ func (e *executor) enableServiceSystemd(act map[string]any, unit, runlevel strin
 		return err
 	}
 	link := filepath.Join(wants, unitFile)
-	hdr := "/usr/lib/systemd/system/" + unitFile
+	hdr := "/usr/lib/systemd/system/" + hdrFile
 	if st, err := os.Lstat(link); err == nil {
 		if st.Mode()&os.ModeSymlink == 0 {
 			return fmt.Errorf("enable_service %s: %s is not a symlink", field(act, "name"), link)

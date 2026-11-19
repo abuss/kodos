@@ -67,6 +67,30 @@ func TestEnableServiceArch(t *testing.T) {
 	}
 }
 
+// A templated unit's wants link must point at the shipped TEMPLATE, not at
+// the instance filename: systemd silently skips wants links whose target
+// is missing, so the old instance-named target made every templated unit
+// invisible unless a generator happened to create it (ttyS0 did).
+func TestEnableServiceArchTemplatedInstanceLinksToTemplate(t *testing.T) {
+	e, root := archSvcExec(t)
+	if err := e.enableService(map[string]any{"name": "serial-console",
+		"unit": "serial-getty@ttyS0", "runlevel": "getty"}); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service")
+	tgt, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("templated wants link: %v", err)
+	}
+	const want = "/usr/lib/systemd/system/serial-getty@.service"
+	if tgt != want {
+		t.Fatalf("templated wants link target = %q, want %q", tgt, want)
+	}
+	if st, err := os.Stat(filepath.Join(root, "kod/generation/0", strings.TrimPrefix(tgt, "/"))); err != nil || st.IsDir() {
+		t.Fatalf("wants link target missing in generation tree: %v", err)
+	}
+}
+
 func TestReconcileWants(t *testing.T) {
 	e, root := archSvcExec(t)
 	if err := e.enableService(map[string]any{"name": "ssh", "unit": "sshd", "runlevel": "boot"}); err != nil {
