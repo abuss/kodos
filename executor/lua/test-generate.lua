@@ -344,4 +344,18 @@ assert(not ar:find("/etc/inittab", 1, true),
 assert(pos(ar, '"linux-firmware"') and pos(ar, '"base"'))
 os.remove("_scratch_arch.lua")
 
+-- ====== arch install media: standalone bare-metal config ======
+local am = run("../../build/usb/arch-config/arch-machine.lua")
+assert(pos(am, '"distro": "arch"'), "media config must select arch backend")
+assert(pos(am, '"mirror": "https://mirror.rackspace.com/archlinux"'))
+assert(pos(am, '"core"') and pos(am, '"extra"'), "core+extra branches")
+assert(pos(am, '"device": "/dev/sda"'), "bare-metal default disk")
+assert(pos(am, '"type": "grub"') and pos(am, '"efi": true'), "GRUB EFI")
+assert(pos(am, '"path": "/etc/kodos/config.lua"'), "self-management config landed")
+assert(pos(am, '"path": "/etc/machine-id"'), "fixed machine-id for read-only /etc")
+assert(not am:find('"type": "apk"', 1, true), "no apk repo in Arch media")
+assert(not am:find("APKINDEX", 1, true), "no apk index ops in Arch media")
+assert(not am:find('"url": "file:///', 1, true), "no local apk repo in Arch media")
+assert(not am:find("console=ttyS0", 1, true), "bare-metal kernel args have no serial console")
+
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")
