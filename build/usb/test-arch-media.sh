@@ -6,6 +6,7 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 TDIR=${TMPDIR:-/tmp/opencode}
 STAGE=$TDIR/arch-stage-test
 PAYLOAD=$STAGE
+WORK=/tmp/kodos-arch-install
 DESC_DIR=${ARCH_DESC_DIR:-/tmp/opencode/arch}
 export ARCH_DESC_DIR=$DESC_DIR
 mkdir -p "$TDIR"
@@ -35,6 +36,7 @@ done
 cat > "$TDIR/fake-pacman.sh" <<'EOF'
 #!/bin/sh
 set -eu
+[ -z "${PACMAN_FAIL:-}" ] || { echo "fake pacman -Sy failed" >&2; exit 1; }
 conf=
 while [ $# -gt 0 ]; do
     if [ "$1" = --config ]; then shift; conf=${1:-}; fi
@@ -56,6 +58,15 @@ if ARCH_DESC_DIR= PACMAN_BIN="$TDIR/fake-pacman.sh" STAGE_ONLY=1 OUT="$STAGE" \
 fi
 grep -qi 'desc' "$TDIR/arch-stage-empty-db.log" || {
     echo "FAIL: empty-DB error does not name desc"; exit 1
+}
+
+if PACMAN_FAIL=1 ARCH_DESC_DIR= PACMAN_BIN="$TDIR/fake-pacman.sh" \
+        STAGE_ONLY=1 OUT="$STAGE" sh "$REPO/build/usb/mkinstall-arch-usb.sh" \
+        > "$TDIR/arch-stage-pacman-fail.log" 2>&1; then
+    echo "FAIL: failed pacman -Sy was accepted"; exit 1
+fi
+grep -qi 'pacman -Sy failed' "$TDIR/arch-stage-pacman-fail.log" || {
+    echo "FAIL: pacman failure has no clear error"; exit 1
 }
 
 # Restore a real staged payload for the later tasks.
@@ -84,6 +95,25 @@ printf '%s\n' "$DRY" | grep -q 'DRY-RUN install_packages' \
   || { echo "dry-run has no package op"; exit 1; }
 if printf '%s\n' "$DRY" | grep -qE 'APKINDEX|"type": "apk"|file:///'; then
   echo "Arch dry-run leaked apk/local-repo ops"; exit 1
+fi
+
+# the config embedded at /etc/kodos/config.lua must load on the installed box
+EMBED=$TDIR/arch-embedded
+rm -rf "$EMBED"; mkdir -p "$EMBED"
+for name in config.lua arch-machine.lua; do
+  jq -r --arg p "/etc/kodos/$name" \
+    '.actions[] | select(.op=="write_file" and .path==$p) | .content' \
+    "$WORK/actions.json" > "$EMBED/$name"
+  [ -s "$EMBED/$name" ] && ! grep -qx null "$EMBED/$name" \
+    || { echo "no embedded /etc/kodos/$name"; exit 1; }
+done
+lua -e 'local c=dofile(arg[0]); assert(type(c)=="table", "embedded config did not load")' \
+    "$EMBED/config.lua"
+
+# Arch day-2 apply is not wired yet; do not promise it in docs or the installer
+if grep -q 'kodos apply' "$REPO/build/usb/README-arch.md" \
+        "$REPO/build/usb/arch-run-install.sh"; then
+  echo "Arch docs promise unsupported kodos apply"; exit 1
 fi
 mkdir -p "$TDIR/fakebin"
 printf '#!/bin/sh\n[ "$1" = -n -o "$1" = --mountpoint ] && echo /dev/nbd99\nexit 0\n' > "$TDIR/fakebin/findmnt"

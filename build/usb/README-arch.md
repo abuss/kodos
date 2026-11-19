@@ -27,6 +27,9 @@ ARCH_DESC_DIR=/tmp/opencode/arch sh build/usb/mkinstall-arch-usb.sh /dev/sdX
 ARCH_DESC_DIR=/tmp/opencode/arch sh build/usb/mkinstall-arch-iso.sh
 ```
 
+`ARCH_MIRROR=...` changes only the build-time desc source. The target's mirror
+is in `config/arch-machine.lua` and must be edited separately if it differs.
+
 `/dev/sdX` is the WHOLE USB stick (`lsblk` to find it) — everything on it is
 erased, and the script makes you type the device name again. It:
 
@@ -85,7 +88,8 @@ layer). Check every time:
 - Passwords are never stored in the config. They are prompted at install time
   into a 0600 secrets sidecar, or shipped as `/root/kodos/config/secrets.json`
   with `{"users.root.hashed_password": "...", "users.abuss.hashed_password":
-  "..."}` keys.
+  "..."}` keys. Leaving a password empty leaves that account **locked**, not
+  passwordless.
 
 ## 5. Install
 
@@ -106,7 +110,7 @@ enough that the mirror no longer resolves a locked version, rebuild the media
 on a pacman host (or refresh `indexes/arch/*.desc` in the live copy) and
 re-run. The lock is fail-closed by design.
 
-## 6. First boot + day-2 management
+## 6. First boot + checks
 
 ```sh
 reboot       # pull the stick; GRUB entry "Kodos generation 0" boots
@@ -115,17 +119,20 @@ reboot       # pull the stick; GRUB entry "Kodos generation 0" boots
 Log in as `root` (or `abuss`). Verify with `kodos status`,
 `ls /kod/generation`, and `systemctl status NetworkManager ssh`.
 
-Day-2 changes are config-driven and read-only generations:
+For the first real hardware round, also check that the static binary and the
+secrets sidecar landed in the active generation:
 
 ```sh
+ls -l /usr/bin/kodos /etc/kodos/secrets.json
 kodos status
-vi /etc/kodos/config.lua       # the machine's own config
-kodos apply --dry-run && kodos apply
-kodos rollback
+kodos rollback && kodos status   # both files must still be there
 ```
 
-There is **no `self-update`** on Arch: to replace the binary, drop a new
-static `/usr/bin/kodos` in place (e.g. from fresh media), then `kodos apply`.
+`/etc/kodos/config.lua` (and its `arch-machine.lua` sibling) is a readable
+record of the installed configuration. Day-2 in-place apply is **not wired for
+Arch yet** — the executor's live index fetch still assumes APKINDEX, which Arch
+does not publish. Rebuild media and reinstall for config changes. There is
+**no self-update** on Arch: replace `/usr/bin/kodos` directly from fresh media.
 
 ## Troubleshooting
 

@@ -112,7 +112,7 @@ SECRETS=$PAYLOAD/config/secrets.json
 if [ ! -f "$SECRETS" ] && [ -z "$DRY" ]; then
     command -v openssl >/dev/null || {
         echo "ERROR: no $SECRETS and no openssl to hash passwords."; exit 1; }
-    printf 'root password (empty = console login WITHOUT password): '
+    printf 'root password (empty = account locked, no password login): '
     stty -echo 2>/dev/null || true
     IFS= read -r P1 || true
     stty echo 2>/dev/null || true
@@ -154,6 +154,6 @@ fi
 sync
 umount -R "$TARGET_ROOT" 2>/dev/null || true
 echo
-echo "installed. reboot, boot the kodos generation from grub, log in, and"
-echo "self-manage from here on:"
-echo "    kodos status; edit /etc/kodos/config.lua; kodos apply"
+echo "installed. reboot, boot the kodos generation from grub, log in, and check:"
+echo "    kodos status; ls -l /usr/bin/kodos /etc/kodos/secrets.json"
+echo "day-2 in-place apply is not wired for Arch; rebuild media for config changes"

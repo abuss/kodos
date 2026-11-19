@@ -57,7 +57,10 @@ Server = $ARCH_MIRROR/core/os/x86_64
 [extra]
 Server = $ARCH_MIRROR/extra/os/x86_64
 EOF
-    "$PACMAN_BIN" -Sy --config "$DBROOT/pacman.conf" >/dev/null
+    "$PACMAN_BIN" -Sy --config "$DBROOT/pacman.conf" >/dev/null || {
+        echo "ERROR: pacman -Sy failed (Arch DB trust oracle)" >&2
+        exit 1
+    }
     for r in core extra; do
         dbf=$DBPATH/sync/$r.db
         [ -e "$dbf" ] || { echo "ERROR: pacman did not produce $r sync DB" >&2; exit 1; }

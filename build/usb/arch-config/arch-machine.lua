@@ -86,8 +86,12 @@ return {
 MODULES=()
 HOOKS=(base systemd modconf block filesystems)
 ]] },
-        -- Day-2 self-management: this file is also the machine's own config.
+        -- The installed config.lua calls sibling(); ship the sibling beside it
+        -- so the file on the machine still loads. Arch day-2 apply is not wired
+        -- yet — the config is for inspection, not a promise of `kodos apply`.
         config = { path = "/etc/kodos/config.lua",
                    content = sibling("arch-machine.lua") },
+        arch_machine = { path = "/etc/kodos/arch-machine.lua",
+                         content = sibling("arch-machine.lua") },
     },
 }
