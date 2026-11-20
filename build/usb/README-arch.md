@@ -143,6 +143,11 @@ into every new generation, so it stays available after generation changes and
 rollback. To change `kodos` itself, replace `/usr/bin/kodos` directly from
 fresh media.
 
+`/root` and `/home` are single persistent directories on the live root, not
+copies inside each generation. SSH keys, shell history and user files survive
+applies and rollbacks. The first apply with this build migrates an older target
+whose `/root`/`/home` were generation-scoped symlinks, preserving their data.
+
 A target whose `/usr/bin/kodos` predates the embedded-CA-bundle fix cannot reach
 the HTTPS mirror, so `kodos apply` fails with a TLS `x509` error. Replace the
 binary from fresh media (Arch has no `self-update`); installing `ca-certificates`
