@@ -102,6 +102,23 @@ attach_nbd() {
     exit 1
 }
 
+snapshots() {
+    # /tmp/opencode snapshots can vanish (tmp cleanup); "force" refetches even
+    # present ones: lock drift means the cached snapshot predates a mirror roll.
+    for r in main community; do
+        if [ "${1:-}" = force ] || [ ! -s "$D/$r-324.apkindex" ]; then
+            echo "refetching $r index snapshot"
+            mkdir -p "$D"
+            curl -sf "https://dl-cdn.alpinelinux.org/alpine/v3.24/$r/x86_64/APKINDEX.tar.gz" \
+                | tar -xzO APKINDEX > "$D/$r-324.apkindex"
+            # we run under sudo: leave snapshots writable by the real user
+            if [ -n "${SUDO_USER:-}" ]; then
+                chown "$SUDO_USER" "$D" "$D/$r-324.apkindex"
+            fi
+        fi
+    done
+}
+
 do_install() {
     # recover cleanly from a previous crashed run (stale mounts/nbd)
     cleanup
@@ -124,33 +141,44 @@ do_install() {
     if [ "${NBD#/dev/nbd}" != 0 ]; then
         sed -i "s|nbd0|nbd${NBD#/dev/nbd}|g" "$VMDIR/actions.json"
     fi
-    # /tmp/opencode snapshots can vanish (tmp cleanup): refetch like drift.sh
-    for r in main community; do
-        [ -s "$D/$r-324.apkindex" ] || {
-            echo "refetching $r index snapshot"
-            mkdir -p "$D"
-            curl -sf "https://dl-cdn.alpinelinux.org/alpine/v3.24/$r/x86_64/APKINDEX.tar.gz" \
-                | tar -xzO APKINDEX > "$D/$r-324.apkindex"
-            # we run under sudo: leave snapshots writable by the real user
-            [ -n "${SUDO_USER:-}" ] && chown "$SUDO_USER" "$D" "$D/$r-324.apkindex"
-        }
-    done
+    snapshots
     # build repo artifacts (fixture dummy + kodos apk + APKINDEX)
     (cd "$REPO" && sh build/mkrepo.sh && sh build/mkapk.sh)
 
-    lua lockfile.lua 0 "$D/main-324.apkindex" "$D/community-324.apkindex" "$VMDIR/repo/x86_64/APKINDEX.tar.gz" -- \
-        system.lua "$REPO/vm/vm-layer.lua" ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua \
-        > "$VMDIR/generation-0.json"
+    relock() {
+        lua lockfile.lua 0 "$D/main-324.apkindex" "$D/community-324.apkindex" "$VMDIR/repo/x86_64/APKINDEX.tar.gz" -- \
+            system.lua "$REPO/vm/vm-layer.lua" ../../example/eszkoz/layers/machine.lua ../../example/eszkoz/layers/user.lua \
+            > "$VMDIR/generation-0.json"
+    }
+    relock
 
     mkdir -p "$MNT"
     # static apk-tools: repo-local copy (vm/apk-tools-static) or APK_BIN;
     # never rely on a host-path guess for an unknown distro
     APK=${APK_BIN:-$VMDIR/apk-tools-static}
     [ -x "$APK" ] || { echo "ERROR: no static apk-tools at $APK (APK_BIN=/path vm/run.sh)"; exit 1; }
-    "$REPO/executor/kodos" exec -actions "$VMDIR/actions.json" \
-        -metadata "$VMDIR/generation-0.json" -root "$MNT" \
-        -secrets "$VMDIR/secrets.json" \
-        -apk "$APK"
+    run_exec() {
+        # stderr captured for the drift check below, then replayed: stdout
+        # (the == op progress) stays live on the terminal
+        rc=0
+        "$REPO/executor/kodos" exec -actions "$VMDIR/actions.json" \
+            -metadata "$VMDIR/generation-0.json" -root "$MNT" \
+            -secrets "$VMDIR/secrets.json" \
+            -apk "$APK" 2> "$D/vm-exec.err" || rc=$?
+        cat "$D/vm-exec.err" >&2
+        return $rc
+    }
+    if ! run_exec; then
+        # lock drift = the cached snapshot predates a mirror roll (real case:
+        # libfontenc 1.1.9-r0 -> 1.1.10-r0 between fetch and install). Alpine
+        # branches keep only the current build, so the repair is a fresh
+        # snapshot + relock + one retry; a second failure stays a failure.
+        grep -q 'lock drift' "$D/vm-exec.err" || return 1
+        echo "lock drift: refetching index snapshots, relocking, retrying once"
+        snapshots force
+        relock
+        run_exec
+    fi
     sync
     cleanup
 }
