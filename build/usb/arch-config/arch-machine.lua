@@ -16,9 +16,13 @@ local function sibling(rel)
 end
 
 return {
-    repos = { base = { type = "arch",
-                       mirror = "https://mirror.rackspace.com/archlinux",
-                       branches = { "core", "extra" } } },
+    repos = {
+        base = {
+            type = "arch",
+            mirror = "https://mirror.rackspace.com/archlinux",
+            branches = { "core", "extra" }
+        }
+    },
 
     boot = {
         bootloader = { type = "grub", efi = true, timeout = 5 },
@@ -27,17 +31,33 @@ return {
 
     -- GPT + ESP + whole-remainder ext4 root. The installer rewrites disk0's
     -- device when --device differs from this default.
-    storage = { devices = { disk0 = {
-        device = "/dev/sda",
-        type = "gpt",
-        efi = true,
-        partitions = {
-            { name = "boot", size = "512MB", type = "esp",
-              filesystem = "vfat", mountpoint = "/boot", check = false },
-            { name = "root", size = "100%", type = "linux",
-              filesystem = "ext4", mountpoint = "/", options = "noatime" },
-        },
-    } } },
+    storage = {
+        devices = {
+            disk0 = {
+                device = "/dev/sda",
+                type = "gpt",
+                efi = true,
+                partitions = {
+                    {
+                        name = "boot",
+                        size = "512MB",
+                        type = "esp",
+                        filesystem = "vfat",
+                        mountpoint = "/boot",
+                        check = false
+                    },
+                    {
+                        name = "root",
+                        size = "100%",
+                        type = "linux",
+                        filesystem = "ext4",
+                        mountpoint = "/",
+                        options = "noatime"
+                    },
+                },
+            }
+        }
+    },
 
     generations = { storage = "store", root = "/kod", keep = 5 },
 
@@ -60,12 +80,19 @@ return {
     -- Passwords arrive from the installer's 0600 secrets sidecar; never here.
     users = {
         root = {
-            name = "Root account", group = "root", home_directory = "/root",
-            shell = "/bin/bash", create_home = false,
+            name = "Root account",
+            group = "root",
+            home_directory = "/root",
+            shell = "/bin/bash",
+            create_home = false,
         },
         abuss = {
-            name = "Install user", group = "wheel", supplementary_groups = {},
-            home_directory = "/home/abuss", shell = "/bin/bash", create_home = true,
+            name = "Install user",
+            group = "wheel",
+            supplementary_groups = {},
+            home_directory = "/home/abuss",
+            shell = "/bin/bash",
+            create_home = true,
         },
     },
 
@@ -73,25 +100,37 @@ return {
         -- base no longer pulls mkinitcpio; install_bootloader builds the
         -- initramfs with it. glibc-locales is required by locale-gen.
         { repo = "base", name = "mkinitcpio" },
-        { repo = "base", name = "glibc-locales" } },
+        { repo = "base", name = "glibc-locales" },
+        { repo = "base", name = "mc" }
+    },
 
     files = {
         -- The generation tree makes /etc read-only; ship a fixed identity so
         -- systemd and dbus-broker can start on first boot.
-        machine_id = { path = "/etc/machine-id", mode = "0444",
-                       content = "0a1b2c3d4e5f60718293a4b5c6d7e8f9\n" },
+        machine_id = {
+            path = "/etc/machine-id",
+            mode = "0444",
+            content = "0a1b2c3d4e5f60718293a4b5c6d7e8f9\n"
+        },
         -- autodetect inspects the BUILD host's loaded modules, not the target
         -- machine's: wrong for bare metal. Drop it so block/filesystems carry
         -- the full driver set; the larger initramfs is deliberate.
-        mkinitcpio = { path = "/etc/mkinitcpio.conf", content = [[
+        mkinitcpio = {
+            path = "/etc/mkinitcpio.conf",
+            content = [[
 MODULES=()
 HOOKS=(base systemd modconf block filesystems)
-]] },
+]]
+        },
         -- The installed config.lua calls sibling(); ship the sibling beside it
         -- so the file on the machine still loads, including for day-2 apply.
-        config = { path = "/etc/kodos/config.lua",
-                   content = sibling("arch-machine.lua") },
-        arch_machine = { path = "/etc/kodos/arch-machine.lua",
-                         content = sibling("arch-machine.lua") },
+        config = {
+            path = "/etc/kodos/config.lua",
+            content = sibling("arch-machine.lua")
+        },
+        arch_machine = {
+            path = "/etc/kodos/arch-machine.lua",
+            content = sibling("arch-machine.lua")
+        },
     },
 }
