@@ -19,9 +19,9 @@ local users = {
         name = "Antal Buss",
         group = "users",
         supplementary_groups = { "wheel", "audio", "video", "input",
-                                 "lp", "docker", "kvm" },
+            "lp", "docker", "kvm" },
         home_directory = "/home/abuss",
-        shell = "/usr/bin/zsh",
+        shell = "/bin/bash",
         create_home = true,
     },
 }
