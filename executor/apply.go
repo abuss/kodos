@@ -56,6 +56,24 @@ func resolveConfig(arg string) (string, string, error) {
 // localRepoRef is one file:// repos entry from the configure_repos action.
 type localRepoRef struct{ name, url, src string }
 
+// chooseIndexFetch decides which index fetcher apply runs from the
+// configure_repos repo type. Alpine ("apk") supports local repos; Arch
+// ("arch") reads live mirror DBs and does not in this milestone. Anything
+// else is rejected before any fetch happens.
+func chooseIndexFetch(repoType string, localRepos []localRepoRef) (string, error) {
+	switch repoType {
+	case "apk":
+		return "apk", nil
+	case "arch":
+		if len(localRepos) > 0 {
+			return "", fmt.Errorf("apply: local repositories are not supported for Arch in this milestone")
+		}
+		return "arch", nil
+	default:
+		return "", fmt.Errorf("apply: unsupported repo type %q", repoType)
+	}
+}
+
 // fetchIndexes fetches every repo index into tmp and returns the paths in
 // lockfile.lua's order (https branches first, local repos last — first
 // index wins = repo priority). It fails naming the exact URL/path, and
@@ -242,12 +260,14 @@ func apply(configArg string, dryRun bool, root, apkBin string) error {
 	var mirror string
 	var branches []string
 	var localRepos []localRepoRef
+	var repoType string
 	for _, act := range af.Actions {
 		if field(act, "op") != "configure_repos" {
 			continue
 		}
 		mirror = field(act, "mirror")
 		branches = strList(act, "branches")
+		repoType = field(act, "type")
 		if rs, _ := act["repos"].([]any); rs != nil {
 			for _, r := range rs {
 				m, _ := r.(map[string]any)
@@ -269,7 +289,17 @@ func apply(configArg string, dryRun bool, root, apkBin string) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	indexes, err := fetchIndexes(mirror, branches, localRepos, tmp)
+	kind, err := chooseIndexFetch(repoType, localRepos)
+	if err != nil {
+		return err
+	}
+
+	var indexes []string
+	if kind == "arch" {
+		indexes, err = fetchArchIndexes(mirror, branches, "x86_64", tmp)
+	} else {
+		indexes, err = fetchIndexes(mirror, branches, localRepos, tmp)
+	}
 	if err != nil {
 		return err
 	}

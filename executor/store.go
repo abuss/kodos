@@ -704,33 +704,51 @@ func dirNotEmpty(d string) bool {
 
 // activateGeneration points current at the generation and flips the live
 // root: top-level dirs merge (etc) or relink (the rest), so repointing
-// current atomically flips everything that links through it.
+// current atomically flips everything that links through it. /root and /home
+// are the exception: they are operator state, not system generations.
 func (s *system) activateGeneration(generation string) error {
+	entries, err := os.ReadDir(generation)
+	if err != nil {
+		return err
+	}
+	// Materialize /root and /home BEFORE flipping `current`: an older install
+	// has them as symlinks into the outgoing generation, which is where the
+	// user's SSH keys / files live. Resolving now preserves that data.
+	for _, e := range entries {
+		if e.Name() != "root" && e.Name() != "home" {
+			continue
+		}
+		live := filepath.Join(s.chroot, e.Name())
+		if isMountpoint(live) {
+			continue // separately mounted /home is already persistent
+		}
+		if err := s.persistHomeDir(filepath.Join(generation, e.Name()), live); err != nil {
+			return err
+		}
+	}
+
 	current := filepath.Join(s.root(), "generation", "current")
 	os.Remove(current)
 	if err := symlinkChroot(current, generation, s.chroot); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(generation)
-	if err != nil {
-		return err
-	}
 	for _, e := range entries {
-		if e.Name() == "etc_default" || e.Name() == "etc_store" {
-			continue // private bookkeeping, not part of the live root
+		name := e.Name()
+		if name == "etc_default" || name == "etc_store" || name == "root" || name == "home" {
+			continue
 		}
-		item := filepath.Join(generation, e.Name())
-		dst := filepath.Join(s.chroot, e.Name())
+		item := filepath.Join(generation, name)
+		dst := filepath.Join(s.chroot, name)
 		if isRealDir(dst) {
 			if isMountpoint(dst) {
 				// a mountpoint belongs to the storage ops, not to the
 				// generation: never symlink-merge into vfat (/boot ESP) or
 				// re-root a live /home. Content reaches it via post-install
 				// hooks (kernel -> /boot/vmlinuz+initramfs) and user tools.
-				fmt.Printf("note: /%s is a mountpoint: generation does not merge into it\n", e.Name())
+				fmt.Printf("note: /%s is a mountpoint: generation does not merge into it\n", name)
 				continue
 			}
-			if e.Name() == "etc" {
+			if name == "etc" {
 				if err := s.activateEtc(item, dst); err != nil {
 					return err
 				}
@@ -738,12 +756,33 @@ func (s *system) activateGeneration(generation string) error {
 				return err
 			}
 		} else {
-			if err := symlinkChroot(dst, filepath.Join(current, e.Name()), s.chroot); err != nil {
+			if err := symlinkChroot(dst, filepath.Join(current, name), s.chroot); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// persistHomeDir keeps /root and /home as single real dirs on the live root,
+// independent of generations. Package-provided files merge in (and update)
+// on each activation; user files are never removed. A live path left as a
+// symlink by an older kodos is migrated before `current` flips, so the
+// outgoing generation's user data survives instead of being orphaned.
+func (s *system) persistHomeDir(genDir, live string) error {
+	if lexists(live) && !isRealDir(live) {
+		old := s.chrootResolve(live) // still resolves through the OLD current
+		os.Remove(live)
+		if isRealDir(old) {
+			if err := s.symlinkTree(old, live); err != nil {
+				return err
+			}
+		}
+	}
+	if !lexists(genDir) {
+		return os.MkdirAll(live, 0o755)
+	}
+	return s.symlinkTree(genDir, live)
 }
 
 // createGeneration links the store contents of toInstall into a generation

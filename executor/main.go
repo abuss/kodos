@@ -599,11 +599,17 @@ func (e *executor) fetchUnpackArch(name, version string) error {
 			repos = append(repos, br)
 		}
 	}
-	client := &http.Client{Timeout: 5 * time.Minute}
+	// A rolling mirror may have dropped the pinned filename; the archive keeps
+	// old tarballs. It is tried last, with the same sha256 pin as the mirror.
+	urls := make([]string, 0, len(repos)+1)
+	for _, r := range repos {
+		urls = append(urls, archPkgURL(e.mirror, r, e.arch, name, version, pin.Arch))
+	}
+	urls = append(urls, archArchiveURL(archArchiveBase, name, version, pin.Arch))
+	client := httpsClient(pkgFetchTimeout())
 	var lastErr error
 	var tried []string
-	for _, r := range repos {
-		url := archPkgURL(e.mirror, r, e.arch, name, version, pin.Arch)
+	for _, url := range urls {
 		tried = append(tried, url)
 		resp, err := client.Get(url)
 		if err != nil {
@@ -872,6 +878,11 @@ func (e *executor) createGeneration(act map[string]any) error {
 	e.lastGen = toInstall
 	genDir, err := e.s.createGeneration(toInstall, idx, prev)
 	if err != nil {
+		return err
+	}
+	// Arch has no local kodos.apk: the static binary is an unmanaged file in
+	// the active generation. Carry it forward or gen N+1 boots without kodos.
+	if err := e.carryUnmanagedKodos(genDir); err != nil {
 		return err
 	}
 	// Write generation.json with metadata + executor stamps

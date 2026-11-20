@@ -158,6 +158,27 @@ func TestFetchIndexes(t *testing.T) {
 	}
 }
 
+func TestChooseIndexFetch(t *testing.T) {
+	if got, err := chooseIndexFetch("arch", nil); err != nil || got != "arch" {
+		t.Fatalf("arch: got %q, %v", got, err)
+	}
+	if got, err := chooseIndexFetch("apk", []localRepoRef{{name: "local"}}); err != nil || got != "apk" {
+		t.Fatalf("apk with local repo: got %q, %v", got, err)
+	}
+
+	_, err := chooseIndexFetch("arch", []localRepoRef{{name: "local"}})
+	if err == nil || !strings.Contains(err.Error(), "local repositories are not supported for Arch") {
+		t.Fatalf("arch with local repo: error %v", err)
+	}
+
+	for _, repoType := range []string{"", "deb"} {
+		_, err = chooseIndexFetch(repoType, nil)
+		if err == nil || !strings.Contains(err.Error(), "unsupported repo type") {
+			t.Fatalf("repo type %q: error %v", repoType, err)
+		}
+	}
+}
+
 func TestNextGeneration(t *testing.T) {
 	base := t.TempDir()
 	gen := filepath.Join(base, "kod", "generation")
