@@ -880,6 +880,11 @@ func (e *executor) createGeneration(act map[string]any) error {
 	if err != nil {
 		return err
 	}
+	// Arch has no local kodos.apk: the static binary is an unmanaged file in
+	// the active generation. Carry it forward or gen N+1 boots without kodos.
+	if err := e.carryUnmanagedKodos(genDir); err != nil {
+		return err
+	}
 	// Write generation.json with metadata + executor stamps
 	if err := e.writeGenerationManifest(genDir); err != nil {
 		return err

@@ -138,8 +138,10 @@ new generation. Package fetch still verifies SHA256 and falls back to
 `ca-certificates` so the target can validate those HTTPS mirrors.
 
 There is **no self-update** on Arch: `kodos apply` rebuilds the *system*
-generation, not the `/usr/bin/kodos` binary. To change `kodos` itself, replace
-`/usr/bin/kodos` directly from fresh media.
+generation, not the `/usr/bin/kodos` binary. Apply does carry the active binary
+into every new generation, so it stays available after generation changes and
+rollback. To change `kodos` itself, replace `/usr/bin/kodos` directly from
+fresh media.
 
 A target whose `/usr/bin/kodos` predates the embedded-CA-bundle fix cannot reach
 the HTTPS mirror, so `kodos apply` fails with a TLS `x509` error. Replace the
