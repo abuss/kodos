@@ -475,6 +475,16 @@ func selftestPure() {
 	check(strings.Contains(cfg, "terminal_input serial\n") &&
 		!strings.Contains(cfg, "terminal_input serial console"),
 		"alpine grub input must stay byte-identical")
+	// Alpine VM guests (vm/guest-config, vm/vm-layer) boot with console=ttyS0,
+	// so their grub also gains the console keyboard. Intended (serial console
+	// should be editable), but it IS a delta vs. the quiet-args media, so pin
+	// it here to stop it silently drifting.
+	alpineSerial := renderGrubCfg(5, "UUID-X",
+		[]string{"console=ttyS0"},
+		[]grubEntry{{4, "6.18.63-r0", "", ""}})
+	check(strings.Contains(alpineSerial, "terminal_input serial console") &&
+		!strings.Contains(alpineSerial, "terminal_input serial\n"),
+		"alpine VM serial grub must accept console keyboard, got:\n%s", alpineSerial)
 
 	// sshd-style setting keys
 	check(settingsKey("permit_root_login") == "PermitRootLogin", "CamelCase key")

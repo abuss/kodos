@@ -159,4 +159,4 @@ umount -R "$TARGET_ROOT" 2>/dev/null || true
 echo
 echo "installed. reboot, boot the kodos generation from grub, log in, and check:"
 echo "    kodos status; ls -l /usr/bin/kodos /etc/kodos/secrets.json"
-echo "day-2 in-place apply is not wired for Arch; rebuild media for config changes"
+echo "day-2 self-management apply is supported on fresh installs; see README-arch.md"

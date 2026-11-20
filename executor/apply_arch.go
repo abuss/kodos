@@ -24,6 +24,12 @@ func archDBURLs(mirror, branch, dirArch string) []string {
 	}
 }
 
+// extractArchDesc pulls every */desc member out of a synced Arch DB tarball.
+// Both the <branch>.db.tar.gz primary and the <branch>.db fallback are gzip on
+// the target mirror (verified against mirror.rackspace.com), so gzip-only is
+// intentional: a hypothetical plain-tar mirror would surface here as a clear
+// "not a gzip" error naming the URL and only then earn a tar.NewReader retry.
+// A 200-but-malformed primary aborts without trying the fallback (fail-closed).
 func extractArchDesc(blob []byte) ([]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(blob))
 	if err != nil {
