@@ -20,8 +20,9 @@ return {
     },
 
     -- Same shape as executor/lua/modules/filesystems.lua, on the nbd-attached
-    -- test disk: GPT + ESP, whole remainder is the ext4 root. No home/swap:
-    -- throwaway VM, and the generation store lives in root.
+    -- test disk: GPT + ESP + fixed root + separate /home + swap: the same
+    -- four-partition shape the bare-metal Arch media lays out, so the VM
+    -- round actually exercises home/mount and swap paths.
     storage = { devices = { disk0 = {
         device = "/dev/nbd0",
         type = "gpt",
@@ -29,8 +30,12 @@ return {
         partitions = {
             { name = "boot", size = "512MB", type = "esp",
               filesystem = "vfat", mountpoint = "/boot", check = false },
-            { name = "root", size = "100%", type = "linux",
+            { name = "root", size = "32GB", type = "linux",
               filesystem = "ext4", mountpoint = "/", options = "noatime" },
+            { name = "home", size = "100%", type = "linux",
+              filesystem = "ext4", mountpoint = "/home", options = "noatime" },
+            { name = "swap", size = "8GB", type = "linux-swap",
+              filesystem = "swap" },
         },
     } } },
 

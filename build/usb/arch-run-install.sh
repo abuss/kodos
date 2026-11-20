@@ -83,13 +83,13 @@ if [ -z "$DRY" ] && [ -z "$YES" ]; then
     if [ -n "$WIPE" ]; then
         echo "--force-wipe on $DEV: the existing partition table AND every"
         echo "filesystem signature on that disk are destroyed first, then the"
-        echo "gpt+esp/root layout is written. Everything on $DEV is lost."
+        echo "gpt+esp/root/home/swap layout is written. Everything on $DEV is lost."
         printf "type the device path ($DEV) to continue: "
         read -r ANS
         [ "$ANS" = "$DEV" ] || { echo "aborted"; exit 1; }
     else
         echo "parted on $DEV: an existing kodos table is kept, an EMPTY disk gets"
-        echo "the gpt+esp/root layout, and ALL data on other partitions of a"
+        echo "the gpt+esp/root/home/swap layout, and ALL data on other partitions of a"
         echo "foreign table is left alone but the flow may still format named"
         echo "partitions. Think twice."
         printf 'type yes to continue: '

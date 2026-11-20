@@ -61,6 +61,20 @@ if [ "$CONSOLE_LAST" != console=tty0 ]; then
     exit 1
 fi
 
+# Separate /home and swap: the bare-metal Arch layout carries the same four
+# named partitions as the Alpine example (fixed root, home = rest, fixed
+# swap), and the swap partition actually gets initialized.
+ARCH_GEN=$("$STAGE/bin/kodos" lua generate.lua "$STAGE/config/arch-machine.lua")
+PNAMES=$(printf '%s\n' "$ARCH_GEN" | jq -r \
+    '[.actions[] | select(.op=="partition_disk") | .partitions[].name] | join(" ")')
+if [ "$PNAMES" != "boot root home swap" ]; then
+    echo "FAIL: Arch layout partitions = '$PNAMES', want 'boot root home swap'"
+    exit 1
+fi
+if ! printf '%s\n' "$ARCH_GEN" | grep -q '"op": "create_swap"'; then
+    echo "FAIL: Arch IR has no create_swap op"; exit 1
+fi
+
 cat > "$TDIR/fake-pacman.sh" <<'EOF'
 #!/bin/sh
 set -eu

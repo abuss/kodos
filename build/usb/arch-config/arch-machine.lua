@@ -34,8 +34,10 @@ return {
         kernel = { arguments = { "console=ttyS0,115200", "console=tty0" } },
     },
 
-    -- GPT + ESP + whole-remainder ext4 root. The installer rewrites disk0's
-    -- device when --device differs from this default.
+    -- GPT + ESP + fixed ext4 root + separate /home (rest of the disk) + swap.
+    -- Same shape as the Alpine eszkoz layout: home carries "100%" and the
+    -- planner deducts the fixed sizes that come AFTER it. The installer
+    -- rewrites disk0's device when --device differs from this default.
     storage = {
         devices = {
             disk0 = {
@@ -53,11 +55,25 @@ return {
                     },
                     {
                         name = "root",
-                        size = "100%",
+                        size = "32GB",
                         type = "linux",
                         filesystem = "ext4",
                         mountpoint = "/",
                         options = "noatime"
+                    },
+                    {
+                        name = "home",
+                        size = "100%",
+                        type = "linux",
+                        filesystem = "ext4",
+                        mountpoint = "/home",
+                        options = "noatime"
+                    },
+                    {
+                        name = "swap",
+                        size = "8GB",
+                        type = "linux-swap",
+                        filesystem = "swap"
                     },
                 },
             }

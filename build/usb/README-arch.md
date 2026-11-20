@@ -107,7 +107,7 @@ static binary at `/usr/bin/kodos` and the secrets at
 
 **Existing partition table:** the flow never rewrites a table it did not write.
 A disk whose table is not exactly the config's layout (different partition
-count, or partitions not named `boot`/`root`) is refused, and a disk whose own
+count, or partitions not named `boot`/`root`/`home`/`swap`) is refused, and a disk whose own
 partition is mounted or is active swap is refused outright — that is what
 protects the stick you booted from. To install over a foreign or half-done
 table, add `--force-wipe`: it clears the table and every filesystem signature
