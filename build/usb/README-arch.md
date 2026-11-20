@@ -162,9 +162,13 @@ fresh media and reinstall, or bootstrap the CA bundle on the target by hand.
   so pacman is the DB oracle) so the mirror serves the pinned version directly
   and the archive fallback is not needed. For one slow run, raise the ceiling:
   `KODOS_PKG_FETCH_TIMEOUT=45m sh /root/kodos/arch-run-install.sh …`.
-- `x509: certificate signed by unknown authority` on `kodos apply` — the Arch
-  target is missing `ca-certificates` (older media). Rebuild from fresh media
-  and reinstall, or bootstrap the CA bundle on the target by hand.
+- `x509: certificate signed by unknown authority` on `kodos apply` — the static
+  kodos binary can't read Arch's CA store (Go's loader skips the symlinked
+  `/etc/ssl/certs` layout), so the trust pool comes up empty even though the
+  package is installed. Current builds load the bundle from
+  `/etc/ca-certificates/extracted/tls-ca-bundle.pem` automatically. On a target
+  whose `kodos` predates that, point it at the bundle for the run:
+  `SSL_CERT_FILE=/etc/ca-certificates/extracted/tls-ca-bundle.pem kodos apply …`.
 - No network — `ip link` then `udhcpc -i <iface>`; the install needs the
   Arch mirror.
 - `apk add` on the live host — only equips Alpine with `parted`, `mkfs.ext4`

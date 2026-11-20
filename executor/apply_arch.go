@@ -65,7 +65,7 @@ func extractArchDesc(blob []byte) ([]byte, error) {
 }
 
 func fetchArchIndexes(mirror string, branches []string, dirArch string, tmp string) ([]string, error) {
-	client := &http.Client{Timeout: 2 * time.Minute}
+	client := httpsClient(2 * time.Minute)
 	descs := make([][]byte, 0, len(branches))
 	for _, branch := range branches {
 		urls := archDBURLs(mirror, branch, dirArch)
@@ -126,7 +126,7 @@ func archFetchError(branch, url string, err error) error {
 	}
 	hint := ""
 	if strings.Contains(err.Error(), "certificate signed by unknown authority") {
-		hint = " (target likely missing ca-certificates)"
+		hint = " (target trust store is empty: install ca-certificates and/or set SSL_CERT_FILE)"
 	}
 	return fmt.Errorf("fetch arch index %s %s: %w%s", branch, url, err, hint)
 }
