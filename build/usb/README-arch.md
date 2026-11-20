@@ -156,6 +156,12 @@ fresh media and reinstall, or bootstrap the CA bundle on the target by hand.
   media on a pacman host and re-run.
 - `fetch <name>-<version>: HTTP 404` — the mirror dropped the pinned file;
   archive fallback is automatic. If it also fails, refresh media.
+- `download: context deadline exceeded` on a big package (the kernel) — the
+  download outran the per-package fetch ceiling on a slow link. First choice:
+  rebuild the media with a fresh `pacman -Sy` snapshot (`ARCH_DESC_DIR` unset,
+  so pacman is the DB oracle) so the mirror serves the pinned version directly
+  and the archive fallback is not needed. For one slow run, raise the ceiling:
+  `KODOS_PKG_FETCH_TIMEOUT=45m sh /root/kodos/arch-run-install.sh …`.
 - `x509: certificate signed by unknown authority` on `kodos apply` — the Arch
   target is missing `ca-certificates` (older media). Rebuild from fresh media
   and reinstall, or bootstrap the CA bundle on the target by hand.

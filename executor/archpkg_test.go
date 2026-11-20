@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -169,5 +170,25 @@ func TestVerifySha256(t *testing.T) {
 	err := verifySha256(p, strings.Repeat("0", 64))
 	if err == nil || !strings.Contains(err.Error(), p) {
 		t.Errorf("bad hash must fail naming the file, got: %v", err)
+	}
+}
+
+func TestPkgFetchTimeoutDefault(t *testing.T) {
+	os.Unsetenv("KODOS_PKG_FETCH_TIMEOUT")
+	if got := pkgFetchTimeout(); got != 20*time.Minute {
+		t.Errorf("default = %v, want 20m", got)
+	}
+}
+
+func TestPkgFetchTimeoutEnvOverride(t *testing.T) {
+	os.Setenv("KODOS_PKG_FETCH_TIMEOUT", "45m")
+	defer os.Unsetenv("KODOS_PKG_FETCH_TIMEOUT")
+	if got := pkgFetchTimeout(); got != 45*time.Minute {
+		t.Errorf("override = %v, want 45m", got)
+	}
+	// Unparseable must fall back to the default, never crash the install.
+	os.Setenv("KODOS_PKG_FETCH_TIMEOUT", "not-a-duration")
+	if got := pkgFetchTimeout(); got != 20*time.Minute {
+		t.Errorf("bad value = %v, want 20m default", got)
 	}
 }

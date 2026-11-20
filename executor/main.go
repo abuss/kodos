@@ -606,7 +606,7 @@ func (e *executor) fetchUnpackArch(name, version string) error {
 		urls = append(urls, archPkgURL(e.mirror, r, e.arch, name, version, pin.Arch))
 	}
 	urls = append(urls, archArchiveURL(archArchiveBase, name, version, pin.Arch))
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := &http.Client{Timeout: pkgFetchTimeout()}
 	var lastErr error
 	var tried []string
 	for _, url := range urls {
