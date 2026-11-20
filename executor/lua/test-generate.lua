@@ -356,6 +356,10 @@ assert(pos(am, '"path": "/etc/machine-id"'), "fixed machine-id for read-only /et
 assert(not am:find('"type": "apk"', 1, true), "no apk repo in Arch media")
 assert(not am:find("APKINDEX", 1, true), "no apk index ops in Arch media")
 assert(not am:find('"url": "file:///', 1, true), "no local apk repo in Arch media")
-assert(not am:find("console=ttyS0", 1, true), "bare-metal kernel args have no serial console")
+assert(pos(am, "console=tty0") and pos(am, "console=ttyS0,115200"),
+       "bare-metal kernel args keep VGA and add serial console")
+assert(pos(am, '"unit": "serial-getty@ttyS0"'), "bare-metal config enables serial login")
+assert(not am:find('"quiet"', 1, true), "bare-metal boot is not quiet")
+assert(pos(am, '"ca-certificates"'), "Arch target must ship a CA trust store")
 
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")

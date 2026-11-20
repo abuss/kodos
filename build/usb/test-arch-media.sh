@@ -14,6 +14,18 @@ mkdir -p "$TDIR"
 sh -n "$REPO/build/usb/mkinstall-arch-usb.sh" || {
     echo "FAIL: staging script syntax"; exit 1;
 }
+sh -n "$REPO/build/usb/arch-run-install.sh" || {
+    echo "FAIL: installer script syntax"; exit 1;
+}
+
+if grep -Fq '"$TARGET_ROOT/usr/bin/kodos"' "$REPO/build/usb/arch-run-install.sh"; then
+    echo "FAIL: installer must not write static kodos through activated /usr symlink"
+    exit 1
+fi
+grep -Fq 'GEN="$TARGET_ROOT/kod/generation/0"' "$REPO/build/usb/arch-run-install.sh" || {
+    echo "FAIL: installer must write static kodos into the real generation directory"
+    exit 1
+}
 
 if ARCH_DESC_DIR= PACMAN_BIN=/nonexistent STAGE_ONLY=1 OUT="$STAGE" \
         sh "$REPO/build/usb/mkinstall-arch-usb.sh" \
@@ -32,6 +44,11 @@ for f in bin/kodos indexes/arch/core.desc indexes/arch/extra.desc \
          config/arch-machine.lua repo/x86_64/APKINDEX.tar.gz; do
     [ -s "$STAGE/$f" ] || { echo "FAIL: missing staged $f"; exit 1; }
 done
+
+"$STAGE/bin/kodos" lua generate.lua "$STAGE/config/arch-machine.lua" \
+    | grep -q '"ca-certificates"' || {
+    echo "FAIL: staged Arch media IR does not request ca-certificates"; exit 1;
+}
 
 cat > "$TDIR/fake-pacman.sh" <<'EOF'
 #!/bin/sh
