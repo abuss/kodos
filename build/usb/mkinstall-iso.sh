@@ -28,7 +28,7 @@ command -v xorriso >/dev/null || { echo "ERROR: xorriso needed on the host"; exi
 [ -s "$BASE" ] || { mkdir -p "$CACHE"; curl -f -o "$BASE" "$URL"; }
 
 # payload: the same staging the USB script does (also caches ISO + indexes)
-OUT=$STAGE STAGE_ONLY=1 sh "$REPO/build/usb/mkinstall-usb.sh" >/dev/null
+OUT=$STAGE STAGE_ONLY=1 sh "${STAGE_SCRIPT:-$REPO/build/usb/mkinstall-usb.sh}" >/dev/null
 echo "payload staged ($(du -sh "$STAGE" | cut -f1))"
 
 # boot info of the base ISO, verbatim (Alpine 3.24: isolinux BIOS + EFI

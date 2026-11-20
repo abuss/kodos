@@ -10,4 +10,5 @@ scratch/
 install.out
 vm/repo/
 build/usb/stage/
+build/usb/arch-stage/
 build/usb/iso/

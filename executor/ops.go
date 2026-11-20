@@ -253,13 +253,23 @@ func renderGrubCfg(timeout int, uuid string, args []string, entries []grubEntry)
 	if len(args) > 0 {
 		cmdline += " " + strings.Join(args, " ")
 	}
+	// Serial kernel logs are useless if GRUB ignores the attached keyboard:
+	// a physical user must be able to press 'e' and edit the entry. Alpine's
+	// args have no console=ttyS0, so its grub.cfg stays byte-identical.
+	input := "serial"
+	for _, a := range args {
+		if strings.HasPrefix(a, "console=ttyS0") {
+			input = "serial console"
+			break
+		}
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `set default=0
 set timeout=%d
 serial --unit=0 --speed=115200
-terminal_input serial
+terminal_input %s
 terminal_output serial console
-`, timeout)
+`, timeout, input)
 	for _, en := range entries {
 		fmt.Fprintf(&b, `menuentry 'Kodos generation %d' {
 	linux %s/vmlinuz-%s %s
