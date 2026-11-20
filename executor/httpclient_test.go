@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/x509"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
@@ -52,5 +53,38 @@ func TestRootCAsNeverNil(t *testing.T) {
 	os.Unsetenv("SSL_CERT_FILE")
 	if pool := rootCAs(); pool == nil {
 		t.Fatal("rootCAs() returned nil")
+	}
+}
+
+// An Arch target installed by kodos has NO generated CA bundle on disk: Arch
+// produces /etc/ca-certificates/extracted/tls-ca-bundle.pem only via the
+// update-ca-trust libalpm hook, which kodos never runs (it extracts packages
+// directly). Every on-disk path rootCAs() probes is a dangling symlink, so the
+// pool would be empty and every HTTPS mirror fetch would fail with x509.
+// A bundle compiled into the binary is the only anchor guaranteed to exist,
+// and must carry real roots (not just parse as one certificate).
+func TestBundledCAsTrustsRealMirrorChains(t *testing.T) {
+	os.Unsetenv("SSL_CERT_FILE")
+	pool := rootCAs()
+	if pool == nil {
+		t.Fatal("rootCAs() returned nil")
+	}
+	// The bundle ships the Mozilla CA set; a self-signed test cert alone would
+	// pass TestHTTPSClientTrustsSSLCertFile but still fail on a real mirror.
+	if n := len(pool.Subjects()); n < 100 {
+		t.Fatalf("rootCAs() has %d subjects, want >= 100 real roots (embedded bundle missing?)", n)
+	}
+}
+
+// The embedded bundle must also work when NO disk bundle exists and no system
+// pool is available — the exact shape of a kodos-installed Arch target. This
+// isolates the embedded bytes from any host CA store.
+func TestBundledCAsParseStandalone(t *testing.T) {
+	p := x509.NewCertPool()
+	if !p.AppendCertsFromPEM(bundledCAs) {
+		t.Fatal("bundledCAs contains no parseable PEM certificates")
+	}
+	if n := len(p.Subjects()); n < 100 {
+		t.Fatalf("bundledCAs parsed %d roots, want >= 100", n)
 	}
 }

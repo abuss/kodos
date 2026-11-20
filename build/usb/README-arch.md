@@ -141,9 +141,10 @@ There is **no self-update** on Arch: `kodos apply` rebuilds the *system*
 generation, not the `/usr/bin/kodos` binary. To change `kodos` itself, replace
 `/usr/bin/kodos` directly from fresh media.
 
-A target installed from **older media predating `ca-certificates`** cannot reach
-the HTTPS mirror, so `kodos apply` fails with a TLS `x509` error. Rebuild from
-fresh media and reinstall, or bootstrap the CA bundle on the target by hand.
+A target whose `/usr/bin/kodos` predates the embedded-CA-bundle fix cannot reach
+the HTTPS mirror, so `kodos apply` fails with a TLS `x509` error. Replace the
+binary from fresh media (Arch has no `self-update`); installing `ca-certificates`
+alone is not enough — see Troubleshooting.
 
 ## Troubleshooting
 
@@ -162,13 +163,15 @@ fresh media and reinstall, or bootstrap the CA bundle on the target by hand.
   so pacman is the DB oracle) so the mirror serves the pinned version directly
   and the archive fallback is not needed. For one slow run, raise the ceiling:
   `KODOS_PKG_FETCH_TIMEOUT=45m sh /root/kodos/arch-run-install.sh …`.
-- `x509: certificate signed by unknown authority` on `kodos apply` — the static
-  kodos binary can't read Arch's CA store (Go's loader skips the symlinked
-  `/etc/ssl/certs` layout), so the trust pool comes up empty even though the
-  package is installed. Current builds load the bundle from
-  `/etc/ca-certificates/extracted/tls-ca-bundle.pem` automatically. On a target
-  whose `kodos` predates that, point it at the bundle for the run:
-  `SSL_CERT_FILE=/etc/ca-certificates/extracted/tls-ca-bundle.pem kodos apply …`.
+- `x509: certificate signed by unknown authority` on `kodos apply` — the target
+  has **no on-disk CA bundle**. Arch's `ca-certificates` is a meta-package; the
+  real bundle (`/etc/ca-certificates/extracted/tls-ca-bundle.pem`) is generated
+  by `/usr/bin/update-ca-trust` from a **libalpm hook**, which kodos never runs
+  (it extracts packages directly), leaving `/etc/ssl/certs/ca-certificates.crt`
+  a dangling symlink. Current builds embed the Mozilla CA set, so no on-disk
+  bundle or env var is needed — replace `/usr/bin/kodos` from fresh media. Older
+  binaries cannot be fixed with `SSL_CERT_FILE` unless a real bundle exists on
+  disk; generate one first with `/usr/bin/update-ca-trust` on the target.
 - No network — `ip link` then `udhcpc -i <iface>`; the install needs the
   Arch mirror.
 - `apk add` on the live host — only equips Alpine with `parted`, `mkfs.ext4`

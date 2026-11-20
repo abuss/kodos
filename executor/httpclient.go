@@ -3,10 +3,16 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	_ "embed"
 	"net/http"
 	"os"
 	"time"
 )
+
+// A kodos-installed Arch target has no on-disk CA bundle (see rootCAs below),
+// so a bundle compiled into the binary is the only guaranteed trust anchor.
+//go:embed ca-bundle.pem
+var bundledCAs []byte
 
 // A static (CGO_ENABLED=0) kodos binary does not reliably find every distro's
 // CA store: on Arch the bundle lives at /etc/ca-certificates/extracted/
@@ -20,6 +26,11 @@ func rootCAs() *x509.CertPool {
 	if pool == nil {
 		pool = x509.NewCertPool()
 	}
+	// Always load the embedded Mozilla roots first. Disk paths below are a
+	// best-effort supplement (custom/operator bundles), never the sole source:
+	// on Arch no on-disk bundle exists because update-ca-trust is a libalpm
+	// hook kodos does not run, leaving every path below a dangling symlink.
+	pool.AppendCertsFromPEM(bundledCAs)
 	for _, p := range []string{
 		os.Getenv("SSL_CERT_FILE"),
 		"/etc/ssl/certs/ca-certificates.crt",
