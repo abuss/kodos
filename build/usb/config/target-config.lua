@@ -4,8 +4,8 @@
 --     kodos apply --dry-run && kodos apply      (default config /etc/kodos/config.lua)
 --
 -- It mirrors machine.lua's deltas as literal overlays over the embedded base
--- (same deep_merge semantics the layer stack uses), with the repo pointed at
--- the machine's OWN /kod/repo (copy_tree self-skips; fetch reads it off disk).
+-- (same deep_merge semantics the layer stack uses). kodos itself is a static
+-- binary in the active generation, not a package from a local repo.
 -- The vm/guest-config/config.lua shape is what the VM rounds proved.
 local resolve = require("resolve") -- embedded: the config-layer merge rules
 
@@ -27,8 +27,7 @@ conf = resolve.deep_merge(conf, {
         dbus = { enable = true },
         ["cosmic-greeter"] = { enable = true },
     },
-    repositories = { kodos = { url = "file:///kod/repo", src = "/kod/repo" } },
-    packages = { { repo = "kodos", name = "kodos" },
+    packages = {
         -- COSMIC desktop (the system layer no longer ships GNOME).
         -- cosmic-session pulls comp+greeter+apps+xwayland; seatd/elogind
         -- for the greeter's seat chain; mesa-dri-gallium = software GL

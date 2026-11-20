@@ -18,7 +18,7 @@ set -eu
 PAYLOAD=$(cd "$(dirname "$0")" && pwd)
 KODOS=$PAYLOAD/bin/kodos
 CFG=$PAYLOAD/config/machine.lua
-LOCAL_REPO=$PAYLOAD/repo/x86_64/APKINDEX.tar.gz
+TOOL_REPO=$PAYLOAD/repo/x86_64/APKINDEX.tar.gz
 WORK=/tmp/kodos-install
 TARGET_ROOT=${TARGET_ROOT:-/mnt/kodos-target}
 
@@ -35,7 +35,7 @@ done
 
 [ -x "$KODOS" ] || { echo "ERROR: no $KODOS (payload copied wrong?)"; exit 1; }
 [ -f "$CFG" ] || { echo "ERROR: no $CFG"; exit 1; }
-[ -f "$LOCAL_REPO" ] || { echo "ERROR: no $LOCAL_REPO"; exit 1; }
+[ -f "$TOOL_REPO" ] || { echo "ERROR: no $TOOL_REPO"; exit 1; }
 command -v blkid >/dev/null || { echo "ERROR: blkid missing (util-linux); boot the ALPINE standard stick, not some other stick"; exit 1; }
 # the executor's storage ops shell out to parted + mkfs.ext4; the live ISO
 # ships neither. parted rides in the payload repo (offline); the rest resolve
@@ -150,12 +150,9 @@ fi
 [ -n "$KODOS_APK" ] && [ -x "$KODOS_APK" ] || {
     echo "ERROR: no apk-tools for the closure lock (KODOS_APK=/path)"; exit 1; }
 export KODOS_APK
-# copy_tree src must be where the PAYLOAD actually IS (config was written
-# assuming /usb/repo) — same actions.json sed idea vm/run.sh uses
-# for nbd indices. (busybox-safe: no GNU sed -i dependency.)
-sed "s|/usb/repo|$PAYLOAD/repo|g" "$WORK/actions.json" > "$WORK/actions.json.tmp"
-mv "$WORK/actions.json.tmp" "$WORK/actions.json"
-"$KODOS" lua lockfile.lua 0 "$IM" "$IC" "$LOCAL_REPO" -- \
+# No local repo in the closure: kodos is delivered as a static binary (below),
+# not as an apk, so the payload repo is only for the live host's tools.
+"$KODOS" lua lockfile.lua 0 "$IM" "$IC" -- \
     system.lua "$CFG" > "$WORK/generation-0.json"
 
 # ---- secrets: shipped payload file, or prompt a root password into a local one
@@ -187,6 +184,13 @@ if [ -n "$DRY" ]; then
     exit 0
 fi
 
+# static binary only — no kodos.apk, no local repo, no self-update. After
+# activate_generation, /usr is a chroot-rooted symlink, so host paths must use
+# the real generation directory, not $TARGET_ROOT/usr.
+GEN="$TARGET_ROOT/kod/generation/0"
+mkdir -p "$GEN/usr/bin" "$TARGET_ROOT/etc/kodos"
+install -m 0755 "$KODOS" "$GEN/usr/bin/kodos"
+
 # keep the secrets sidecar where the machine's own apply reads it (same dir as
 # config.lua; executor wrote /etc/kodos/config.lua via the files section)
 if [ -n "$SECRETS" ]; then
@@ -201,3 +205,5 @@ echo
 echo "installed. reboot, boot the kodos generation from grub, log in, and"
 echo "self-manage from here on:"
 echo "    kodos status; edit /etc/kodos/config.lua; kodos apply"
+echo "kodos is a static /usr/bin/kodos (no kodos.apk); upgrade the manager by"
+echo "replacing that binary from fresh media."

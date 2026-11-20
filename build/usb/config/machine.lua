@@ -52,11 +52,10 @@ return {
         ["cosmic-greeter"] = { enable = true },
     },
 
-    -- The USB payload repo: copy_tree ships it INTO the machine at /kod/repo;
-    -- run-install.sh rewrites this path to wherever the payload actually is
-    -- (the same actions.json sed trick vm/run.sh proved).
-    repositories = { kodos = { url = "file:///kod/repo", src = "/usb/repo" } },
-    packages = { { repo = "kodos", name = "kodos" },
+    -- kodos is a static binary installed into generation 0 by run-install.sh,
+    -- not a package from a local repo. The payload repo carries only the live
+    -- installer host's tools (parted, util-linux).
+    packages = {
         -- must mirror target-config.lua (the machine's own config) — the
         -- services above enable the greeter, so its packages must be in
         -- the install closure too (see target-config.lua for the why).
