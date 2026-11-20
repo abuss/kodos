@@ -22,7 +22,7 @@ return {
 
     boot = {
         bootloader = { type = "grub", efi = true, timeout = 5 },
-        kernel = { arguments = { "quiet" } },
+        kernel = { arguments = { "console=tty0", "console=ttyS0,115200" } },
     },
 
     -- GPT + ESP + whole-remainder ext4 root. The installer rewrites disk0's
@@ -47,8 +47,9 @@ return {
         keyboard_layout = { layout = "us" },
         console_keymap = "us",
         locale = { default = "en_US.UTF-8" },
-        -- No serial_console: real hardware uses the VGA console. The VM's
-        -- arch-config.lua sets it because qemu -nographic needs ttyS0.
+        -- Dual console: tty0 keeps bare-metal VGA output; ttyS0 makes
+        -- qemu -nographic boot visible. Arch backend enables the getty.
+        serial_console = true,
     },
 
     services = {

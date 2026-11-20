@@ -76,6 +76,55 @@ func TestArchPkgURL(t *testing.T) {
 	}
 }
 
+func TestArchArchiveURL(t *testing.T) {
+	got := archArchiveURL("https://archive.archlinux.org", "linux", "7.3.4.arch1-2", "x86_64")
+	want := "https://archive.archlinux.org/packages/l/linux/linux-7.3.4.arch1-2-x86_64.pkg.tar.zst"
+	if got != want {
+		t.Errorf("got %s want %s", got, want)
+	}
+}
+
+func TestInstallPackagesArchArchiveFallback(t *testing.T) {
+	pkg := fixturePkgTzst(t)
+	sum := sha256.Sum256(pkg)
+	mirrorHits, archiveHits := 0, 0
+
+	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mirrorHits++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mirror.Close()
+	archive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		archiveHits++
+		if r.URL.Path != "/packages/h/hello/hello-1.0-1-x86_64.pkg.tar.zst" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Write(pkg)
+	}))
+	defer archive.Close()
+	oldBase := archArchiveBase
+	archArchiveBase = archive.URL
+	t.Cleanup(func() { archArchiveBase = oldBase })
+
+	root := t.TempDir()
+	e := &executor{s: &system{chroot: root}, arch: "x86_64",
+		meta: &metadata{Distro: "arch", Generation: 0, Packages: map[string]pkgPin{
+			"hello": {Version: "1.0-1", Checksum: hex.EncodeToString(sum[:]), Repo: "core", Arch: "x86_64"},
+		}}}
+	e.mirror = mirror.URL
+	e.branches = []string{"core"}
+	if err := e.installPackages(map[string]any{"names": []any{"hello"}}); err != nil {
+		t.Fatal(err)
+	}
+	if mirrorHits != 1 || archiveHits != 1 {
+		t.Errorf("hits mirror=%d archive=%d, want 1 each", mirrorHits, archiveHits)
+	}
+	if _, err := os.Stat(filepath.Join(root, "kod/store/hello/1.0-1/usr/bin/hello")); err != nil {
+		t.Errorf("archive store content missing: %v", err)
+	}
+}
+
 func TestInstallPackagesArch(t *testing.T) {
 	pkg := fixturePkgTzst(t)
 	sum := sha256.Sum256(pkg)

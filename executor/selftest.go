@@ -465,6 +465,17 @@ func selftestPure() {
 		!strings.Contains(cfg, "search.fs_uuid"),
 		"grub serial, no search: kernel loads from ESP where grub.cfg lives")
 
+	// When the kernel logs to ttyS0, GRUB must also accept the console
+	// keyboard; otherwise a physical user cannot edit the menu entry.
+	serialCfg := renderGrubCfg(5, "UUID-X",
+		[]string{"console=tty0", "console=ttyS0,115200"},
+		[]grubEntry{{4, "6.18.63-r0", "", ""}})
+	check(strings.Contains(serialCfg, "terminal_input serial console"),
+		"serial-console grub must accept console keyboard, got:\n%s", serialCfg)
+	check(strings.Contains(cfg, "terminal_input serial\n") &&
+		!strings.Contains(cfg, "terminal_input serial console"),
+		"alpine grub input must stay byte-identical")
+
 	// sshd-style setting keys
 	check(settingsKey("permit_root_login") == "PermitRootLogin", "CamelCase key")
 

@@ -144,9 +144,12 @@ if [ -n "$DRY" ]; then
     exit 0
 fi
 
-# static binary only — no local Arch repo, no kodos.apk, no self-update
-mkdir -p "$TARGET_ROOT/usr/bin" "$TARGET_ROOT/etc/kodos"
-install -m 0755 "$PAYLOAD/bin/kodos" "$TARGET_ROOT/usr/bin/kodos"
+# static binary only — no local Arch repo, no kodos.apk, no self-update.
+# After activate_generation, /usr is a chroot-rooted symlink (/kod/...), so
+# host paths must use the real generation directory, not $TARGET_ROOT/usr.
+GEN="$TARGET_ROOT/kod/generation/0"
+mkdir -p "$GEN/usr/bin" "$TARGET_ROOT/etc/kodos"
+install -m 0755 "$PAYLOAD/bin/kodos" "$GEN/usr/bin/kodos"
 if [ -n "$SECRETS" ] && [ -f "$SECRETS" ]; then
     install -m 0600 "$SECRETS" "$TARGET_ROOT/etc/kodos/secrets.json"
 fi

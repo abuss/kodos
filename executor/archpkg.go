@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -19,6 +20,15 @@ import (
 // (x86_64 or any for noarch packages).
 func archPkgURL(mirror, repo, dirArch, name, version, pkgArch string) string {
 	return mirror + "/" + repo + "/os/" + dirArch + "/" + name + "-" + version + "-" + pkgArch + ".pkg.tar.zst"
+}
+
+// archArchiveBase is the fallback for pinned files that a rolling mirror has
+// already dropped. The SHA256 pin is still enforced on whatever comes back.
+var archArchiveBase = "https://archive.archlinux.org"
+
+func archArchiveURL(base, name, version, pkgArch string) string {
+	return strings.TrimRight(base, "/") + "/packages/" + strings.ToLower(name[:1]) +
+		"/" + name + "/" + name + "-" + version + "-" + pkgArch + ".pkg.tar.zst"
 }
 
 func verifySha256(path, want string) error {
