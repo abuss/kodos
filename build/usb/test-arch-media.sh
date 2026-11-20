@@ -127,10 +127,15 @@ done
 lua -e 'local c=dofile(arg[0]); assert(type(c)=="table", "embedded config did not load")' \
     "$EMBED/config.lua"
 
-# Arch day-2 apply is not wired yet; do not promise it in docs or the installer
-if grep -q 'kodos apply' "$REPO/build/usb/README-arch.md" \
-        "$REPO/build/usb/arch-run-install.sh"; then
-  echo "Arch docs promise unsupported kodos apply"; exit 1
+# Arch day-2 apply is now supported: the docs MUST document it and the
+# ca-certificates HTTPS prerequisite. The live-stick installer still runs no
+# day-2 apply, so it must not promise one.
+grep -q 'kodos apply' "$REPO/build/usb/README-arch.md" \
+    || { echo "Arch docs do not document supported kodos apply"; exit 1; }
+grep -q 'ca-certificates' "$REPO/build/usb/README-arch.md" \
+    || { echo "Arch docs omit the ca-certificates apply prerequisite"; exit 1; }
+if grep -q 'kodos apply' "$REPO/build/usb/arch-run-install.sh"; then
+  echo "live installer promises day-2 kodos apply"; exit 1
 fi
 mkdir -p "$TDIR/fakebin"
 printf '#!/bin/sh\n[ "$1" = -n -o "$1" = --mountpoint ] && echo /dev/nbd99\nexit 0\n' > "$TDIR/fakebin/findmnt"

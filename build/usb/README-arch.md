@@ -105,10 +105,11 @@ desc snapshots, renders config and generation 0 + GRUB, then installs the
 static binary at `/usr/bin/kodos` and the secrets at
 `/etc/kodos/secrets.json`.
 
-**Snapshot drift:** Arch is rolling. If the media's desc snapshots are old
-enough that the mirror no longer resolves a locked version, rebuild the media
-on a pacman host (or refresh `indexes/arch/*.desc` in the live copy) and
-re-run. The lock is fail-closed by design.
+**Snapshot drift:** Arch is rolling. If the mirror no longer serves a locked
+filename, the executor retries the same filename on `archive.archlinux.org`
+and still verifies its SHA256. If the archive also fails, refresh the desc
+snapshots on a pacman host and rebuild the media. The lock is fail-closed by
+design.
 
 ## 6. First boot + checks
 
@@ -129,10 +130,20 @@ kodos rollback && kodos status   # both files must still be there
 ```
 
 `/etc/kodos/config.lua` (and its `arch-machine.lua` sibling) is a readable
-record of the installed configuration. Day-2 in-place apply is **not wired for
-Arch yet** — the executor's live index fetch still assumes APKINDEX, which Arch
-does not publish. Rebuild media and reinstall for config changes. There is
-**no self-update** on Arch: replace `/usr/bin/kodos` directly from fresh media.
+record of the installed configuration. Day-2 in-place apply **is supported**:
+`kodos apply` re-reads the config, fetches the live `core` and `extra` sync DBs
+from the configured mirror over HTTPS, locks packages, and builds + activates a
+new generation. Package fetch still verifies SHA256 and falls back to
+`archive.archlinux.org` when the mirror drops a pinned file. Fresh installs ship
+`ca-certificates` so the target can validate those HTTPS mirrors.
+
+There is **no self-update** on Arch: `kodos apply` rebuilds the *system*
+generation, not the `/usr/bin/kodos` binary. To change `kodos` itself, replace
+`/usr/bin/kodos` directly from fresh media.
+
+A target installed from **older media predating `ca-certificates`** cannot reach
+the HTTPS mirror, so `kodos apply` fails with a TLS `x509` error. Rebuild from
+fresh media and reinstall, or bootstrap the CA bundle on the target by hand.
 
 ## Troubleshooting
 
@@ -143,9 +154,21 @@ does not publish. Rebuild media and reinstall for config changes. There is
 - `ERROR: blkid missing` — you did not boot the Alpine standard stick.
 - `lock_drift` / unresolved package — desc snapshots are stale; rebuild the
   media on a pacman host and re-run.
+- `fetch <name>-<version>: HTTP 404` — the mirror dropped the pinned file;
+  archive fallback is automatic. If it also fails, refresh media.
+- `x509: certificate signed by unknown authority` on `kodos apply` — the Arch
+  target is missing `ca-certificates` (older media). Rebuild from fresh media
+  and reinstall, or bootstrap the CA bundle on the target by hand.
 - No network — `ip link` then `udhcpc -i <iface>`; the install needs the
   Arch mirror.
 - `apk add` on the live host — only equips Alpine with `parted`, `mkfs.ext4`
   and `lsblk`; it never touches the Arch target.
 - Boot stops at GRUB — Secure Boot is still on, or GRUB was installed to a
   non-removable path; re-check the firmware setting.
+- Silent boot under `qemu -nographic` — the shipped config uses
+  `console=tty0 console=ttyS0,115200` and enables `serial-getty@ttyS0`.
+  Older media installed with `quiet` and no serial console: reinstall from
+  fresh media, or patch `/boot/grub/grub.cfg` on the target's ESP as a test.
+- Keyboard cannot edit the GRUB menu — older media rendered
+  `terminal_input serial` only. Fresh media enables console input too when the
+  kernel args contain `console=ttyS0`.
