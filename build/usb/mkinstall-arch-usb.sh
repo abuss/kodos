@@ -20,7 +20,11 @@ PACMAN_BIN=${PACMAN_BIN:-pacman}
 # sudo. Real builds leave this unset so pacman remains the DB trust oracle.
 ARCH_DESC_DIR=${ARCH_DESC_DIR:-}
 export ARCH_DESC_DIR
-DBROOT=/tmp/opencode/arch-media
+# Per-run DBROOT under $OUT: a fixed shared path let a `sudo` build leave
+# root-owned files that a later non-root run (or the media test) could not
+# `rm -rf`. fetch_arch_dbs recreates it fresh each time, so nothing depends on
+# it persisting.
+DBROOT=${DBROOT:-$OUT/arch-media-work}
 DBPATH=$DBROOT/db
 PACMAN_CACHE=$DBROOT/cache
 
