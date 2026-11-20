@@ -32,11 +32,25 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 if [ "$FRESH" = 1 ]; then rm -f "$DISK"; fi
 
-cleanup() {
+proven_nbds() {
+    # nbd indices whose qemu-nbd server cmdline proves our disk: the ONLY
+    # disconnect/swapoff targets we may touch on an unknown host
+    for i in 0 1 2 3 4 5 6 7; do
+        [ -e "/sys/block/nbd$i/pid" ] || continue
+        p=$(cat "/sys/block/nbd$i/pid" 2>/dev/null) || continue
+        grep -qa "vm-disk" "/proc/$p/cmdline" 2>/dev/null || continue
+        printf '%s ' "$i"
+    done
+}
+
+detach_mounts() {
+    # unmount our mounts + swapoff our swap, LEAVING the nbd attached: mid-run
+    # retries re-enter the stream with the SAME device names actions.json
+    # already baked, and format/mount/create_swap all refuse mounted or
+    # swapped targets.
     # Only touch OURS on an unknown host: an nbd mount is ours if its target
     # is under the VM root (match also realpath — hosts vary, e.g. /var/tmp
-    # may be a symlink; never assume the host's layout). Disconnects need a
-    # qemu-nbd cmdline proof of our disk.
+    # may be a symlink; never assume the host's layout).
     Mreal=$(readlink -f "$MNT" 2>/dev/null || echo "$MNT")
     Lreal=$(readlink -f "$MNT_LEGACY" 2>/dev/null || echo "$MNT_LEGACY")
     awk -v m="$MNT" -v r="$Mreal" -v l="$MNT_LEGACY" -v lr="$Lreal" \
@@ -47,24 +61,27 @@ cleanup() {
         mount --make-rprivate "$mm" >/dev/null 2>&1 || true
         umount -R "$mm" >/dev/null 2>&1 || umount -l -R "$mm" >/dev/null 2>&1 || true
     done
-    proven=""
-    for i in 0 1 2 3 4 5 6 7; do
-        [ -e "/sys/block/nbd$i/pid" ] || continue
-        p=$(cat "/sys/block/nbd$i/pid" 2>/dev/null) || continue
-        grep -qa "vm-disk" "/proc/$p/cmdline" 2>/dev/null || continue
-        proven="$proven $i"
-    done
+    proven=$(proven_nbds)
     if [ -n "$proven" ]; then
         alt=$(echo $proven | tr ' ' '|')
         awk -v re="^/dev/nbd(${alt})p?[0-9]*$" '$1 ~ re {print $1}' /proc/swaps |
             while read -r s; do swapoff "$s" >/dev/null 2>&1 || true; done
-        for i in $proven; do
-            for t in 1 2 3 4 5; do
-                qemu-nbd -d "/dev/nbd$i" >/dev/null 2>&1 && break
-                sleep 1
-            done
-        done
     fi
+}
+
+detach_nbd() {
+    proven=$(proven_nbds)
+    for i in $proven; do
+        for t in 1 2 3 4 5; do
+            qemu-nbd -d "/dev/nbd$i" >/dev/null 2>&1 && break
+            sleep 1
+        done
+    done
+}
+
+cleanup() {
+    detach_mounts
+    detach_nbd
     # remove OUR (now-empty) legacy mountpoint from wherever it pointed
     rmdir "$MNT_LEGACY" 2>/dev/null || true
 }
@@ -177,6 +194,10 @@ do_install() {
         echo "lock drift: refetching index snapshots, relocking, retrying once"
         snapshots force
         relock
+        # unwind attempt 1's mounts + swap (format/mount/create_swap refuse
+        # mounted or swapped targets); keep the nbd ATTACHED so the device
+        # names baked into actions.json stay valid for the replay
+        detach_mounts
         run_exec
     fi
     sync
