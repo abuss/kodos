@@ -5,7 +5,7 @@
 #   STAGE_ONLY=1 sh build/usb/mkinstall-usb.sh # stage payload dir only (testing)
 #
 # Payload staged under build/usb/stage (OUT=... overrides): bin/kodos (static,
-# from executor/), repo/x86_64 (kodos.apk + APKINDEX via build/mkapk.sh),
+# from executor/), repo/x86_64 (live-host tools + APKINDEX; no kodos.apk),
 # indexes/ (3.24 main+community snapshots, cached in build/usb/iso/), config/
 # (bare-metal layer + target config), run-install.sh.
 #
@@ -37,11 +37,9 @@ stage_payload() {
     rm -rf "$OUT"
     mkdir -p "$OUT/bin" "$OUT/repo/x86_64" "$OUT/indexes" "$OUT/config"
     (cd "$REPO/executor" && CGO_ENABLED=0 go build -o "$OUT/bin/kodos" .)
-    sh "$REPO/build/mkapk.sh" >/dev/null   # -> vm/repo/x86_64 (apk + index)
-    # only the apk THIS commit built (vm/repo accumulates old versions)
-    KPKG="kodos-${PKGVER:-0.1.0}-r${PKGREL_OVERRIDE:-$(git -C "$REPO" rev-list --count HEAD)}.apk"
-    [ -f "$REPO/vm/repo/x86_64/$KPKG" ] || { echo "ERROR: mkapk did not produce $KPKG"; exit 1; }
-    cp "$REPO/vm/repo/x86_64/$KPKG" "$OUT/repo/x86_64/"
+    # kodos itself is this static binary — no kodos.apk, no repo needed to
+    # deliver it (same as the Arch media). The repo below carries only the
+    # live installer host's tools.
     # parted + util-linux for the LIVE installer host (the standard ISO does
     # not ship them, the executor's storage ops need them): pinned to the
     # snapshot index versions, offline from the payload repo
@@ -54,7 +52,7 @@ stage_payload() {
         }
         cp "$CACHE/$pk-$PV.apk" "$OUT/repo/x86_64/"
     done
-    # payload-local index over exactly what we ship (kodos + parted; no vm fixture)
+    # payload-local index over exactly what we ship (live-host tools only)
     "$REPO/vm/apk-tools-static" index --allow-untrusted --no-warnings \
         -o "$OUT/repo/x86_64/APKINDEX.tar.gz" "$OUT"/repo/x86_64/*.apk
     for r in main community; do             # lockfile.lua index snapshots

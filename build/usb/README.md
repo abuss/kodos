@@ -3,8 +3,8 @@
 How to put kodos on a real machine: build a stick on a dev host, boot the
 target from it, run the installer. The stick is the kodos **install ISO**
 (an Alpine 3.24 live system re-mastered with xorriso, with the payload —
-the static `kodos` binary, its own apk in a local repo, index snapshots,
-and the machine config you edit — grafted read-only at `/kodos`) `dd`'d
+the static `kodos` binary, index snapshots, a local repo of live-installer
+tools, and the machine config you edit — grafted read-only at `/kodos`) `dd`'d
 onto the whole stick. Package installs download from the Alpine mirror —
 **the target needs Ethernet during the install** (Wi-Fi can only be
 configured *for the installed machine*, the live stick won't join a network
@@ -26,8 +26,8 @@ sh build/usb/mkinstall-usb.sh /dev/sdX
 `/dev/sdX` is the WHOLE USB stick (`lsblk` to find it) — everything on it is
 erased, and the script makes you type the device name again to confirm. It:
 
-1. stages the payload (`kodos` static binary + `kodos.apk` local repo +
-   index snapshots + `build/usb/config/` + `run-install.sh`),
+1. stages the payload (`kodos` static binary + index snapshots + a local
+   repo with live-installer tools + `build/usb/config/` + `run-install.sh`),
 2. builds `build/usb/iso/kodos-install-<rel>.iso` (Alpine standard ISO
    re-mastered with xorriso: original isohybrid BIOS/EFI boot info
    preserved, payload grafted read-only at `/kodos`),
@@ -121,10 +121,11 @@ sh /root/kodos/run-install.sh             # typed `yes`, then it installs
 ```
 
 The installer runs the proven sequence: generate the action stream, version-
-lock it against the index snapshots + local repo, then execute: partition →
-format → mount → ship the repo to `/kod/repo` → install ~100 packages from
-the mirror → render config → generation 0 + grub → done. It prompts for the
-root password (empty = console login without password) unless you shipped
+lock it against the index snapshots, then execute: partition → format →
+mount → install ~100 packages from the mirror → render config → generation
+0 + grub → install the static `kodos` binary into that generation → done.
+It prompts for the root password (empty = console login without password)
+unless you shipped
 `config/secrets.json`; that file also lands on the machine.
 
 If it aborts, the flow is idempotent: an existing kodos partition table is
@@ -141,11 +142,15 @@ Login as root (or the console account). The machine now manages itself:
 
 ```sh
 kodos status                  # generations + which is current
-vi /etc/kodos/config.lua      # the machine's OWN config (repo points at /kod/repo)
+vi /etc/kodos/config.lua      # the machine's OWN config
 kodos apply --dry-run && kodos apply
 kodos rollback                # boot the previous generation
-kodos self-update             # after bumping kodos.apk into /kod/repo + applying
 ```
+
+`kodos` is a static `/usr/bin/kodos` carried into every new generation by
+`kodos apply` — there is no `kodos.apk` and no self-update. To upgrade the
+manager itself, replace that binary from fresh media (boot the stick, copy
+its `bin/kodos` over the installed `/usr/bin/kodos`).
 
 Verify at first boot: `kodos status` shows generation 0 current,
 `ls /kod/generation`, `uname -r` = the linux-lts version, and

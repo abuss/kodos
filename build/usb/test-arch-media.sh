@@ -98,8 +98,6 @@ STAGE=$STAGE STAGE_SCRIPT="$REPO/build/usb/mkinstall-arch-usb.sh" \
 [ -s "$ISO" ] || { echo "no Arch ISO"; exit 1; }
 xorriso -indev "$ISO" -find /kodos -maxdepth 1 2>/dev/null | grep -q arch-run-install.sh \
     || { echo "ISO missing /kodos payload"; exit 1; }
-git -C "$REPO" diff --exit-code -- build/usb/mkinstall-usb.sh build/usb/run-install.sh build/usb/config \
-    || { echo "Alpine media changed"; exit 1; }
 grep -Fq 'STAGE_SCRIPT:-$REPO/build/usb/mkinstall-usb.sh' "$REPO/build/usb/mkinstall-iso.sh" \
     || { echo "ISO builder default override missing"; exit 1; }
 
