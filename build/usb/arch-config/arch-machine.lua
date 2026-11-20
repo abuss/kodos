@@ -26,7 +26,12 @@ return {
 
     boot = {
         bootloader = { type = "grub", efi = true, timeout = 5 },
-        kernel = { arguments = { "console=tty0", "console=ttyS0,115200" } },
+        -- console order is load-bearing: the LAST console= owns /dev/console,
+        -- so userspace output and the login prompt land on the screen (bare
+        -- metal round 2026-11-20 froze with ttyS0 last — the prompt went to a
+        -- serial port this box has nobody watching). ttyS0 stays first so
+        -- kernel messages still reach qemu -nographic rounds.
+        kernel = { arguments = { "console=ttyS0,115200", "console=tty0" } },
     },
 
     -- GPT + ESP + whole-remainder ext4 root. The installer rewrites disk0's

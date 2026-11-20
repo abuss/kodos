@@ -17,13 +17,14 @@ CFG=$PAYLOAD/config/arch-machine.lua
 WORK=/tmp/kodos-arch-install
 TARGET_ROOT=${TARGET_ROOT:-/mnt/kodos-target}
 
-DRY="" YES="" DEV=""
+DRY="" YES="" DEV="" WIPE=""
 while [ $# -gt 0 ]; do
     case $1 in
         --dry-run) DRY=1 ;;
         --yes) YES=1 ;;
+        --force-wipe) WIPE=1 ;;
         --device) shift; DEV=${1:-} ;;
-        *) echo "usage: $0 [--dry-run] [--yes] [--device /dev/sdX]"; exit 2 ;;
+        *) echo "usage: $0 [--dry-run] [--yes] [--force-wipe] [--device /dev/sdX]"; exit 2 ;;
     esac
     shift
 done
@@ -79,13 +80,22 @@ fi
 # ---- erase confirmation ----
 if [ -z "$DRY" ] && [ -z "$YES" ]; then
     echo
-    echo "parted on $DEV: an existing kodos table is kept, an EMPTY disk gets"
-    echo "the gpt+esp/root layout, and ALL data on other partitions of a"
-    echo "foreign table is left alone but the flow may still format named"
-    echo "partitions. Think twice."
-    printf 'type yes to continue: '
-    read -r ANS
-    [ "$ANS" = yes ] || { echo "aborted"; exit 1; }
+    if [ -n "$WIPE" ]; then
+        echo "--force-wipe on $DEV: the existing partition table AND every"
+        echo "filesystem signature on that disk are destroyed first, then the"
+        echo "gpt+esp/root layout is written. Everything on $DEV is lost."
+        printf "type the device path ($DEV) to continue: "
+        read -r ANS
+        [ "$ANS" = "$DEV" ] || { echo "aborted"; exit 1; }
+    else
+        echo "parted on $DEV: an existing kodos table is kept, an EMPTY disk gets"
+        echo "the gpt+esp/root layout, and ALL data on other partitions of a"
+        echo "foreign table is left alone but the flow may still format named"
+        echo "partitions. Think twice."
+        printf 'type yes to continue: '
+        read -r ANS
+        [ "$ANS" = yes ] || { echo "aborted"; exit 1; }
+    fi
 fi
 
 # ---- the sequence ----
@@ -100,6 +110,17 @@ mkdir -p "$TARGET_ROOT"
 if [ "$DEV" != "$CFGDEV" ]; then
     sed "s|$CFGDEV|$DEV|g" "$WORK/actions.json" > "$WORK/actions.json.tmp"
     mv "$WORK/actions.json.tmp" "$WORK/actions.json"
+fi
+
+# --force-wipe: tag the partition_disk op so the executor clears the table and
+# its signatures before writing the layout. Generated streams never carry this
+# field, so a day-2 apply can never wipe a partition table.
+if [ -n "$WIPE" ]; then
+    sed 's|"op": "partition_disk",|"op": "partition_disk", "wipe": true,|' \
+        "$WORK/actions.json" > "$WORK/actions.json.tmp"
+    mv "$WORK/actions.json.tmp" "$WORK/actions.json"
+    grep -q '"wipe": true' "$WORK/actions.json" || {
+        echo "ERROR: --force-wipe did not reach the partition_disk action"; exit 1; }
 fi
 
 # Arch closure lock: the desc snapshots are the only index source. No KODOS_APK,

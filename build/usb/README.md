@@ -128,9 +128,16 @@ It prompts for the root password (empty = console login without password)
 unless you shipped
 `config/secrets.json`; that file also lands on the machine.
 
-If it aborts, the flow is idempotent: an existing kodos partition table is
-kept, existing filesystems are fsck-repaired instead of reformatted — fix
-the config and re-run.
+If it aborts, the flow is idempotent: a kodos partition table that already IS
+the config's layout (same partitions, named `boot`/`root`/`home`/`swap`) is
+kept, and its filesystems are fsck-repaired instead of reformatted — fix the
+config and re-run. Anything else is refused on purpose: a foreign or half-done
+table, or a disk whose own partition is mounted or is active swap (that is
+what protects the stick you booted from). To install over such a disk, add
+`--force-wipe`: it clears the table and every filesystem signature before the
+layout is written, and the confirmation then makes you type the device path
+instead of `yes`. Only the installers can wipe — a day-2 `kodos apply` never
+carries that field.
 
 ## 6. First boot + day-2 management
 

@@ -105,6 +105,16 @@ desc snapshots, renders config and generation 0 + GRUB, then installs the
 static binary at `/usr/bin/kodos` and the secrets at
 `/etc/kodos/secrets.json`.
 
+**Existing partition table:** the flow never rewrites a table it did not write.
+A disk whose table is not exactly the config's layout (different partition
+count, or partitions not named `boot`/`root`) is refused, and a disk whose own
+partition is mounted or is active swap is refused outright — that is what
+protects the stick you booted from. To install over a foreign or half-done
+table, add `--force-wipe`: it clears the table and every filesystem signature
+on that disk before the layout is written, and the confirmation then makes you
+type the device path instead of `yes`. Only the installers can wipe; a day-2
+`kodos apply` never carries that field.
+
 **Snapshot drift:** Arch is rolling. If the mirror no longer serves a locked
 filename, the executor retries the same filename on `archive.archlinux.org`
 and still verifies its SHA256. If the archive also fails, refresh the desc

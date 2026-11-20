@@ -75,6 +75,12 @@ assert(pos(out, '"size": "512MB"') and pos(out, '"type": "esp"')
        and pos(out, '"size": "100%"'),
        "partition_disk must carry index/name/size/type per partition")
 
+-- destroying a partition table is bootstrap-only: the installers inject the
+-- wipe field into their own actions.json, and a generated stream (kodos apply
+-- included) must never be able to carry it.
+assert(not out:find('"wipe"', 1, true),
+    "generated streams must never carry the wipe field")
+
 -- home layer
 assert(pos(out, '"op": "enable_home_service"')
        and pos(out, '"mechanism": "user-daemon"')
