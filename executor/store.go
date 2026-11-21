@@ -226,6 +226,15 @@ func sameContent(a, b string) bool {
 // small etc config files. If ever huge, reflink via unix.CopyFileRange.
 // Removes the partial dst on any failure — no 0-byte relics.
 func cowCopy(src, dst string) error {
+	// Special files (device nodes, FIFOs, sockets) exist in generation
+	// trees (baselayout /dev, daemon run/home dirs) and cowCopy is only
+	// reached for them when hardlinking fails cross-device (/home is its
+	// own partition). Their "contents" are never the point and reading one
+	// blocks forever (eszkoz VM round froze 85 min in epoll here). Skip.
+	if st, err := os.Stat(src); err == nil && !st.Mode().IsRegular() {
+		fmt.Printf("cowCopy: skipped special file %s (%v)\n", src, st.Mode().Type())
+		return nil
+	}
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -734,7 +743,12 @@ func (s *system) activateGeneration(generation string) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if name == "etc_default" || name == "etc_store" || name == "root" || name == "home" {
+		if name == "etc_default" || name == "etc_store" || name == "root" || name == "home" ||
+			name == "proc" || name == "sys" {
+			// proc/sys: pseudo-fs, never package-owned. Present in a
+			// generation tree only as contamination from a crashed round
+			// that merged the mounted chroot pseudo-fs (2026-11-20:
+			// drivers_probe junk aborted activation) - never merge live.
 			continue
 		}
 		item := filepath.Join(generation, name)

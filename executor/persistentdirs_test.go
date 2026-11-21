@@ -109,3 +109,34 @@ func TestLegacyRootHomeSymlinkMigrationKeepsUserData(t *testing.T) {
 	pdAssertContent(t, filepath.Join(root, "root/.bashrc"), "bash v1\n")
 	pdAssertContent(t, filepath.Join(root, "home/alice/.profile"), "profile v1\n")
 }
+
+// Packages never own /proc or /sys. A round that had the pseudo-fs mounted
+// under the chroot while an old freeze was running (later fixed) pulled
+// sysfs content into the generation tree (field round 2026-11-20:
+// ERROR: open .../generation/0/sys/bus/ac97/drivers_probe: permission
+// denied). Activation must never merge those top-level dirs live.
+func TestActivationNeverMergesProcSys(t *testing.T) {
+	root := t.TempDir()
+	s := &system{chroot: root}
+
+	g0 := filepath.Join(root, "kod/generation/0")
+	pdWrite(t, filepath.Join(g0, "usr/share/thing"), "ok\n")
+	// sysfs-shaped contamination: write-only control files
+	pdWrite(t, filepath.Join(g0, "sys/bus/ac97/drivers_probe"), "")
+	if err := os.Chmod(filepath.Join(g0, "sys/bus/ac97/drivers_probe"), 0o200); err != nil {
+		t.Fatal(err)
+	}
+	pdWrite(t, filepath.Join(g0, "sys/kernel/mm/transparent_hugepage/enabled"), "always\n")
+
+	if err := s.activateGeneration(g0); err != nil {
+		t.Fatalf("activation must ignore proc/sys contamination, got: %v", err)
+	}
+	for _, junk := range []string{"sys", "proc"} {
+		if _, err := os.Lstat(filepath.Join(root, junk)); !os.IsNotExist(err) {
+			t.Fatalf("live /%s was merged from generation junk", junk)
+		}
+	}
+	if l, err := os.Readlink(filepath.Join(root, "usr")); err != nil || !filepath.IsAbs(l) {
+		t.Fatalf("normal usr relink lost: %q %v", l, err)
+	}
+}

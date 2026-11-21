@@ -82,6 +82,17 @@ if printf '%s\n' "$DRY" | grep -qE 'APKINDEX|file:///|/kod/repo|DRY-RUN copy_tre
     echo "FAIL: dry-run leaked local-repo ops"; exit 1
 fi
 
+# --force-wipe must reach the planned stream; the default plan must never wipe.
+FORCE=$(KODOS_APK="$REPO/vm/apk-tools-static" "$STAGE/run-install.sh" \
+    --dry-run --force-wipe --device /dev/nbd99 2>&1)
+if ! printf '%s\n' "$FORCE" | grep -q 'DRY-RUN partition_disk.*force-wipe'; then
+    printf '%s\n' "$FORCE" | tail -15
+    echo "FAIL: --force-wipe never reaches the planned stream"; exit 1
+fi
+if printf '%s\n' "$DRY" | grep -q 'force-wipe'; then
+    echo "FAIL: the default install plan wipes a partition table"; exit 1
+fi
+
 # Docs must not advertise the repo-based self-update any more.
 if grep -Fq 'kodos self-update' "$STAGE/README.md"; then
     echo "FAIL: media docs still advertise kodos self-update"; exit 1

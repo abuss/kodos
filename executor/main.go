@@ -299,6 +299,11 @@ func (e *executor) run(act map[string]any) error {
 
 func summarize(act map[string]any) string {
 	switch act["op"] {
+	case "partition_disk":
+		if act["wipe"] == true {
+			return fmt.Sprintf("%s (force-wipe: destroys the existing table)", act["device"])
+		}
+		return fmt.Sprintf("%v", act["device"])
 	case "copy_tree":
 		return fmt.Sprintf("%s -> %s", act["src"], act["dst"])
 	case "install_packages":

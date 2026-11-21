@@ -50,6 +50,31 @@ done
     echo "FAIL: staged Arch media IR does not request ca-certificates"; exit 1;
 }
 
+# Bare metal: with two console= kernel args the LAST one owns /dev/console, so
+# the login prompt lands on the screen (field round 2026-11-20: ttyS0 last left
+# a frozen VGA screen with no prompt). The ttyS0 twin stays for qemu rounds.
+CONSOLE_LAST=$("$STAGE/bin/kodos" lua generate.lua "$STAGE/config/arch-machine.lua" \
+    | jq -r '.actions[] | select(.op=="set_kernel_arguments")
+             | .arguments[] | select(startswith("console="))' | tail -1)
+if [ "$CONSOLE_LAST" != console=tty0 ]; then
+    echo "FAIL: last console= kernel arg is '$CONSOLE_LAST'; bare metal needs tty0 last"
+    exit 1
+fi
+
+# Separate /home and swap: the bare-metal Arch layout carries the same four
+# named partitions as the Alpine example (fixed root, home = rest, fixed
+# swap), and the swap partition actually gets initialized.
+ARCH_GEN=$("$STAGE/bin/kodos" lua generate.lua "$STAGE/config/arch-machine.lua")
+PNAMES=$(printf '%s\n' "$ARCH_GEN" | jq -r \
+    '[.actions[] | select(.op=="partition_disk") | .partitions[].name] | join(" ")')
+if [ "$PNAMES" != "boot root home swap" ]; then
+    echo "FAIL: Arch layout partitions = '$PNAMES', want 'boot root home swap'"
+    exit 1
+fi
+if ! printf '%s\n' "$ARCH_GEN" | grep -q '"op": "create_swap"'; then
+    echo "FAIL: Arch IR has no create_swap op"; exit 1
+fi
+
 cat > "$TDIR/fake-pacman.sh" <<'EOF'
 #!/bin/sh
 set -eu
@@ -110,6 +135,16 @@ printf '%s\n' "$DRY" | grep -q 'DRY-RUN install_packages' \
   || { echo "dry-run has no package op"; exit 1; }
 if printf '%s\n' "$DRY" | grep -qE 'APKINDEX|"type": "apk"|file:///'; then
   echo "Arch dry-run leaked apk/local-repo ops"; exit 1
+fi
+
+# --force-wipe must reach the planned stream; the default plan must never wipe.
+FORCE=$("$PAYLOAD/arch-run-install.sh" --dry-run --force-wipe --device /dev/nbd99 2>&1)
+if ! printf '%s\n' "$FORCE" | grep -q 'DRY-RUN partition_disk.*force-wipe'; then
+    printf '%s\n' "$FORCE" | tail -15
+    echo "FAIL: --force-wipe never reaches the planned stream"; exit 1
+fi
+if printf '%s\n' "$DRY" | grep -q 'force-wipe'; then
+    echo "FAIL: the default install plan wipes a partition table"; exit 1
 fi
 
 # the config embedded at /etc/kodos/config.lua must load on the installed box

@@ -60,32 +60,38 @@ func parseMounts(text string) map[string]string {
 // device node against mounted devices' st_dev if dm/LVM support is needed.
 func isMounted(device string, mounts map[string]string) bool {
 	for _, dev := range mounts {
-		if dev == device {
+		if coversDevice(dev, device) {
 			return true
-		}
-		// partition: device name + optional "p" + digits (e.g. nbd0p1, sda3)
-		if strings.HasPrefix(dev, device) {
-			rest := dev[len(device):]
-			if len(rest) > 0 && (rest[0] == 'p' || (rest[0] >= '0' && rest[0] <= '9')) {
-				// rest must be only "p" + digits or just digits
-				check := rest
-				if check[0] == 'p' {
-					check = check[1:]
-				}
-				allDigits := len(check) > 0
-				for _, c := range check {
-					if c < '0' || c > '9' {
-						allDigits = false
-						break
-					}
-				}
-				if allDigits {
-					return true
-				}
-			}
 		}
 	}
 	return false
+}
+
+// coversDevice: is dev the device itself or one of its kernel partitions?
+// Partition naming is the kernel's, not a constant: sd* disks number straight
+// onto the disk name (/dev/sda3), while names already ending in a digit take a
+// "p" separator (/dev/nvme0n1p2, /dev/nbd0p1, /dev/loop0p1) — the same rule
+// generate.lua applies when it emits the format/mount partition paths.
+func coversDevice(dev, device string) bool {
+	if !strings.HasPrefix(dev, device) {
+		return false
+	}
+	rest := dev[len(device):]
+	if rest == "" {
+		return true
+	}
+	if rest[0] == 'p' {
+		rest = rest[1:]
+	}
+	if rest == "" {
+		return false
+	}
+	for _, c := range rest {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func liveMounts() (map[string]string, error) {
@@ -111,6 +117,45 @@ func unescapeMount(s string) string {
 
 func diskBusy(device string, mounts map[string]string) bool {
 	return isMounted(device, mounts)
+}
+
+// liveSwaps: devices with active swap (/proc/swaps). A partition that IS the
+// running system's swap is as live as a mounted one, and /proc/mounts never
+// shows it — the bare-metal live stick had the target disk's old swap on.
+func liveSwaps() []string {
+	b, err := os.ReadFile("/proc/swaps")
+	if err != nil {
+		return nil
+	}
+	return parseSwaps(string(b))
+}
+
+func parseSwaps(text string) []string {
+	var devs []string
+	for i, line := range strings.Split(text, "\n") {
+		if i == 0 {
+			continue // header: Filename Type Size Used Priority
+		}
+		if f := strings.Fields(line); len(f) > 0 && strings.HasPrefix(f[0], "/dev/") {
+			devs = append(devs, f[0])
+		}
+	}
+	return devs
+}
+
+// diskInUse: mounted OR active swap on the device itself or any partition of
+// it. This is the guard partition_disk runs, so an installer pointed at the
+// live stick's own disk cannot get past it.
+func diskInUse(device string, mounts map[string]string, swaps []string) bool {
+	if isMounted(device, mounts) {
+		return true
+	}
+	for _, sw := range swaps {
+		if coversDevice(sw, device) {
+			return true
+		}
+	}
+	return false
 }
 
 // isMountpoint: different st_dev than the parent (no external tools).
@@ -381,6 +426,88 @@ func (e *executor) copyTree(act map[string]any) error {
 
 // ---- op handlers ----
 
+// ---- existing-table inspection (pure, tested) ----
+
+// existingPartitions: the partition device nodes sfdisk -d reports for device.
+// Read from the dump, never constructed: sd* disks number /dev/sda1 while
+// nvme/nbd/loop number /dev/nvme0n1p1, and a guard that assumes one form
+// refuses the other forever (bare-metal field round 2026-11-20).
+func existingPartitions(dump, device string) []string {
+	var found []string
+	for _, line := range strings.Split(dump, "\n") {
+		name := strings.TrimSpace(strings.SplitN(line, ":", 2)[0])
+		if name == "" || name == device || !coversDevice(name, device) {
+			continue
+		}
+		found = append(found, name)
+	}
+	return found
+}
+
+// existingPartitionNames: the GPT names in an sfdisk -d dump. The flow sets
+// them (parted mkpart <name>), so they tell an existing kodos layout apart
+// from somebody else's disk that happens to have the right partition count.
+func existingPartitionNames(dump string) []string {
+	const marker = `name="`
+	var names []string
+	for _, line := range strings.Split(dump, "\n") {
+		i := strings.Index(line, marker)
+		if i < 0 {
+			continue
+		}
+		rest := line[i+len(marker):]
+		if j := strings.Index(rest, `"`); j >= 0 {
+			names = append(names, rest[:j])
+		}
+	}
+	return names
+}
+
+// layoutDecision: an existing table is kept ONLY when it IS the config's
+// layout — the same partitions and every planned name. Anything else (foreign
+// disk, half-done table) is refused, with why naming what was found.
+func layoutDecision(dump, device string, specs []partSpec) (keep bool, why string) {
+	found := existingPartitions(dump, device)
+	if len(found) != len(specs) {
+		return false, fmt.Sprintf("%d partitions [%s], config lays out %d",
+			len(found), strings.Join(found, " "), len(specs))
+	}
+	names := existingPartitionNames(dump)
+	for _, sp := range specs {
+		if !nameListHas(names, sp.Name) {
+			return false, fmt.Sprintf("no partition named %q among [%s]",
+				sp.Name, strings.Join(names, " "))
+		}
+	}
+	return true, ""
+}
+
+func nameListHas(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
+}
+
+// wipeDisk: destroy the partition table and every signature on the disk, so
+// mklabel starts from bare metal. Reached only through the wipe field the
+// installers inject; kodos apply streams never carry it.
+func (e *executor) wipeDisk(device string) error {
+	if out, err := runOut("wipefs", "-a", device); err != nil {
+		return fmt.Errorf("wipefs -a %s: %w: %s", device, err, out)
+	}
+	// superblocks left inside the old partition areas keep confusing blkid
+	// after the table is gone, so zero the head of the disk as well
+	if err := run("dd", "if=/dev/zero", "of="+device, "bs=1M", "count=8", "conv=notrunc,sync"); err != nil {
+		return err
+	}
+	_ = run("partprobe", device) // best effort: the kernel must forget the old table
+	fmt.Printf("%s: partition table + signatures wiped\n", device)
+	return nil
+}
+
 func (e *executor) partitionDisk(act map[string]any) error {
 	device := field(act, "device")
 	if !strings.HasPrefix(device, "/dev/") {
@@ -390,28 +517,29 @@ func (e *executor) partitionDisk(act map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("cannot read /proc/mounts, refusing to partition disk %s: %w", device, err)
 	}
-	if diskBusy(device, mounts) {
-		return fmt.Errorf("refusing to partition mounted disk %s", device)
+	if diskInUse(device, mounts, liveSwaps()) {
+		return fmt.Errorf("refusing to partition in-use disk %s (mounted or active swap)", device)
 	}
-	if out, err := runOut("sfdisk", "-d", device); err == nil && strings.Contains(out, "label:") {
-		// idempotent ONLY when all expected partitions exist; a half-done
-		// table is never auto-repaired (never re-partition a possibly-live disk)
-		specs, err := specsFromAction(act)
-		if err != nil {
+	specs, err := specsFromAction(act)
+	if err != nil {
+		return err
+	}
+	if act["wipe"] == true {
+		// Only the installers inject this field; generate.lua never emits it, so
+		// a kodos apply stream can never destroy a partition table.
+		if err := e.wipeDisk(device); err != nil {
 			return err
 		}
-		have := 0
-		for _, line := range strings.Split(out, "\n") {
-			if strings.HasPrefix(line, device+"p") && strings.Contains(line, ":") {
-				have++
-			}
-		}
-		if have >= len(specs) {
+	} else if out, err := runOut("sfdisk", "-d", device); err == nil && strings.Contains(out, "label:") {
+		// idempotent ONLY when the table already IS the config's layout; a
+		// foreign or half-done table is never auto-replaced.
+		keep, why := layoutDecision(out, device, specs)
+		if keep {
 			fmt.Printf("%s already partitioned: leaving alone\n", device)
 			return nil
 		}
-		return fmt.Errorf("%s has a partition table but only %d/%d partitions: refusing to re-partition (wipe it, e.g. dd if=/dev/zero of=%s bs=1M count=10, or delete the VM disk)",
-			device, have, len(specs), device)
+		return fmt.Errorf("%s has a partition table that is not the config's layout: %s — clear it (wipefs -a %s) or install with --force-wipe",
+			device, why, device)
 	}
 	if err := run("parted", "-s", device, "mklabel", field(act, "table")); err != nil {
 		return err
@@ -434,10 +562,6 @@ func (e *executor) partitionDisk(act map[string]any) error {
 	}
 	if diskMiB == 0 {
 		return fmt.Errorf("disk size not found for %s", device)
-	}
-	specs, err := specsFromAction(act)
-	if err != nil {
-		return err
 	}
 	ranges, err := planPartitions(diskMiB, specs)
 	if err != nil {
