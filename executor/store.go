@@ -743,7 +743,12 @@ func (s *system) activateGeneration(generation string) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if name == "etc_default" || name == "etc_store" || name == "root" || name == "home" {
+		if name == "etc_default" || name == "etc_store" || name == "root" || name == "home" ||
+			name == "proc" || name == "sys" {
+			// proc/sys: pseudo-fs, never package-owned. Present in a
+			// generation tree only as contamination from a crashed round
+			// that merged the mounted chroot pseudo-fs (2026-11-20:
+			// drivers_probe junk aborted activation) - never merge live.
 			continue
 		}
 		item := filepath.Join(generation, name)
