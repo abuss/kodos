@@ -32,79 +32,81 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 if [ "$FRESH" = 1 ]; then rm -f "$DISK"; fi
 
-proven_nbds() {
-    # nbd indices whose qemu-nbd server cmdline proves our disk: the ONLY
-    # disconnect/swapoff targets we may touch on an unknown host
-    for i in 0 1 2 3 4 5 6 7; do
-        [ -e "/sys/block/nbd$i/pid" ] || continue
-        p=$(cat "/sys/block/nbd$i/pid" 2>/dev/null) || continue
-        grep -qa "vm-disk" "/proc/$p/cmdline" 2>/dev/null || continue
-        printf '%s ' "$i"
-    done
-}
-
-detach_mounts() {
-    # unmount our mounts + swapoff our swap, LEAVING the nbd attached: mid-run
-    # retries re-enter the stream with the SAME device names actions.json
-    # already baked, and format/mount/create_swap all refuse mounted or
-    # swapped targets.
-    # Only touch OURS on an unknown host: an nbd mount is ours if its target
-    # is under the VM root (match also realpath — hosts vary, e.g. /var/tmp
-    # may be a symlink; never assume the host's layout).
+cleanup() {
+    # Only touch OURS on an unknown host. MOUNT OWNERSHIP = target path:
+    # anything mounted UNDER our VM mountpoints is ours, whatever its source
+    # device. A crashed round leaves gen-chroot proc/sys/dev binds there
+    # (not /dev/nbd*): the old device-column filter kept them and the next
+    # round's chroot hit EIO over the stale stack (arch-round incident, now
+    # applied to both scripts). Disconnects need a qemu-nbd cmdline proof
+    # of OUR disk (vm-disk).
     Mreal=$(readlink -f "$MNT" 2>/dev/null || echo "$MNT")
     Lreal=$(readlink -f "$MNT_LEGACY" 2>/dev/null || echo "$MNT_LEGACY")
     awk -v m="$MNT" -v r="$Mreal" -v l="$MNT_LEGACY" -v lr="$Lreal" \
-        '$1 ~ /^\/dev\/nbd/ && (index($2, m) == 1 || index($2, r) == 1 ||
-            index($2, l) == 1 || index($2, lr) == 1) {print $2}' \
+        '(index($2, m) == 1 || index($2, r) == 1 || index($2, l) == 1 ||
+            index($2, lr) == 1) {print $2}' \
         /proc/mounts | while read -r mm; do
         # demote first: never propagate an unmount outward to the host
         mount --make-rprivate "$mm" >/dev/null 2>&1 || true
         umount -R "$mm" >/dev/null 2>&1 || umount -l -R "$mm" >/dev/null 2>&1 || true
     done
-    proven=$(proven_nbds)
+    proven=""
+    for f in /sys/block/nbd*/pid; do
+        [ -e "$f" ] || continue
+        i=$(basename "$(dirname "$f")")   # nbdN
+        p=$(cat "$f" 2>/dev/null) || continue
+        # Dead holder pid => nobody can serve that connection anymore: an
+        # orphan from a killed/crashed run (a live nbd server ALWAYS leaves
+        # a live /proc pid, so this can never steal a working foreign conn).
+        # Real incident: crashed rounds burned nbd0-7 this way and the
+        # cmdline-proof could never prove a dead pid was ours.
+        [ -d "/proc/$p" ] || { proven="$proven $i"; continue; }
+        grep -qa "vm-disk" "/proc/$p/cmdline" 2>/dev/null || continue
+        proven="$proven $i"
+    done
     if [ -n "$proven" ]; then
-        alt=$(echo $proven | tr ' ' '|')
+        alt=$(echo $proven | tr ' ' '|' | sed 's/nbd//g')
         awk -v re="^/dev/nbd(${alt})p?[0-9]*$" '$1 ~ re {print $1}' /proc/swaps |
             while read -r s; do swapoff "$s" >/dev/null 2>&1 || true; done
-    fi
-}
-
-detach_nbd() {
-    proven=$(proven_nbds)
-    for i in $proven; do
-        for t in 1 2 3 4 5; do
-            qemu-nbd -d "/dev/nbd$i" >/dev/null 2>&1 && break
-            sleep 1
+        for i in $proven; do
+            p=$(cat "/sys/block/$i/pid" 2>/dev/null || true)
+            for t in 1 2 3 4 5; do
+                qemu-nbd -d "/dev/$i" >/dev/null 2>&1 && break
+                sleep 1
+            done
+            # measured: -d can exit 0 yet leave the server process (and its
+            # qcow2 write lock) alive forever. The pid above is
+            # ownership-proven (vm-disk cmdline or dead), so killing is safe.
+            [ -n "$p" ] && [ -d "/proc/$p" ] && kill "$p" 2>/dev/null || true
         done
-    done
-}
-
-cleanup() {
-    detach_mounts
-    detach_nbd
+    fi
     # remove OUR (now-empty) legacy mountpoint from wherever it pointed
     rmdir "$MNT_LEGACY" 2>/dev/null || true
 }
 
 attach_nbd() {
-    # The host may run anything: NEVER disconnect an nbd we cannot prove is
-    # ours, and do not assume nbd0 is free — a wedged dead connection (only
-    # reboot clears it) just burns one index; use the next free device.
-    modprobe nbd max_part=8 || { echo "ERROR: modprobe nbd failed"; exit 1; }
+    # NEVER disconnect an nbd we cannot prove is ours; a wedged dead
+    # connection burns one index, take the next free one.
+    modprobe nbd max_part=8 nbds_max=64 || { echo "ERROR: modprobe nbd failed"; exit 1; }
     # a host that preloaded nbd without max_part gets no nbdXpY partition
     # nodes at all: try to take over the module, else fail loudly.
     if [ "$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || echo 0)" -lt 8 ]; then
         modprobe -r nbd >/dev/null 2>&1 || true
-        modprobe nbd max_part=8 2>/dev/null || true
+        modprobe nbd max_part=8 nbds_max=64 2>/dev/null || true
         mp=$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || echo 0)
         [ "$mp" -ge 8 ] || { echo "ERROR: nbd loaded with max_part=$mp (someone else's module state): partition nodes will not exist"; exit 1; }
     fi
     [ -e /dev/nbd0 ] || sleep 1   # udev may be slow to create the nodes
-    for i in 0 1 2 3 4 5 6 7; do
-        d=/dev/nbd$i
-        [ -e "$d" ] || continue
-        # in use (live or wedged): leave it alone entirely
-        [ -e "/sys/block/nbd$i/pid" ] && continue
+    # Pool = EVERY existing /dev/nbdN (the old 0-7 window was self-imposed
+    # and is already half burned on this host). Gate = NEVER-configured
+    # indices only (no pid file): measured on this kernel, once an index has
+    # been configured, qemu-nbd -d does NOT release the config and a fresh
+    # -c is a SILENT NO-OP (rc=0, old pid retained, reads EIO) - that index
+    # is dead until the module reloads. Live pids (foreign servers) are
+    # left alone. The verify-read backstops any other dud index.
+    for d in /dev/nbd*; do
+        case "${d#/dev/nbd}" in ''|*[!0-9]*) continue ;; esac  # pure nbdN only
+        [ -e "/sys/block/${d#/dev/}/pid" ] && continue
         qemu-nbd -c "$d" "$DISK" >/dev/null 2>&1 || continue
         ok=0
         for t in 1 2 3; do
@@ -114,8 +116,9 @@ attach_nbd() {
         if [ "$ok" = 1 ]; then NBD=$d; return 0; fi
         qemu-nbd -d "$d" >/dev/null 2>&1 || true
     done
-    echo "ERROR: no free+readable /dev/nbd0-7 (foreign or wedged ones are left alone)."
-    echo "Ours die with the script; if a wedge burned every index, reboot clears them."
+    echo "ERROR: no never-configured readable /dev/nbd node left this module load."
+    echo "Configured-once indices are dead on this kernel (nbd configs are never"
+    echo "released); reboot or 'modprobe -r nbd' (if nothing holds it) revives them."
     exit 1
 }
 
@@ -151,13 +154,17 @@ do_install() {
     fi
 
     cd "$REPO/executor/lua"
-    lua generate.lua system.lua "$REPO/vm/vm-layer.lua" ../../example/eszkoz/layers/machine.lua \
-        ../../example/eszkoz/layers/user.lua > "$VMDIR/actions.json"
-    # actions carry the config's nbd0 device names; swap in the index we
-    # actually attached (foreign/wedged nbd0 may have forced us higher)
-    if [ "${NBD#/dev/nbd}" != 0 ]; then
-        sed -i "s|nbd0|nbd${NBD#/dev/nbd}|g" "$VMDIR/actions.json"
-    fi
+    gen_actions() {
+        # regenerate the stream from the config: partition ops are emitted for
+        # nbd0, then swapped to the index we actually attached (a foreign or
+        # dead-burned nbd0 may have forced us higher)
+        lua generate.lua system.lua "$REPO/vm/vm-layer.lua" ../../example/eszkoz/layers/machine.lua \
+            ../../example/eszkoz/layers/user.lua > "$VMDIR/actions.json"
+        if [ "${NBD#/dev/nbd}" != 0 ]; then
+            sed -i "s|nbd0|nbd${NBD#/dev/nbd}|g" "$VMDIR/actions.json"
+        fi
+    }
+    gen_actions
     snapshots
     # build repo artifacts (fixture dummy + kodos apk + APKINDEX)
     (cd "$REPO" && sh build/mkrepo.sh && sh build/mkapk.sh)
@@ -194,10 +201,12 @@ do_install() {
         echo "lock drift: refetching index snapshots, relocking, retrying once"
         snapshots force
         relock
-        # unwind attempt 1's mounts + swap (format/mount/create_swap refuse
-        # mounted or swapped targets); keep the nbd ATTACHED so the device
-        # names baked into actions.json stay valid for the replay
-        detach_mounts
+        # arch-round retry doctrine: exec leaves the disk mounted (and the
+        # index may have gone dead) - tear down, reattach, regenerate the
+        # stream for the new index, then replay
+        cleanup
+        attach_nbd
+        gen_actions
         run_exec
     fi
     sync
