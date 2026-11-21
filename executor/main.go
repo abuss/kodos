@@ -281,6 +281,22 @@ func (e *executor) run(act map[string]any) error {
 				return fmt.Errorf("activate_generation: locale-gen: %w", err)
 			}
 		}
+		// Arch's pacman install hooks (systemd-sysusers.hook,
+		// systemd-tmpfiles.hook) never run: the executor installs packages
+		// directly, bypassing pacman. Run their payload once against the
+		// LIVE activated root, after the flip (they need the final /etc).
+		// Missing on targets: base groups (disk, utmp, systemd-journal,
+		// kvm...) unresolvable -> the system's own udev/tmpfiles/login
+		// plumbing fails at boot.
+		if e.meta.Distro == "arch" {
+			if err := e.chrootSh(e.s.chroot, "systemd-sysusers"); err != nil {
+				return fmt.Errorf("activate_generation: systemd-sysusers: %w", err)
+			}
+			if err := e.chrootSh(e.s.chroot,
+				"systemd-tmpfiles --create --prefix=/run --prefix=/var"); err != nil {
+				fmt.Printf("WARNING: systemd-tmpfiles --create: %v (continuing)\n", err)
+			}
+		}
 		return nil
 	case "create_user":
 		return e.createUser(act)
@@ -329,6 +345,9 @@ func renderMirrorList(mirror string) string {
 func renderPacmanConf(branches []string) string {
 	var b strings.Builder
 	b.WriteString("[options]\n")
+	// Without an explicit Architecture, every mirror URL that carries the
+	// $arch variable fails to resolve on the installed system.
+	b.WriteString("Architecture = auto\n")
 	b.WriteString("HoldPkg = pacman glibc\n")
 	b.WriteString("CleanMethod = KeepCurrent\n")
 	b.WriteString("SigLevel = Required DatabaseOptional\n")

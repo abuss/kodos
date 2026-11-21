@@ -70,6 +70,15 @@ grep -Fq 'lockfile.lua 0 "$IM" "$IC" --' "$REPO/build/usb/run-install.sh" || {
     echo "FAIL: installer still passes a local repo index to the closure lock"; exit 1;
 }
 
+# --force-wipe: the installer must inject the wipe field (generated streams
+# never carry it) and confirm the wipe by typed device path, not "yes".
+grep -Fq '"op": "partition_disk", "wipe": true' "$REPO/build/usb/run-install.sh" || {
+    echo "FAIL: installer does not inject the wipe field on --force-wipe"; exit 1;
+}
+grep -Fq 'type the device path' "$REPO/build/usb/run-install.sh" || {
+    echo "FAIL: installer has no device-path wipe confirmation"; exit 1;
+}
+
 # Dry-run the real installer: no local-repo ops may survive into the stream.
 DRY=$(KODOS_APK="$REPO/vm/apk-tools-static" "$STAGE/run-install.sh" \
     --dry-run --device /dev/nbd99 2>&1) || {

@@ -65,6 +65,15 @@ fi
 # named partitions as the Alpine example (fixed root, home = rest, fixed
 # swap), and the swap partition actually gets initialized.
 ARCH_GEN=$("$STAGE/bin/kodos" lua generate.lua "$STAGE/config/arch-machine.lua")
+
+# VT login prompt: systemd 262 ships no autovt@ template, so the IR must
+# enable getty@tty1 explicitly or the bare-metal screen ends boot with no
+# prompt (field round 2026-11-20).
+if ! printf '%s\n' "$ARCH_GEN" \
+     | jq -e '.actions[] | select(.op=="enable_service" and .unit=="getty@tty1")' \
+     >/dev/null; then
+    echo "FAIL: Arch IR does not enable getty@tty1 (no VT login prompt)"; exit 1
+fi
 PNAMES=$(printf '%s\n' "$ARCH_GEN" | jq -r \
     '[.actions[] | select(.op=="partition_disk") | .partitions[].name] | join(" ")')
 if [ "$PNAMES" != "boot root home swap" ]; then
@@ -145,6 +154,12 @@ if ! printf '%s\n' "$FORCE" | grep -q 'DRY-RUN partition_disk.*force-wipe'; then
 fi
 if printf '%s\n' "$DRY" | grep -q 'force-wipe'; then
     echo "FAIL: the default install plan wipes a partition table"; exit 1
+fi
+
+# The wipe is a device-path confirmation, never a "yes" menu: the operator
+# must type what gets destroyed (field round 2026-11-20 bare metal).
+if ! grep -Fq 'type the device path' "$REPO/build/usb/arch-run-install.sh"; then
+    echo "FAIL: Arch installer has no device-path wipe confirmation"; exit 1
 fi
 
 # the config embedded at /etc/kodos/config.lua must load on the installed box
