@@ -140,6 +140,12 @@ snapshots() {
 }
 
 do_install() {
+    # this round generates AND execs $REPO/executor/kodos: always rebuild it
+    # from current source first. mkapk.sh builds its own staging copy for the
+    # guest apk, so nothing else keeps executor/kodos fresh - a stale binary
+    # silently re-tests old code (2026-11-20: a round re-hung on a bug that
+    # had already been fixed in source).
+    (cd "$REPO/executor" && go build -o kodos .)
     # recover cleanly from a previous crashed run (stale mounts/nbd)
     cleanup
     [ -f "$DISK" ] || qemu-img create -f qcow2 "$DISK" 200G

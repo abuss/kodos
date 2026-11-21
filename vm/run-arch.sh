@@ -179,6 +179,9 @@ EOF
 }
 
 do_install() {
+    # fresh binary for the ops this round generates AND execs (same lesson
+    # as run.sh: mkapk's staging copy does not keep executor/kodos current)
+    (cd "$REPO/executor" && go build -o kodos .)
     # recover cleanly from a previous crashed run (stale mounts/nbd)
     cleanup
     [ -f "$DISK" ] || qemu-img create -f qcow2 "$DISK" 200G
