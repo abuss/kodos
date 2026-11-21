@@ -136,7 +136,7 @@ func TestActivationNeverMergesProcSys(t *testing.T) {
 			t.Fatalf("live /%s was merged from generation junk", junk)
 		}
 	}
-	if _, err := os.Lstat(filepath.Join(root, "usr/share/thing")); err != nil {
-		t.Fatalf("normal usr merge lost: %v", err)
+	if l, err := os.Readlink(filepath.Join(root, "usr")); err != nil || !filepath.IsAbs(l) {
+		t.Fatalf("normal usr relink lost: %q %v", l, err)
 	}
 }
