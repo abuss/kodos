@@ -208,6 +208,15 @@ M.schema = {
             path = "string", content = "string",
             mode = { optional = "string" },
         } } } },
+
+        -- optional desktop configuration: display manager and enabled desktops
+        desktop = { optional = { record = {
+            display_manager = "string",  -- e.g. "gdm", "sddm", "lightdm", "cosmic-greeter"
+            desktops = { optional = { dict_of = { record = {
+                enable = "bool",
+                extra_packages = { optional = tagged_list },
+            } } } },
+        } } },
     },
 }
 

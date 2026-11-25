@@ -174,4 +174,37 @@ return {
 -- Should now validate without error (no extra field errors)
 assert(not has("extra: unknown key"), "locale.extra should now be a valid field")
 
-print("PASS: schema validation (clean configs + 23 seeded errors caught)")
+-- Test: desktop section with display_manager and desktops
+has = scratch_layer("_scratch_v12.lua", [[
+return {
+    repos = { base = { type = "arch", mirror = "https://mirror.rackspace.com/archlinux", branches = {} } },
+    system = {
+        host_name = "test",
+        locale = { default = "en_US.UTF-8" }
+    },
+    boot = { bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    desktop = {
+        display_manager = "cosmic-greeter",
+        desktops = {
+            gnome = {
+                enable = true,
+                extra_packages = { { repo = "base", name = "gnome-tweaks" } }
+            },
+            cosmic = {
+                enable = true
+            }
+        }
+    },
+    users = {},
+    packages = {}
+}
+]])
+-- Should now validate without error (no desktop field errors)
+assert(not has("desktop: unknown key"), "desktop section should be a valid field")
+
+print("PASS: schema validation (clean configs + 24 seeded errors caught)")
