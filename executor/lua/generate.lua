@@ -213,6 +213,25 @@ end
 local plan = resolve.service_plan(conf, backend)
 local hplan = resolve.home_service_plan(conf, backend)
 local all, dropped = resolve.install_set(conf, backend)
+
+-- Add desktop extra packages to the install set
+if conf.desktop then
+    for desktop_name, desktop_cfg in pairs(conf.desktop.desktops or {}) do
+        if desktop_cfg.enable and desktop_cfg.extra_packages then
+            for _, pkg in ipairs(desktop_cfg.extra_packages) do
+                if pkg.repo == "base" and pkg.name then
+                    local seen = {}
+                    for _, n in ipairs(all) do seen[n] = true end
+                    if not seen[pkg.name] then
+                        all[#all + 1] = pkg.name
+                    end
+                end
+            end
+        end
+    end
+    table.sort(all)
+end
+
 act("install_packages", { names = all })
 
 -- ====== 9-10. flatpak (needs the flatpak tool, so after install_packages;
@@ -335,6 +354,22 @@ if backend.vt_console_unit then
                             unit = backend.vt_console_unit,
                             runlevel = "getty" })
 end
+
+-- Desktop display manager service enable
+if conf.desktop and conf.desktop.display_manager then
+    local display_manager = conf.desktop.display_manager
+    local display_svc = backend.map and backend.map[display_manager] or display_manager
+    
+    -- Enable display manager service
+    if display_svc and display_svc ~= false then
+        act("enable_service", {
+            name = display_svc,
+            unit = display_svc,
+            runlevel = "default"
+        })
+    end
+end
+
 for _, s in ipairs(hplan) do
     act("enable_home_service", { user = s.user, name = s.name,
                                  mechanism = s.mechanism, packages = s.packages,

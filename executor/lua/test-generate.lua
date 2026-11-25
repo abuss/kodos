@@ -424,4 +424,41 @@ os.remove("_scratch_alpine_bad_locale.lua")
 assert(err_out:find("ja_JP", 1, true) or err_out:find("unsupported locale", 1, true),
     "Alpine backend should reject unsupported locale ja_JP.UTF-8, got: " .. err_out)
 
+-- ====== arch + desktop section: IR generation includes service and packages ======
+local f_desktop = assert(io.open("_scratch_desktop.lua", "w"))
+f_desktop:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "deskarch", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    desktop = {
+        display_manager = "cosmic-greeter",
+        desktops = {
+            gnome = { enable = true, extra_packages = { { repo = "base", name = "gnome-tweaks" } } },
+            cosmic = { enable = true }
+        }
+    },
+    users = {}, packages = {}
+}
+]])
+f_desktop:close()
+local ar_desktop = run("_scratch_desktop.lua")
+-- Verify display_manager service enable action
+assert(ar_desktop:find('"op": "enable_service"', 1, true), "enable_service action must exist")
+assert(ar_desktop:find('"name": "cosmic-greeter"', 1, true), 
+       "cosmic-greeter service must be enabled")
+-- Verify desktop extra_packages in install
+assert(ar_desktop:find('"gnome-tweaks"', 1, true),
+       "Desktop extra packages should be installed")
+os.remove("_scratch_desktop.lua")
+
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")
