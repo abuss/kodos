@@ -207,4 +207,37 @@ return {
 -- Should now validate without error (no desktop field errors)
 assert(not has("desktop: unknown key"), "desktop section should be a valid field")
 
-print("PASS: schema validation (clean configs + 24 seeded errors caught)")
+-- Test: AUR packages in user environment
+has = scratch_layer("_scratch_v13.lua", [[
+return {
+    repos = { base = { type = "arch", mirror = "https://mirror.rackspace.com/archlinux", branches = {} } },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {
+        testuser = {
+            name = "Test User",
+            group = "users",
+            home_directory = "/home/testuser",
+            shell = "/bin/bash",
+            create_home = true,
+            environment = {
+                packages = {
+                    { repo = "base", name = "git" },
+                    { repo = "aur", name = "visual-studio-code-bin" },
+                    { repo = "aur", name = "quickemu" }
+                }
+            }
+        }
+    },
+    packages = {}
+}
+]])
+-- Should validate without error (tagged_list already allows any repo string)
+assert(not has("repo.*aur.*unknown"), "AUR packages in user environment should be valid")
+
+print("PASS: schema validation (clean configs + AUR validation test)")

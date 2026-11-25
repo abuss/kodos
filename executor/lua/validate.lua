@@ -186,6 +186,8 @@ M.schema = {
             create_home = { optional = "bool" },
             no_password = { optional = "bool" },
             environment = { optional = { record = {
+                -- AUR packages: {repo="aur", name="pkg"} supported in user environment only.
+                -- System-level AUR support TBD (requires backend-specific tooling).
                 packages = { optional = tagged_list },
                 config = { optional = "any" },   -- free-form per-writer
                 dotfiles = { optional = "any" },
