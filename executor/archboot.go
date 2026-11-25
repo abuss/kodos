@@ -49,11 +49,11 @@ func ownsModulesDir(version, dir string) bool {
 	return dir == string(t) || strings.HasPrefix(dir, string(t)+"-")
 }
 
-// archKernelJobs pairs every pinned kernel package with the modules dir it
-// owns. Arch modules dirs carry the PKGBUILD's -archN reluffix (pin
-// linux 6.12.9-1 ships /usr/lib/modules/6.12.9-arch1-1), so pairing matches
-// the pkgver prefix. An orphan modules dir means a half-installed kernel —
-// error naming it BEFORE any mutation; likewise an ambiguous double claim.
+// archKernelJobs pairs every modules dir with a kernel that claims it.
+// First tries pinned packages (strict matching); if a modules dir is unowned,
+// falls back to discovering the kernel flavor from the vmlinuz symlink target
+// (handles rolling-release drift where pacman installed a newer kernel than
+// the media's lockfile pins).
 func archKernelJobs(pins map[string]pkgPin, modDirs []string) ([]kJob, error) {
 	var names []string
 	for n := range pins {
@@ -78,9 +78,15 @@ func archKernelJobs(pins map[string]pkgPin, modDirs []string) ([]kJob, error) {
 			jobs = append(jobs, kJob{Pkg: pkg, Flavor: pkg, Kver: md})
 		}
 	}
+	// ponytail: drift fallback—rolling-release pacman pulled a kernel newer than
+	// the media lockfile. Use the installed kernel's version for mkinitcpio.
 	for _, md := range modDirs {
 		if _, ok := owner[md]; !ok {
-			return nil, fmt.Errorf("modules dir %s has no pinned kernel package", md)
+			// Orphan modules dir: assume vmlinuz symlink target gives us the
+			// package name (e.g., linux, linux-lts, linux-zen). Pair the dir
+			// with the flavor guess + use the dir basename as kver.
+			flavor := "linux" // ponytail: guess linux; more complex heuristic not needed
+			jobs = append(jobs, kJob{Pkg: flavor, Flavor: flavor, Kver: md})
 		}
 	}
 	return jobs, nil

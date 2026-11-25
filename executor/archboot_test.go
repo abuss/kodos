@@ -56,10 +56,18 @@ func TestArchKernelJobs(t *testing.T) {
 		t.Errorf("job[1] = %+v", jobs[1])
 	}
 
-	// modules dir no pinned kernel owns: fail closed naming it
-	_, err = archKernelJobs(pins, []string{"6.12-1", "6.13-1"})
-	if err == nil || !strings.Contains(err.Error(), "6.13-1") {
-		t.Errorf("orphan modules dir must name itself, got: %v", err)
+	// modules dir no pinned kernel owns: drift fallback names it (e.g., rolling-release
+	// pacman installed a kernel newer than the media's lockfile pins; use the actual
+	// installed kernel for mkinitcpio rather than failing)
+	jobs3, err := archKernelJobs(pins, []string{"6.12-1", "6.13-1"})
+	if err != nil {
+		t.Errorf("orphan drift fallback should succeed, got: %v", err)
+	}
+	if len(jobs3) != 2 {
+		t.Errorf("orphan drift fallback should produce 2 jobs, got %d: %+v", len(jobs3), jobs3)
+	}
+	if jobs3[1].Kver != "6.13-1" {
+		t.Errorf("jobs3[1].Kver = %s, want 6.13-1", jobs3[1].Kver)
 	}
 
 	// REAL collision from first e2e: linux-api-headers passes the kernel-name
