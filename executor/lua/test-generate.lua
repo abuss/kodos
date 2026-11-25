@@ -30,7 +30,7 @@ local base = run("system.lua")
 assert(pos(base, '"unit": "cupsd"') > 0,
        "printing enabled in base config")
 assert(pos(base, '"timeout": 10') > 0, "base bootloader timeout")
-assert(pos(base, '"shell": "/usr/bin/zsh"') > 0, "base abuss shell")
+assert(pos(base, '"shell": "/bin/bash"') > 0, "base abuss shell")
 
 -- /tmp is shared session state, not generation content: mount it as tmpfs
 -- before activation so activateGeneration's mountpoint skip leaves the live
@@ -54,7 +54,8 @@ assert(not out:find("cups", 1, true), "printing disabled by machine layer must"
        .. " vanish from packages AND actions")
 assert(pos(out, '"timeout": 3') > 0, "machine layer timeout override")
 assert(pos(out, '"shell": "/bin/bash"') > 0, "machine layer shell override")
-assert(not out:find("/usr/bin/zsh", 1, true), "base shell gone")
+assert(not out:find("/usr/bin/zsh", 1, true), "the retired zsh default must"
+       .. " never reach the IR")
 assert(pos(out, '"bat"') and pos(out, '"dust"'), "user layer packages")
 assert(pos(out, '"tlp"') and pos(out, '"unit": "tlp"'),
        "layer-introduced escape-hatch service enabled")
