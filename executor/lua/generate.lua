@@ -236,7 +236,27 @@ end
 
 -- ====== 11-16. system settings + service settings ======
 if conf.system.locale then
-    act("configure_locale", { default = conf.system.locale.default })
+    local locales = { conf.system.locale.default }
+    if conf.system.locale.extra then
+        for _, loc in ipairs(conf.system.locale.extra) do
+            table.insert(locales, loc)
+        end
+    end
+    
+    -- Validate locale.extra against backend whitelist (if present)
+    if conf.system.locale.extra and backend.locale_whitelist then
+        for _, locale in ipairs(conf.system.locale.extra) do
+            local found = false
+            for _, supported in ipairs(backend.locale_whitelist) do
+                if locale == supported then found = true; break end
+            end
+            if not found then
+                error("locale.extra: unsupported locale '" .. locale .. "' on " .. backend.name)
+            end
+        end
+    end
+    
+    act("configure_locale", { default = conf.system.locale.default, extra = conf.system.locale.extra })
 end
 if conf.system.keyboard_layout then
     act("configure_keyboard", {

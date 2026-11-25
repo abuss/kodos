@@ -369,4 +369,59 @@ assert(pos(am, '"unit": "serial-getty@ttyS0"'), "bare-metal config enables seria
 assert(not am:find('"quiet"', 1, true), "bare-metal boot is not quiet")
 assert(pos(am, '"ca-certificates"'), "Arch target must ship a CA trust store")
 
+-- ====== arch + locale.extra: IR generation includes extra locales ======
+local f_ar_locale = assert(io.open("_scratch_arch_locale.lua", "w"))
+f_ar_locale:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "archt", timezone = "UTC",
+               locale = { default = "en_CA.UTF-8", extra = { "en_US.UTF-8", "en_GB.UTF-8" } } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+}
+]])
+f_ar_locale:close()
+local ar_locale = run("_scratch_arch_locale.lua")
+assert(pos(ar_locale, '"default": "en_CA.UTF-8"') > 0, "configure_locale has default locale")
+-- Check for extra locales (may be formatted across lines)
+assert(ar_locale:find('"extra"', 1, true) and ar_locale:find('"en_US.UTF-8"', 1, true), 
+       "configure_locale includes extra locales field")
+os.remove("_scratch_arch_locale.lua")
+
+-- ====== alpine + locale.extra: validation rejects unsupported locale ======
+-- This test verifies that generate.lua's locale whitelist validation catches
+-- unsupported locales on Alpine (musl doesn't ship ja_JP.UTF-8).
+local f_alpine_bad_locale = assert(io.open("_scratch_alpine_bad_locale.lua", "w"))
+f_alpine_bad_locale:write([[
+return {
+    repos = { base = { type = "apk", mirror = "https://dl-cdn.alpinelinux.org/alpine/v3.24", branches = {} } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "alpt", timezone = "UTC",
+               locale = { default = "en_US.UTF-8", extra = { "ja_JP.UTF-8" } } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/vda", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+}
+]])
+f_alpine_bad_locale:close()
+-- Run generate.lua and capture stderr to check for error
+local cmd = "lua generate.lua _scratch_alpine_bad_locale.lua 2>&1"
+local h = assert(io.popen(cmd))
+local err_out = h:read("*a")
+h:close()
+os.remove("_scratch_alpine_bad_locale.lua")
+assert(err_out:find("ja_JP", 1, true) or err_out:find("unsupported locale", 1, true),
+    "Alpine backend should reject unsupported locale ja_JP.UTF-8, got: " .. err_out)
+
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")

@@ -64,8 +64,8 @@ M.map = {
 -- *-lang subpackages for every installed package. LANG lives in
 -- /etc/profile.d/20locale.sh; the console needs unicode="YES" in /etc/rc.conf.
 M.locale_packages = { "musl-locales", "musl-locales-lang" }
-M.locales_supported = {
-    "C.UTF-8", "cs_CZ.UTF-8", "de_CH.UTF-8", "de_DE.UTF-8", "en_GB.UTF-8",
+M.locale_whitelist = {
+    "C", "C.UTF-8", "cs_CZ.UTF-8", "de_CH.UTF-8", "de_DE.UTF-8", "en_GB.UTF-8",
     "en_US.UTF-8", "es_ES.UTF-8", "fi_FI.UTF-8", "fr_FR.UTF-8", "it_IT.UTF-8",
     "nb_NO.UTF-8", "nl_NL.UTF-8", "pt_BR.UTF-8", "pt_PT.UTF-8", "ru_RU.UTF-8",
     "sr_RS.UTF-8", "sv_SE.UTF-8",
