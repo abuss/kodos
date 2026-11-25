@@ -49,6 +49,11 @@ return {
             type = "arch",
             mirror = "https://mirror.rackspace.com/archlinux",
         },
+        -- AUR packages require explicit repos.aur configuration.
+        aur = {
+            type = "aur",
+            helper = "yay",
+        },
     },
 
     -- ====== BOOT (neutral; kernel/bootloader packages from the backend) ======
