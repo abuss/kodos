@@ -84,15 +84,21 @@ end
 
 function M.canonical_names(conf) return M.names_in(conf, "base") end
 
--- AUR packages: {repo="aur", name="pkg"} extracted only on Arch backend
--- Returns sorted list of AUR package names; empty on Alpine/Deb
+-- AUR packages: {repo="aur", name="pkg"} extracted only on Arch backend,
+-- user-level only (system-level AUR not supported). Returns sorted list of
+-- AUR package names; empty on Alpine/Deb or if no users have AUR packages.
 function M.aur_packages(conf, backend)
     if backend.name ~= "arch" then
         return {}  -- AUR only on Arch
     end
-    local aur_pkgs = M.names_in(conf, "aur")
-    table.sort(aur_pkgs)
-    return aur_pkgs
+    local out, seen = {}, {}
+    for _, u in pairs((conf or {}).users or {}) do
+        for _, n in ipairs(M.names_in(u, "aur")) do
+            if not seen[n] then seen[n] = true; out[#out + 1] = n end
+        end
+    end
+    table.sort(out)
+    return out
 end
 
 -- canonical names out of a tagged package list (service/user level lists)

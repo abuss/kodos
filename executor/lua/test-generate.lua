@@ -581,4 +581,74 @@ os.remove("_scratch_aur_noconf.lua")
 assert(err_aur2:find("AUR packages declared but repos.aur not configured", 1, true),
        "AUR packages without repos.aur must abort with the right message, got: " .. err_aur2)
 
+-- ====== Test A: AUR packages silently dropped on Alpine ======
+local f_alpine_aur = assert(io.open("_scratch_alpine_aur.lua", "w"))
+f_alpine_aur:write([[
+return {
+    repos = { base = { type = "apk", mirror = "https://dl-cdn.alpinelinux.org/alpine/v3.24" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "alpineaur", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    users = { aurtest = { name = "AurTest", group = "users",
+        home_directory = "/home/aurtest", shell = "/bin/bash",
+        environment = { packages = {
+            { repo = "base", name = "git" },
+            { repo = "aur", name = "yay" }
+        } } } }
+}
+]])
+f_alpine_aur:close()
+local alpine_aur_ir = run("_scratch_alpine_aur.lua")
+assert(not alpine_aur_ir:find('"op": "install_aur_packages"', 1, true),
+       "Alpine should not emit install_aur_packages action even with user AUR packages")
+os.remove("_scratch_alpine_aur.lua")
+
+-- ====== Test B: AUR packages at system level are dropped (Arch only) ======
+local f_arch_sys_aur = assert(io.open("_scratch_arch_sys_aur.lua", "w"))
+f_arch_sys_aur:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } },
+              aur = { type = "aur", helper = "yay" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "archsysaur", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    packages = {
+        { repo = "base", name = "linux" },
+        { repo = "aur", name = "some-aur-pkg" }
+    },
+    users = { aurtest = { name = "AurTest", group = "users",
+        home_directory = "/home/aurtest", shell = "/bin/bash",
+        environment = { packages = {
+            { repo = "aur", name = "user-aur-pkg" }
+        } } } }
+}
+]])
+f_arch_sys_aur:close()
+local arch_sys_aur_ir = run("_scratch_arch_sys_aur.lua")
+-- System-level AUR package should NOT be in install_aur_packages action
+assert(arch_sys_aur_ir:find('"op": "install_aur_packages"', 1, true),
+       "User-level AUR packages on Arch should emit install_aur_packages action")
+-- The system-level package should NOT appear anywhere in the IR (AUR packages are user-level only)
+assert(not arch_sys_aur_ir:find('"some-aur-pkg"', 1, true),
+       "System-level AUR package 'some-aur-pkg' must not appear anywhere in the IR")
+-- User-level package must appear in install_aur_packages action
+assert(arch_sys_aur_ir:find('"user-aur-pkg"', 1, true),
+       "User-level AUR package 'user-aur-pkg' should appear in install_aur_packages")
+os.remove("_scratch_arch_sys_aur.lua")
+
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")
