@@ -130,6 +130,10 @@ M.schema = {
                 type = { enum = { "flatpak" } },
                 name = "string", url = "string",
             } } },
+            aur = { optional = { record = {
+                type = { enum = { "aur" } },
+                helper = "string"
+            } } },
         } },
 
         -- optional local file:// repos; keyed by repo name, each entry {url=...}.

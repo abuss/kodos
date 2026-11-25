@@ -240,4 +240,59 @@ return {
 -- Should validate without error (tagged_list already allows any repo string)
 assert(not has("repo.*aur.*unknown"), "AUR packages in user environment should be valid")
 
+-- Test: repos.aur with type="aur" and helper="yay" passes schema validation
+has = scratch_layer("_scratch_v14.lua", [[
+return {
+    repos = { base = { type = "arch", mirror = "https://mirror.rackspace.com/archlinux", branches = {} },
+        aur = { type = "aur", helper = "yay" } },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {},
+    packages = {}
+}
+]])
+local ok14, why14 = has("NO-SUBSTR")
+assert(ok14 == false, "repos.aur with type='aur' and helper='yay' should be valid, got: " .. tostring(why14))
+
+-- Test: repos.aur with wrong type enum must fail
+has = scratch_layer("_scratch_v15.lua", [[
+return {
+    repos = { base = { type = "arch", mirror = "https://mirror.rackspace.com/archlinux", branches = {} },
+        aur = { type = "apk", helper = "yay" } },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {},
+    packages = {}
+}
+]])
+assert(has("$.repos.aur.type: must be one of: aur"), "aur repo with wrong type enum should fail")
+
+-- Test: repos.aur with missing helper must fail
+has = scratch_layer("_scratch_v16.lua", [[
+return {
+    repos = { base = { type = "arch", mirror = "https://mirror.rackspace.com/archlinux", branches = {} },
+        aur = { type = "aur" } },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {},
+    packages = {}
+}
+]])
+assert(has("$.repos.aur.helper: missing required field"), "aur repo without helper should fail")
+
 print("PASS: schema validation (clean configs + AUR validation test)")
