@@ -150,4 +150,94 @@ return { files = {
 assert(has("$.files.cfg: path must be absolute"), "relative files path not rejected")
 assert(has('$.files.sec: mode must be an octal string'), "non-octal files mode not rejected")
 
-print("PASS: schema validation (clean configs + 22 seeded errors caught)")
+-- Test: locale.extra as optional list
+has = scratch_layer("_scratch_v11.lua", [[
+return {
+    repos = { base = { type = "apk", mirror = "https://dl-cdn.alpinelinux.org/alpine/v3.24", branches = {} } },
+    system = {
+        host_name = "test",
+        locale = {
+            default = "en_US.UTF-8",
+            extra = { "en_GB.UTF-8", "en_CA.UTF-8" }
+        }
+    },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/sda", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot", check = false } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {},
+    packages = {}
+}
+]])
+-- Should now validate without error (no extra field errors)
+assert(not has("extra: unknown key"), "locale.extra should now be a valid field")
+
+-- Test: desktop section with display_manager and desktops
+has = scratch_layer("_scratch_v12.lua", [[
+return {
+    repos = { base = { type = "arch", mirror = "https://mirror.rackspace.com/archlinux", branches = {} } },
+    system = {
+        host_name = "test",
+        locale = { default = "en_US.UTF-8" }
+    },
+    boot = { bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    desktop = {
+        display_manager = "cosmic-greeter",
+        desktops = {
+            gnome = {
+                enable = true,
+                extra_packages = { { repo = "base", name = "gnome-tweaks" } }
+            },
+            cosmic = {
+                enable = true
+            }
+        }
+    },
+    users = {},
+    packages = {}
+}
+]])
+-- Should now validate without error (no desktop field errors)
+assert(not has("desktop: unknown key"), "desktop section should be a valid field")
+
+-- Test: AUR packages in user environment
+has = scratch_layer("_scratch_v13.lua", [[
+return {
+    repos = { base = { type = "arch", mirror = "https://mirror.rackspace.com/archlinux", branches = {} } },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {
+        testuser = {
+            name = "Test User",
+            group = "users",
+            home_directory = "/home/testuser",
+            shell = "/bin/bash",
+            create_home = true,
+            environment = {
+                packages = {
+                    { repo = "base", name = "git" },
+                    { repo = "aur", name = "visual-studio-code-bin" },
+                    { repo = "aur", name = "quickemu" }
+                }
+            }
+        }
+    },
+    packages = {}
+}
+]])
+-- Should validate without error (tagged_list already allows any repo string)
+assert(not has("repo.*aur.*unknown"), "AUR packages in user environment should be valid")
+
+print("PASS: schema validation (clean configs + AUR validation test)")

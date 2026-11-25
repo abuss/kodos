@@ -29,4 +29,8 @@ function M.base(...) return tagged("base", ...) end
 -- already distro-neutral; declare repos.flatpak to use these)
 function M.flatpak(...) return tagged("flatpak", ...) end
 
+-- AUR package list: same tagged shape, repo = "aur" (Arch User Repository)
+-- Arch-only; dropped by other backends
+function M.aur(...) return tagged("aur", ...) end
+
 return M

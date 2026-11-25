@@ -40,6 +40,11 @@ M.map = {
     ["font-liberation"] = "ttf-liberation",
     ["font-fira-code"] = "ttf-fira-code",
     ["tailscale-openrc"] = false, -- Arch's tailscale ships its own units
+    -- Display managers (Arch-specific, mapped for IR generation)
+    gdm = "gnome-shell",        -- gnome-shell provides gdm
+    sddm = "sddm",
+    lightdm = "lightdm",
+    ["cosmic-greeter"] = "cosmic-greeter",
 }
 
 -- Service registry (see alpine.lua for the Alpine -openrc quirk; Arch has

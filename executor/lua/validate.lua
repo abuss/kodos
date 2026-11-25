@@ -166,7 +166,10 @@ M.schema = {
 
         system = { record = {
             host_name = "string",
-            locale = { record = { default = "string" } },
+            locale = { record = {
+                default = "string",
+                extra = { optional = strlist },
+            } },
             timezone = { optional = "string" },
             keyboard_layout = { optional = { record = { layout = "string" } } },
             console_keymap = { optional = "string" },
@@ -183,6 +186,8 @@ M.schema = {
             create_home = { optional = "bool" },
             no_password = { optional = "bool" },
             environment = { optional = { record = {
+                -- AUR packages: {repo="aur", name="pkg"} supported in user environment only.
+                -- System-level AUR support TBD (requires backend-specific tooling).
                 packages = { optional = tagged_list },
                 config = { optional = "any" },   -- free-form per-writer
                 dotfiles = { optional = "any" },
@@ -205,6 +210,15 @@ M.schema = {
             path = "string", content = "string",
             mode = { optional = "string" },
         } } } },
+
+        -- optional desktop configuration: display manager and enabled desktops
+        desktop = { optional = { record = {
+            display_manager = "string",  -- e.g. "gdm", "sddm", "lightdm", "cosmic-greeter"
+            desktops = { optional = { dict_of = { record = {
+                enable = "bool",
+                extra_packages = { optional = tagged_list },
+            } } } },
+        } } },
     },
 }
 
@@ -221,7 +235,7 @@ function M.validate(conf)
         end
     end
     -- tagged package repo values must name a known repo key
-    local known_repos = { base = true, flatpak = true }
+    local known_repos = { base = true, flatpak = true, aur = true }
     for rname in pairs(conf.repositories or {}) do known_repos[rname] = true end
     local function walk_tagged(t, path)
         if type(t) ~= "table" then return end
