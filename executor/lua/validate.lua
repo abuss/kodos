@@ -166,7 +166,10 @@ M.schema = {
 
         system = { record = {
             host_name = "string",
-            locale = { record = { default = "string" } },
+            locale = { record = {
+                default = "string",
+                extra = { optional = strlist },
+            } },
             timezone = { optional = "string" },
             keyboard_layout = { optional = { record = { layout = "string" } } },
             console_keymap = { optional = "string" },

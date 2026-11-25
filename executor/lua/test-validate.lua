@@ -150,4 +150,28 @@ return { files = {
 assert(has("$.files.cfg: path must be absolute"), "relative files path not rejected")
 assert(has('$.files.sec: mode must be an octal string'), "non-octal files mode not rejected")
 
-print("PASS: schema validation (clean configs + 22 seeded errors caught)")
+-- Test: locale.extra as optional list
+has = scratch_layer("_scratch_v11.lua", [[
+return {
+    repos = { base = { type = "apk", mirror = "https://dl-cdn.alpinelinux.org/alpine/v3.24", branches = {} } },
+    system = {
+        host_name = "test",
+        locale = {
+            default = "en_US.UTF-8",
+            extra = { "en_GB.UTF-8", "en_CA.UTF-8" }
+        }
+    },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 10 },
+        kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/sda", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot", check = false } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {},
+    packages = {}
+}
+]])
+-- Should now validate without error (no extra field errors)
+assert(not has("extra: unknown key"), "locale.extra should now be a valid field")
+
+print("PASS: schema validation (clean configs + 23 seeded errors caught)")
