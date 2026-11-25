@@ -30,27 +30,25 @@ local function flatpak(...)
     return out
 end
 
+-- AUR package list: { repo = "aur", name = "package-name" }
+local function aur(...)
+    local out = {}
+    for _, n in ipairs({ ... }) do out[#out + 1] = { repo = "aur", name = n } end
+    return out
+end
+
 -- ==================================================================
 -- OPERATING SYSTEM CONFIGURATION (System Layer)
 -- ==================================================================
 
 return {
     -- ====== PACKAGE REPOS (the distro is declared ONCE, right here) ======
-    -- The type picks the backend: backends/alpine.lua (repo_types.apk).
+    -- The type picks the backend: backends/arch.lua (repo_types.arch).
     repos = {
         base = {
-            type = "apk",
-            mirror = "https://dl-cdn.alpinelinux.org/alpine/v3.24",
-            branches = { "main", "community" },
+            type = "arch",
+            mirror = "https://mirror.rackspace.com/archlinux",
         },
-        -- Extra repos: flatpak apps live in Flathub's namespace, not the
-        -- distro's. List them with the flatpak() helper anywhere packages
-        -- are listed: packages = { desktop = flatpak("org.gimp.GIMP") }
-        -- (inside a user's environment = per-user install scope).
-        -- Declaring this repo makes the backend pull in the flatpak tool
-        -- package automatically.
-        -- flatpak = { type = "flatpak", name = "flathub",
-        --     url = "https://dl.flathub.org/repo/flathub.flatpakrepo" },
     },
 
     -- ====== BOOT (neutral; kernel/bootloader packages from the backend) ======
@@ -124,7 +122,10 @@ return {
         timezone = "America/Edmonton",
         keyboard_layout = { layout = "us" },
         console_keymap = "us",
-        locale = { default = "en_US.UTF-8" }, -- musl limits locales (backend note)
+        locale = {
+            default = "en_CA.UTF-8",
+            extra = { "en_US.UTF-8", "en_GB.UTF-8" }
+        },
         serial_console = false,               -- true = getty on the kernel console tty
         -- (VMs via qemu -nographic need this)
     },
@@ -190,9 +191,12 @@ return {
 
             -- ====== USER ENVIRONMENT (home layer) ======
             environment = {
-                packages = base("neovim", "helix", "emacs", "zsh", "bash", "git",
-                    "lazygit", "node", "python3", "fzf", "ripgrep", "fd",
-                    "alacritty", "foot", "syncthing"),
+                packages = extend(
+                    base("neovim", "helix", "emacs", "zsh", "bash", "git",
+                        "lazygit", "node", "python3", "fzf", "ripgrep", "fd",
+                        "alacritty", "foot", "syncthing"),
+                    aur("visual-studio-code-bin", "quickemu", "megasync-bin")
+                ),
 
                 config = {
                     git = {
@@ -262,6 +266,23 @@ return {
                 },
             },
         },
+    },
+
+    -- ====== DESKTOP (display manager and enabled desktops) ======
+    desktop = {
+        display_manager = "cosmic-greeter",
+        desktops = {
+            gnome = {
+                enable = true,
+                extra_packages = {
+                    { repo = "base", name = "gnome-tweaks" },
+                    { repo = "base", name = "gnome-connections" }
+                }
+            },
+            cosmic = {
+                enable = true
+            }
+        }
     },
 
     -- ====== SYSTEM PACKAGES (canonical names; backend maps/drops) ======

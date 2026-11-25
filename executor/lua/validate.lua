@@ -235,7 +235,7 @@ function M.validate(conf)
         end
     end
     -- tagged package repo values must name a known repo key
-    local known_repos = { base = true, flatpak = true }
+    local known_repos = { base = true, flatpak = true, aur = true }
     for rname in pairs(conf.repositories or {}) do known_repos[rname] = true end
     local function walk_tagged(t, path)
         if type(t) ~= "table" then return end
