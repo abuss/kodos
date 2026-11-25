@@ -447,7 +447,6 @@ return {
             cosmic = { enable = true }
         }
     },
-    users = {}, packages = {}
 }
 ]])
 f_desktop:close()
@@ -511,5 +510,75 @@ local cfg_alpine = {
 local backend_alpine = resolve.backend_for(cfg_alpine)
 local aur_empty = resolve.aur_packages(cfg_alpine, backend_alpine)
 assert(#aur_empty == 0, "AUR packages should be empty on Alpine, got " .. #aur_empty)
+
+-- ====== AUR IR generation: install_aur_packages action ======
+local f_aur = assert(io.open("_scratch_aur.lua", "w"))
+f_aur:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } },
+              aur = { type = "aur", helper = "yay" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "aurtest", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    users = { testuser = { name = "Test", group = "users",
+        home_directory = "/home/testuser", shell = "/bin/bash",
+        environment = { packages = {
+            { repo = "aur", name = "visual-studio-code-bin" },
+            { repo = "aur", name = "quickemu" }
+        } } } }
+}
+]])
+f_aur:close()
+local aur_ir = run("_scratch_aur.lua")
+assert(aur_ir:find('"op": "install_aur_packages"', 1, true),
+       "IR should include install_aur_packages action")
+assert(aur_ir:find('"helper": "yay"', 1, true),
+       "install_aur_packages action should have helper=yay")
+assert(aur_ir:find('"visual-studio-code-bin"', 1, true),
+       "install_aur_packages names should include visual-studio-code-bin")
+assert(aur_ir:find('"quickemu"', 1, true),
+       "install_aur_packages names should include quickemu")
+assert(pos(aur_ir, '"op": "install_packages"') < pos(aur_ir, '"op": "install_aur_packages"'),
+       "install_aur_packages must come AFTER install_packages")
+os.remove("_scratch_aur.lua")
+
+-- AUR packages without repos.aur must error
+local f_aur2 = assert(io.open("_scratch_aur_noconf.lua", "w"))
+f_aur2:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "aurtest2", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    users = { testuser = { name = "Test", group = "users",
+        home_directory = "/home/testuser", shell = "/bin/bash",
+        environment = { packages = {
+            { repo = "aur", name = "visual-studio-code-bin" }
+        } } } }
+}
+]])
+f_aur2:close()
+local h_aur2 = assert(io.popen((os.getenv("KODOS_LUA_CMD") or "lua") .. " generate.lua _scratch_aur_noconf.lua 2>&1"))
+local err_aur2 = h_aur2:read("*a")
+h_aur2:close()
+os.remove("_scratch_aur_noconf.lua")
+assert(err_aur2:find("AUR packages declared but repos.aur not configured", 1, true),
+       "AUR packages without repos.aur must abort with the right message, got: " .. err_aur2)
 
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")
