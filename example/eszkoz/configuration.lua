@@ -125,8 +125,8 @@ return {
         keyboard_layout = { layout = "us" },
         console_keymap = "us",
         locale = { default = "en_US.UTF-8" }, -- musl limits locales (backend note)
-        serial_console = false, -- true = getty on the kernel console tty
-                                -- (VMs via qemu -nographic need this)
+        serial_console = false,               -- true = getty on the kernel console tty
+        -- (VMs via qemu -nographic need this)
     },
 
     -- ====== SERVICES (plain data; names/packages/units from the backend) ======
@@ -134,7 +134,7 @@ return {
     -- A layer disables with enable = false.
     services = {
         networkmanager = { enable = true },
-        udev = { enable = true }, -- cold-plug device manager (see modules/services.lua)
+        udev = { enable = true },   -- cold-plug device manager (see modules/services.lua)
         syslog = { enable = true }, -- /var/log/messages
         ssh = {
             enable = true,
@@ -185,7 +185,7 @@ return {
             supplementary_groups = { "wheel", "audio", "video", "input",
                 "lp", "docker", "kvm" },
             home_directory = "/home/abuss",
-            shell = "/usr/bin/zsh",
+            shell = "/bin/bash",
             create_home = true,
 
             -- ====== USER ENVIRONMENT (home layer) ======

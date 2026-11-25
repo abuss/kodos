@@ -54,6 +54,7 @@ func TestRenderPacmanConf(t *testing.T) {
 	for _, want := range []string{
 		"[options]",
 		"SigLevel = Required DatabaseOptional",
+		"Architecture = auto",
 		"ParallelDownloads = 5",
 		"[core]\nInclude = /etc/pacman.d/mirrorlist",
 		"[extra]\nInclude = /etc/pacman.d/mirrorlist",

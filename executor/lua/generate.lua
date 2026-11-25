@@ -310,6 +310,11 @@ if conf.system.serial_console and backend.serial_console_unit then
                             unit = backend.serial_console_unit,
                             runlevel = "getty" })
 end
+if backend.vt_console_unit then
+    act("enable_service", { name = "vt-console",
+                            unit = backend.vt_console_unit,
+                            runlevel = "getty" })
+end
 for _, s in ipairs(hplan) do
     act("enable_home_service", { user = s.user, name = s.name,
                                  mechanism = s.mechanism, packages = s.packages,

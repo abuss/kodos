@@ -105,4 +105,10 @@ M.locale_packages = {}
 -- serial_console branch: backend.inittab OR backend.serial_console_unit).
 M.serial_console_unit = "serial-getty@ttyS0"
 
+-- VT login prompt: systemd 258+ ships no autovt@ template, and Arch applies
+-- its presets through pacman hooks the executor bypasses — so nothing ever
+-- instantiates getty@tty1 and the screen ends boot with no prompt (bare
+-- metal round 2026-11-20). Enable it explicitly instead.
+M.vt_console_unit = "getty@tty1"
+
 return M
