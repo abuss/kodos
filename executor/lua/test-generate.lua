@@ -461,4 +461,55 @@ assert(ar_desktop:find('"gnome-tweaks"', 1, true),
        "Desktop extra packages should be installed")
 os.remove("_scratch_desktop.lua")
 
+-- ====== AUR packages: extracted from config with aur_packages() ======
+local cfg_aur = {
+    repos = {
+        base = { type = "arch", mirror = "https://mirror.example.com/arch" },
+        aur = { type = "aur", helper = "yay" }
+    },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 10 }, kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {
+        testuser = {
+            name = "Test", group = "users", home_directory = "/home/testuser", shell = "/bin/bash",
+            environment = {
+                packages = {
+                    { repo = "base", name = "git" },
+                    { repo = "aur", name = "visual-studio-code-bin" },
+                    { repo = "aur", name = "quickemu" }
+                }
+            }
+        }
+    },
+    packages = {}
+}
+local resolve = require("resolve")
+local backend_aur = resolve.backend_for(cfg_aur)
+local aur_list = resolve.aur_packages(cfg_aur, backend_aur)
+assert(#aur_list == 2, "Should extract 2 AUR packages, got " .. #aur_list)
+assert(aur_list[1] == "quickemu" and aur_list[2] == "visual-studio-code-bin",
+       "AUR packages should be sorted: " .. table.concat(aur_list, ","))
+
+-- AUR packages empty on Alpine
+local cfg_alpine = {
+    repos = {
+        base = { type = "apk", mirror = "https://dl-cdn.alpinelinux.org/alpine/v3.24" },
+    },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 10 }, kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {},
+    packages = {}
+}
+local backend_alpine = resolve.backend_for(cfg_alpine)
+local aur_empty = resolve.aur_packages(cfg_alpine, backend_alpine)
+assert(#aur_empty == 0, "AUR packages should be empty on Alpine, got " .. #aur_empty)
+
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")
