@@ -492,12 +492,8 @@ func (e *executor) installPackages(act map[string]any) error {
 		for n, pin := range e.meta.Packages {
 			resolved[n] = pin.Version
 		}
-		for name, ver := range resolved {
-			if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
-				if err := e.fetchUnpack(name, ver); err != nil {
-					return err
-				}
-			}
+		if err := e.fetchMissing(resolved); err != nil {
+			return err
 		}
 		e.resolved = resolved
 		fmt.Printf("install_packages: %d requested -> %d pinned (arch: lockfile closure is authoritative)\n",
@@ -526,11 +522,9 @@ func (e *executor) installPackages(act map[string]any) error {
 		} else {
 			unpinned = append(unpinned, name+"-"+ver)
 		}
-		if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
-			if err := e.fetchUnpack(name, ver); err != nil {
-				return err
-			}
-		}
+	}
+	if err := e.fetchMissing(resolved); err != nil {
+		return err
 	}
 	slices.Sort(unpinned)
 	if len(unpinned) > 0 {
@@ -588,6 +582,27 @@ func (e *executor) apkSimulate(addArgs []string) (map[string]string, error) {
 		return nil, fmt.Errorf("apk resolved nothing: %s", out)
 	}
 	return resolved, nil
+}
+
+// fetchMissing: fetch+unpack every resolved package not already in the store.
+// Sorted (map order is random) with one progress line per package: a full
+// install is hundreds of downloads over minutes — silence looks like a hang.
+func (e *executor) fetchMissing(resolved map[string]string) error {
+	type pv struct{ name, ver string }
+	var todo []pv
+	for name, ver := range resolved {
+		if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
+			todo = append(todo, pv{name, ver})
+		}
+	}
+	slices.SortFunc(todo, func(a, b pv) int { return strings.Compare(a.name, b.name) })
+	for i, t := range todo {
+		fmt.Printf("  fetch %d/%d: %s %s\n", i+1, len(todo), t.name, t.ver)
+		if err := e.fetchUnpack(t.name, t.ver); err != nil {
+			return fmt.Errorf("fetch %s %s: %w", t.name, t.ver, err)
+		}
+	}
+	return nil
 }
 
 func (e *executor) fetchUnpack(name, version string) error {
