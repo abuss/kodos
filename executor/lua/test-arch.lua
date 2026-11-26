@@ -15,4 +15,12 @@ for _, dm in ipairs(display_managers) do
         "Arch backend map['" .. dm.name .. "'] should be '" .. dm.expected .. "', got " .. tostring(pkg))
 end
 
+-- install_bootloader runs mkinitcpio in the activated root; 2026-11 Arch's
+-- `base` %DEPENDS% no longer ships it, so the backend must request it.
+local has = false
+for _, p in ipairs(backend.base_packages) do
+    if p == "mkinitcpio" then has = true break end
+end
+assert(has, "base_packages must include mkinitcpio: install_bootloader runs it in-chroot")
+
 print("✓ All Arch display_manager mappings verified")

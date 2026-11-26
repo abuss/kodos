@@ -11,7 +11,8 @@ M.repo_types = { arch = true }
 M.repo_branches = { "core", "extra" } -- default sync repos when repos.base.branches is absent
 M.init = "systemd" -- enable mechanism: systemctl enable <unit>
 
-M.base_packages = { "base", "tzdata", "ca-certificates" } -- base meta includes systemd
+M.base_packages = { "base", "tzdata", "ca-certificates",
+    "mkinitcpio" } -- base meta includes systemd; base no longer ships mkinitcpio (2026-11)
 -- Kernel variants (boot.kernel.variant): Arch has the richest menu.
 M.kernel_packages = {
     default = { "linux", "linux-firmware" },
