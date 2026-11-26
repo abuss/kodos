@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,32 @@ func TestCheckDistro(t *testing.T) {
 	}
 	if err := checkDistro(acts("alpine"), &metadata{Distro: "alpine"}); err != nil {
 		t.Errorf("alpine regression: %v", err)
+	}
+}
+
+// install_aur_packages must load (ranked beside install_packages) and run as
+// a warn-and-skip stub until the real AUR milestone lands.
+func TestAURStubOp(t *testing.T) {
+	af := actionsFile{SchemaVersion: 1, Distro: "arch", Actions: []map[string]any{
+		{"op": "install_packages"},
+		{"op": "install_aur_packages", "helper": "yay", "names": []any{"visual-studio-code-bin"}},
+		{"op": "configure_locale"},
+	}}
+	path := t.TempDir() + "/actions.json"
+	b, _ := json.Marshal(af)
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadActions(path)
+	if err != nil {
+		t.Fatalf("install_aur_packages must be a known op, got: %v", err)
+	}
+	if len(got.Actions) != 3 {
+		t.Fatalf("actions = %d, want 3", len(got.Actions))
+	}
+	var e executor
+	if err := e.run(af.Actions[1]); err != nil {
+		t.Errorf("stub must warn-and-continue, got error: %v", err)
 	}
 }
 
