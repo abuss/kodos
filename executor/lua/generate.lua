@@ -123,7 +123,7 @@ act("mount", { partition = "tmpfs", point = "/tmp", filesystem = "tmpfs",
 local configure_repos_act = {
     type = conf.repos.base.type,
     mirror = conf.repos.base.mirror,
-    branches = conf.repos.base.branches,
+    branches = conf.repos.base.branches or backend.repo_branches,
 }
 if conf.repositories then
     local rnames = {}

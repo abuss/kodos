@@ -8,6 +8,7 @@ local M = {}
 
 M.name = "arch"
 M.repo_types = { arch = true }
+M.repo_branches = { "core", "extra" } -- default sync repos when repos.base.branches is absent
 M.init = "systemd" -- enable mechanism: systemctl enable <unit>
 
 M.base_packages = { "base", "tzdata", "ca-certificates" } -- base meta includes systemd

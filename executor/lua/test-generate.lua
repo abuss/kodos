@@ -651,4 +651,29 @@ assert(arch_sys_aur_ir:find('"user-aur-pkg"', 1, true),
        "User-level AUR package 'user-aur-pkg' should appear in install_aur_packages")
 os.remove("_scratch_arch_sys_aur.lua")
 
+-- ====== arch default branches: repos.base.branches absent -> backend default
+-- core+extra must land in configure_repos (apply.go requires non-empty branches) ======
+local f_arch_nb = assert(io.open("_scratch_arch_nobranch.lua", "w"))
+f_arch_nb:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "nbarch", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } }
+}
+]])
+f_arch_nb:close()
+local nb = run("_scratch_arch_nobranch.lua")
+os.remove("_scratch_arch_nobranch.lua")
+assert(nb:find('"branches": [', 1, true) and nb:find('"core"', 1, true)
+       and nb:find('"extra"', 1, true),
+       "arch config without branches must get backend-default core+extra in configure_repos")
+
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")
