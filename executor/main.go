@@ -61,12 +61,14 @@ type executor struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua] ...")
+		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua|version] ...")
 		os.Exit(2)
 	}
 
 	cmd := os.Args[1]
 	switch cmd {
+	case "version":
+		fmt.Println(versionString())
 	case "exec":
 		if err := cmdExec(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR:", err)
@@ -107,9 +109,37 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua] ...")
+		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua|version] ...")
 		os.Exit(2)
 	}
+}
+
+// versionString: every go build is auto-stamped with VCS info (Go 1.18+), so
+// a binary on a USB stick or a target machine can name itself: revision +
+// commit time as the build date, "(dirty tree)" when built uncommitted.
+func versionString() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "kodos: no build info"
+	}
+	rev, when, dirty := "unknown", "unknown", false
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+			if len(rev) > 8 {
+				rev = rev[:8]
+			}
+		case "vcs.time":
+			when = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if dirty {
+		when += " (dirty tree)"
+	}
+	return "kodos " + rev + " built from " + when + ", " + bi.GoVersion
 }
 
 func cmdExec(args []string) error {
