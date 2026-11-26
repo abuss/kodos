@@ -1335,6 +1335,17 @@ func groupNameValid(g string) bool {
 	return true
 }
 
+// passwdNeedsName: does an /etc/passwd entry's comment field (GECOS, col 5,
+// what login screens show as the display name) differ from want? Missing or
+// short entries are not our business.
+func passwdNeedsName(entry, want string) bool {
+	f := strings.Split(entry, ":")
+	if len(f) < 5 {
+		return false
+	}
+	return f[4] != want
+}
+
 func (e *executor) createUser(act map[string]any) error {
 	login := field(act, "user")
 	if login == "" {
@@ -1347,9 +1358,11 @@ func (e *executor) createUser(act map[string]any) error {
 		return fmt.Errorf("create_user: cannot read target passwd: %w", err)
 	}
 	exists := false
+	entry := ""
 	for _, line := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(line, login+":") {
 			exists = true
+			entry = line
 		}
 	}
 	if !exists {
@@ -1385,6 +1398,15 @@ func (e *executor) createUser(act map[string]any) error {
 		if err := e.chrootSh(e.s.chroot, script); err != nil {
 			return fmt.Errorf("create_user %s: %w", login, err)
 		}
+	} else if want := field(act, "name"); want != "" && passwdNeedsName(entry, want) {
+		// Existing account: the config's name is authoritative for the
+		// greeter's display name; a placeholder GECOS set at first creation
+		// (install media's "Install user") never fixes itself otherwise.
+		script := fmt.Sprintf("usermod -c %s %s", shellQuote(want), shellQuote(login))
+		if err := e.chrootSh(e.s.chroot, script); err != nil {
+			return fmt.Errorf("create_user %s: name: %w", login, err)
+		}
+		fmt.Printf("create_user %s: display name synced\n", login)
 	}
 	if hash := e.secrets["users."+login+".hashed_password"]; hash != "" {
 		script := fmt.Sprintf("echo %s | chpasswd -e",

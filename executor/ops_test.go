@@ -11,6 +11,21 @@ import (
 	"testing"
 )
 
+// create_user must reconcile GECOS (passwd col 5, the login-screen display
+// name) on an EXISTING account: a user first created by a placeholder config
+// ("Install user" from the install media) keeps that name forever otherwise.
+func TestPasswdNeedsNameGecos(t *testing.T) {
+	if !passwdNeedsName("abuss:x:1000:100:Install user:/home/abuss:/bin/bash", "Antal Buss") {
+		t.Fatal("placeholder GECOS must trigger a name sync")
+	}
+	if passwdNeedsName("abuss:x:1000:100:Antal Buss:/home/abuss:/bin/bash", "Antal Buss") {
+		t.Fatal("matching GECOS must not re-run usermod")
+	}
+	if passwdNeedsName("", "Antal Buss") || passwdNeedsName("abuss:x:1000", "Antal Buss") {
+		t.Fatal("missing or malformed entry must not sync")
+	}
+}
+
 func TestCopyTreeSelfCopySkip(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "repo")
