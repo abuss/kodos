@@ -495,17 +495,65 @@ func nameListHas(names []string, want string) bool {
 // mklabel starts from bare metal. Reached only through the wipe field the
 // installers inject; kodos apply streams never carry it.
 func (e *executor) wipeDisk(device string) error {
+	// Stale partition superblocks sit far from the disk head: wiping only the
+	// whole-disk signatures + the first MiBs leaves them, and a new layout
+	// reusing the same offsets inherits a foreign fs (bare-metal round
+	// 2026-11-26: format hit old fs + old backup GPT after --force-wipe).
+	// Wipe every existing partition first, while its node still exists.
+	// sfdisk reads the on-disk table, not the kernel's possibly stale view.
+	if dump, err := runOut("sfdisk", "-d", device); err == nil {
+		for _, p := range existingPartitions(dump, device) {
+			if out, err := runOut("wipefs", "-a", p); err != nil {
+				return fmt.Errorf("wipefs -a %s: %w: %s", p, err, out)
+			}
+		}
+	} else {
+		// A corrupt table is exactly when sfdisk refuses to dump — but the
+		// kernel's partition nodes still address real disk regions, so
+		// best-effort clear those signatures too before wiping the table.
+		for _, pat := range []string{device + "[0-9]*", device + "p[0-9]*"} {
+			parts, _ := filepath.Glob(pat)
+			for _, p := range parts {
+				_ = run("wipefs", "-a", p)
+			}
+		}
+	}
 	if out, err := runOut("wipefs", "-a", device); err != nil {
 		return fmt.Errorf("wipefs -a %s: %w: %s", device, err, out)
 	}
-	// superblocks left inside the old partition areas keep confusing blkid
-	// after the table is gone, so zero the head of the disk as well
+	// Zero the head AND the tail: a surviving backup GPT at end-of-disk lures
+	// parted/fdisk into "primary corrupt, backup OK" recovery over a layout
+	// that was supposed to be gone.
 	if err := run("dd", "if=/dev/zero", "of="+device, "bs=1M", "count=8", "conv=notrunc,sync"); err != nil {
 		return err
 	}
-	_ = run("partprobe", device) // best effort: the kernel must forget the old table
+	if sz, err := runOut("blockdev", "--getsz", device); err == nil {
+		if sectors, aerr := strconv.ParseInt(strings.TrimSpace(sz), 10, 64); aerr == nil {
+			if seek, ok := tailZeroSeekSectors(sectors); ok {
+				if err := run("dd", "if=/dev/zero", "of="+device, "bs=512",
+					"count=16384", "seek="+strconv.FormatInt(seek, 10), "conv=notrunc,sync"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	// The kernel must forget the old table or later ops format stale /dev/sdaN
+	// nodes at stale offsets: blockdev ships with util-linux (the installer
+	// already requires it); partprobe stays best-effort for older sticks.
+	_ = run("blockdev", "--rereadpt", device)
+	_ = run("partprobe", device)
 	fmt.Printf("%s: partition table + signatures wiped\n", device)
 	return nil
+}
+
+// tailZeroSeekSectors: dd seek (bs=512) covering the last 8MiB of a disk of
+// sz 512-byte sectors, false when the disk is too small for a separate tail.
+func tailZeroSeekSectors(sz int64) (int64, bool) {
+	const window = 16384 // 8 MiB in 512-byte sectors
+	if sz <= window {
+		return 0, false
+	}
+	return sz - window, true
 }
 
 func (e *executor) partitionDisk(act map[string]any) error {

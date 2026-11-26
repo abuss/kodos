@@ -14,6 +14,19 @@ import (
 // create_user must reconcile GECOS (passwd col 5, the login-screen display
 // name) on an EXISTING account: a user first created by a placeholder config
 // ("Install user" from the install media) keeps that name forever otherwise.
+// --force-wipe must find nothing stale afterwards: tailZeroSeekSectors is the
+// dd seek that zeroes the final 8 MiB (16384 x 512B) of a disk, where the
+// backup GPT copies hide. A disk smaller than the zeroed window gets false
+// (the head zero already covers it).
+func TestTailZeroSeekSectors(t *testing.T) {
+	if s, ok := tailZeroSeekSectors(118407778); !ok || s != 118391394 {
+		t.Fatalf("60GB-class disk: got seek %d ok=%v", s, ok)
+	}
+	if _, ok := tailZeroSeekSectors(16384); ok {
+		t.Fatal("disk <= 8MiB needs no separate tail zero")
+	}
+}
+
 func TestPasswdNeedsNameGecos(t *testing.T) {
 	if !passwdNeedsName("abuss:x:1000:100:Install user:/home/abuss:/bin/bash", "Antal Buss") {
 		t.Fatal("placeholder GECOS must trigger a name sync")
