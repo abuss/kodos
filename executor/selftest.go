@@ -465,26 +465,17 @@ func selftestPure() {
 		!strings.Contains(cfg, "search.fs_uuid"),
 		"grub serial, no search: kernel loads from ESP where grub.cfg lives")
 
-	// When the kernel logs to ttyS0, GRUB must also accept the console
-	// keyboard; otherwise a physical user cannot edit the menu entry.
+	// GRUB must ALWAYS accept the physical console keyboard, serial or not:
+	// a bare-metal user needs to navigate/edit the generation menu
+	// (odin 2026-11-26: terminal_input serial alone left the keyboard dead
+	// at the grub menu). Input both, output both, no arg sniffing.
 	serialCfg := renderGrubCfg(5, "UUID-X",
 		[]string{"console=tty0", "console=ttyS0,115200"},
 		[]grubEntry{{4, "6.18.63-r0", "", ""}})
-	check(strings.Contains(serialCfg, "terminal_input serial console"),
-		"serial-console grub must accept console keyboard, got:\n%s", serialCfg)
-	check(strings.Contains(cfg, "terminal_input serial\n") &&
-		!strings.Contains(cfg, "terminal_input serial console"),
-		"alpine grub input must stay byte-identical")
-	// Alpine VM guests (vm/guest-config, vm/vm-layer) boot with console=ttyS0,
-	// so their grub also gains the console keyboard. Intended (serial console
-	// should be editable), but it IS a delta vs. the quiet-args media, so pin
-	// it here to stop it silently drifting.
-	alpineSerial := renderGrubCfg(5, "UUID-X",
-		[]string{"console=ttyS0"},
-		[]grubEntry{{4, "6.18.63-r0", "", ""}})
-	check(strings.Contains(alpineSerial, "terminal_input serial console") &&
-		!strings.Contains(alpineSerial, "terminal_input serial\n"),
-		"alpine VM serial grub must accept console keyboard, got:\n%s", alpineSerial)
+	for name, g := range map[string]string{"quiet-args grub": cfg, "serial-args grub": serialCfg} {
+		check(strings.Contains(g, "terminal_input serial console"),
+			"%s must accept console keyboard, got:\n%s", name, g)
+	}
 
 	// sshd-style setting keys
 	check(settingsKey("permit_root_login") == "PermitRootLogin", "CamelCase key")

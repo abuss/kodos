@@ -298,23 +298,16 @@ func renderGrubCfg(timeout int, uuid string, args []string, entries []grubEntry)
 	if len(args) > 0 {
 		cmdline += " " + strings.Join(args, " ")
 	}
-	// Serial kernel logs are useless if GRUB ignores the attached keyboard:
-	// a physical user must be able to press 'e' and edit the entry. Alpine's
-	// args have no console=ttyS0, so its grub.cfg stays byte-identical.
-	input := "serial"
-	for _, a := range args {
-		if strings.HasPrefix(a, "console=ttyS0") {
-			input = "serial console"
-			break
-		}
-	}
+	// GRUB accepts the physical console keyboard ALWAYS: serial-only input
+	// left bare-metal users unable to select or edit generation entries
+	// (odin 2026-11-26). Output to serial too so qemu -nographic still works.
 	var b strings.Builder
 	fmt.Fprintf(&b, `set default=0
 set timeout=%d
 serial --unit=0 --speed=115200
-terminal_input %s
+terminal_input serial console
 terminal_output serial console
-`, timeout, input)
+`, timeout)
 	for _, en := range entries {
 		fmt.Fprintf(&b, `menuentry 'Kodos generation %d' {
 	linux %s/vmlinuz-%s %s
