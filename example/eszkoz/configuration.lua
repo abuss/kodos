@@ -285,7 +285,14 @@ return {
                 }
             },
             cosmic = {
-                enable = true
+                enable = true,
+                extra_packages = {
+                    -- the greeter's login session: cosmic-greeter only
+                    -- hard-depends on the greeter stack, NOT the session, so
+                    -- without this the password succeeds and greetd falls
+                    -- straight back to the greeter (no session to start).
+                    { repo = "base", name = "cosmic-session" }
+                }
             }
         }
     },
