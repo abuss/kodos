@@ -251,3 +251,104 @@ func cpioSegmentEnd(b []byte) (int, error) {
 	}
 	return 0, fmt.Errorf("cpio stream truncated (no TRAILER)")
 }
+
+// ---- boot-time generation selection (grub entry -> generation) ----
+
+// grub entries carry kodos.generation=N; the initrd unit below bind-mounts
+// that generation's usr OVER the current one, so the /usr dir-link resolves
+// to the selected generation for THIS boot only (rollback stays the
+// persistent switch). These are unmanaged files (kodos-binary precedent):
+// install_bootloader re-writes them before every mkinitcpio build, so each
+// generation's initramfs carries the unit. ponytail: /etc is NOT switched
+// with the generation — live /etc is generation-agnostic by model.
+func installGenSelectHook(genDir string) error {
+	files := []struct {
+		path string
+		mode os.FileMode
+		body string
+	}{
+		{"usr/lib/initcpio/hooks/kodos-gen", 0o755,
+			"#!/bin/ash\n# systemd-mode hook: the unit does the work at runtime\n"},
+		{"usr/lib/initcpio/install/kodos-gen", 0o755, `#!/bin/sh
+build() {
+	add_file /usr/lib/initcpio/kodos-gen-mount
+	add_systemd_unit initcpio-kodos-gen.service
+	add_symlink /usr/lib/systemd/system/initcpio.target.wants/initcpio-kodos-gen.service \
+		../initcpio-kodos-gen.service
+}
+
+help() {
+	cat <<HELPEOF
+Honors the kodos.generation=N grub entry argument: the initrd bind-mounts
+that generation's usr over the current one, booting the selected generation.
+HELPEOF
+}
+# vim: set ft=sh ts=4 sw=4 noet:
+`},
+		{"usr/lib/initcpio/kodos-gen-mount", 0o755, `#!/bin/sh
+# kodos boot-time generation selection (systemd initrd, runs before
+# switch-root with /sysroot mounted).
+gen=""
+for a in $(cat /proc/cmdline); do
+	case "$a" in kodos.generation=*) gen="${a#kodos.generation=}";; esac
+done
+[ -n "$gen" ] || exit 0
+src="/sysroot/kod/generation/$gen/usr"
+cur="/sysroot/kod/generation/current/usr"
+if [ ! -d "$src" ]; then
+	echo "kodos: generation $gen has no usr; booting current" >&2
+	exit 0
+fi
+if [ "$(readlink -f "$src")" = "$(readlink -f "$cur")" ]; then
+	exit 0 # selected == current: no bind needed
+fi
+mount --bind "$src" "$cur" || echo "kodos: bind gen $gen FAILED; booting current" >&2
+`},
+		{"usr/lib/systemd/system/initcpio-kodos-gen.service", 0o644, `[Unit]
+Description=Kodos: bind the grub-selected generation into /sysroot
+DefaultDependencies=no
+ConditionKernelCommandLine=kodos.generation
+After=sysroot.mount
+Before=initcpio-switch-root.service switch-root.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/initcpio/kodos-gen-mount
+
+[Install]
+WantedBy=initcpio.target
+`},
+	}
+	for _, f := range files {
+		p := filepath.Join(genDir, f.path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, []byte(f.body), f.mode); err != nil {
+			return fmt.Errorf("gen-select %s: %w", f.path, err)
+		}
+	}
+	return nil
+}
+
+// genSelectConfHookRe: mkinitcpio.conf already carries our hook name?
+var genSelectConfHookRe = regexp.MustCompile(`(?m)^HOOKS=\([^)]*\bkodos-gen\b[^)]*\)`)
+
+// enableGenSelectInConf: idempotent HOOKS+=(kodos-gen) in the mkinitcpio.conf
+// the BUILD will read (runs chrooted in the gen tree). False = conf missing
+// or no HOOKS line: the boot stays on `current` (default HOOKS carry no
+// selection), so the caller warns rather than failing the boot path.
+func enableGenSelectInConf(confPath string) error {
+	b, err := os.ReadFile(confPath)
+	if err != nil {
+		return err
+	}
+	if genSelectConfHookRe.Match(b) {
+		return nil
+	}
+	out := genSelectHookLineRe.ReplaceAll(b, []byte("HOOKS=(kodos-gen ${1}"))
+	return os.WriteFile(confPath, out, 0o644)
+}
+
+var genSelectHookLineRe = regexp.MustCompile(`(?m)^HOOKS=\(`)

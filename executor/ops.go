@@ -309,11 +309,14 @@ terminal_input serial console
 terminal_output serial console
 `, timeout)
 	for _, en := range entries {
+		// the entry names its generation: the kodos-gen initcpio hook (arch)
+		// binds that generation's usr, making the grub menu a real
+		// generation chooser instead of a kernel chooser
 		fmt.Fprintf(&b, `menuentry 'Kodos generation %d' {
-	linux %s/vmlinuz-%s %s
+	linux %s/vmlinuz-%s %s kodos.generation=%d
 	initrd %s/initramfs-%s%s
 }
-`, en.gen, en.dir, en.kver, cmdline, en.dir, en.kver, en.initExt)
+`, en.gen, en.dir, en.kver, cmdline, en.gen, en.dir, en.kver, en.initExt)
 	}
 	return b.String()
 }
@@ -1735,6 +1738,17 @@ func (e *executor) installBootloader(act map[string]any) error {
 		archJobs, err = archKernelJobs(e.meta.Packages, archModDirs)
 		if err != nil {
 			return fmt.Errorf("bootloader: %w (kernel packages half-installed?)", err)
+		}
+		// grub generation entries only become real generation choices if
+		// every initramfs carries the kodos-gen hook: write the hook files
+		// into the gen tree and make the conf this build reads list it.
+		if err := installGenSelectHook(gen); err != nil {
+			return fmt.Errorf("bootloader: %w", err)
+		}
+		if err := enableGenSelectInConf(
+			e.s.chrootResolve(filepath.Join(gen, "etc", "mkinitcpio.conf"))); err != nil {
+			fmt.Printf("WARNING: bootloader: kodos-gen not added to mkinitcpio.conf (%v): "+
+				"grub generation entries boot the current generation\n", err)
 		}
 		for _, j := range archJobs {
 			if err := e.genChrootSh("depmod " + shellQuote(j.Kver)); err != nil {

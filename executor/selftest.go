@@ -477,6 +477,33 @@ func selftestPure() {
 			"%s must accept console keyboard, got:\n%s", name, g)
 	}
 
+	// generation choice at the grub menu: every entry names its generation,
+	// and the gen-select hook files + HOOKS edit are what make that arg real
+	check(strings.Contains(cfg, "kodos.generation=4") &&
+		strings.Contains(cfg, "kodos.generation=3"),
+		"grub entries must carry kodos.generation=N, got:\n%s", cfg)
+	if d, err := os.MkdirTemp("", "kodos-genselect-"); err == nil {
+		check(installGenSelectHook(d) == nil, "gen-select hook install")
+		for _, p := range []string{
+			"usr/lib/initcpio/hooks/kodos-gen",
+			"usr/lib/initcpio/install/kodos-gen",
+			"usr/lib/initcpio/kodos-gen-mount",
+			"usr/lib/systemd/system/initcpio-kodos-gen.service",
+		} {
+			check(lexists(filepath.Join(d, p)), "gen-select file %s written", p)
+		}
+		conf := filepath.Join(d, "mkinitcpio.conf")
+		os.WriteFile(conf, []byte("MODULES=()\nHOOKS=(base systemd modconf block filesystems)\n"), 0o644)
+		check(enableGenSelectInConf(conf) == nil, "conf hook enable")
+		check(enableGenSelectInConf(conf) == nil, "conf hook enable again (idempotent path)")
+		b, _ := os.ReadFile(conf)
+		check(strings.Contains(string(b), "HOOKS=(kodos-gen base systemd") &&
+			strings.Count(string(b), "kodos-gen") == 1, "HOOKS gains kodos-gen exactly once, got:\n%s", b)
+		check(enableGenSelectInConf(filepath.Join(d, "nope.conf")) != nil,
+			"missing conf must error (caller warns, boot falls back)")
+		os.RemoveAll(d)
+	}
+
 	// sshd-style setting keys
 	check(settingsKey("permit_root_login") == "PermitRootLogin", "CamelCase key")
 
