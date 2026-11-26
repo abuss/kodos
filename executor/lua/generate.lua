@@ -216,6 +216,20 @@ local all, dropped = resolve.install_set(conf, backend)
 
 -- Add desktop extra packages to the install set
 if conf.desktop then
+    -- display_manager's own package (backend.map value): enable_service
+    -- below links a unit that only this package ships; without it the
+    -- executor's "unit not shipped by any package" check hard-fails.
+    if conf.desktop.display_manager then
+        local dm_pkg = (backend.map and backend.map[conf.desktop.display_manager])
+                       or conf.desktop.display_manager
+        if dm_pkg and dm_pkg ~= false then
+            local seen = false
+            for _, n in ipairs(all) do
+                if n == dm_pkg then seen = true; break end
+            end
+            if not seen then all[#all + 1] = dm_pkg end
+        end
+    end
     for desktop_name, desktop_cfg in pairs(conf.desktop.desktops or {}) do
         if desktop_cfg.enable and desktop_cfg.extra_packages then
             for _, pkg in ipairs(desktop_cfg.extra_packages) do

@@ -458,6 +458,12 @@ assert(ar_desktop:find('"name": "cosmic-greeter"', 1, true),
 -- Verify desktop extra_packages in install
 assert(ar_desktop:find('"gnome-tweaks"', 1, true),
        "Desktop extra packages should be installed")
+-- display_manager's own package (backend.map value) must be installed too:
+-- enable_service hard-fails on a unit no shipped package provides. Within
+-- the install action json.lua sorts keys, so its names array precedes the
+-- "op" marker; the enable_service action's copy comes after it.
+assert(pos(ar_desktop, '"cosmic-greeter"') < pos(ar_desktop, '"op": "install_packages"'),
+       "display_manager package must be in the install_packages set")
 os.remove("_scratch_desktop.lua")
 
 -- ====== AUR packages: extracted from config with aur_packages() ======
