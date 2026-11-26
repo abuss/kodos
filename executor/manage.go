@@ -235,6 +235,33 @@ func bootDefault(s *system) string {
 
 // ---- rollback ----
 
+// rollbackGenBootable: distro-shaped minimum boot-critical content of a
+// generation tree. alpine: /boot kernel + an initramfs named for that exact
+// kver (both already built at create time). arch: the kernel image under
+// usr/lib/modules/<kver>/ (where the linux package ships it; /boot is NOT
+// fed from the tree) — the target's initramfs is rebuilt by the
+// install_bootloader mkinitcpio that this very rollback stream runs after
+// activation, so only the kernel+modules must pre-exist.
+func rollbackGenBootable(genDir, distro string) error {
+	switch distro {
+	case "alpine":
+		matches, _ := filepath.Glob(filepath.Join(genDir, "boot", "vmlinuz-*"))
+		if len(matches) == 0 {
+			return fmt.Errorf("no boot/vmlinuz-* in %s (kernel package missing?)", genDir)
+		}
+		kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
+		if !lexists(filepath.Join(genDir, "boot", "initramfs-"+kver)) {
+			return fmt.Errorf("no boot/initramfs-%s in %s (mkinitfs never ran?)", kver, genDir)
+		}
+	case "arch":
+		k, _ := filepath.Glob(filepath.Join(genDir, "usr/lib/modules/*/vmlinuz*"))
+		if len(k) == 0 {
+			return fmt.Errorf("no usr/lib/modules/*/vmlinuz* in %s (kernel package missing?)", genDir)
+		}
+	}
+	return nil
+}
+
 func rollback(chroot string, n *int, apkBin string) error {
 	rootAbs, err := filepath.Abs(chroot)
 	if err != nil {
@@ -266,21 +293,15 @@ func rollback(chroot string, n *int, apkBin string) error {
 	if meta.Generation != target {
 		return fmt.Errorf("cannot roll back to generation %d: its manifest declares generation %d", target, meta.Generation)
 	}
-	if meta.Distro != "alpine" {
-		return fmt.Errorf("cannot roll back to generation %d: distro %q (this build runs the alpine/apk family only)", target, meta.Distro)
+	if meta.Distro != "alpine" && meta.Distro != "arch" {
+		return fmt.Errorf("cannot roll back to generation %d: distro %q (this build runs the alpine and arch families)", target, meta.Distro)
 	}
 	// activate_generation (IR rank 19) runs BEFORE install_bootloader (23), so a
 	// generation the bootloader would fail on must never become current on the
-	// way there. Same convention the op itself enforces: <gen>/boot/vmlinuz-<kver>
-	// and the initramfs named after that exact kver.
+	// way there.
 	gen := s.genDir(target)
-	matches, _ := filepath.Glob(filepath.Join(gen, "boot", "vmlinuz-*"))
-	if len(matches) == 0 {
-		return fmt.Errorf("cannot roll back to generation %d: no boot/vmlinuz-* in %s (kernel package missing?): refusing to activate it", target, gen)
-	}
-	kver := strings.TrimPrefix(filepath.Base(matches[0]), "vmlinuz-")
-	if !lexists(filepath.Join(gen, "boot", "initramfs-"+kver)) {
-		return fmt.Errorf("cannot roll back to generation %d: no boot/initramfs-%s in %s (mkinitfs never ran?): refusing to activate it", target, kver, gen)
+	if err := rollbackGenBootable(gen, meta.Distro); err != nil {
+		return fmt.Errorf("cannot roll back to generation %d: %v: refusing to activate it", target, err)
 	}
 	// Explicit -to N: check the userland tree is runnable after all structural
 	// checks pass (the nil walk already skipped non-runnable gens silently).
