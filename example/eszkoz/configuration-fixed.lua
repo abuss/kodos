@@ -284,7 +284,8 @@ return {
         -- GNOME
         base("gnome-shell", "gnome-tweaks", "gnome-connections"),
         
-        -- COSMIC
-        base("cosmic-desktop", "cosmic-greeter")
+        -- COSMIC (cosmic-session = the login session + wayland session file;
+        -- cosmic-desktop is not an Arch package)
+        base("cosmic-session", "cosmic-greeter")
     ),
 }
