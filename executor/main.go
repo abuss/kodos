@@ -326,6 +326,15 @@ func (e *executor) run(act map[string]any) error {
 				"systemd-tmpfiles --create --prefix=/run --prefix=/var"); err != nil {
 				fmt.Printf("WARNING: systemd-tmpfiles --create: %v (continuing)\n", err)
 			}
+			// Same hook-skip gap: the packaged /etc/ssl/certs/ca-certificates.crt
+			// is only a symlink into etc/ca-certificates/extracted/, which
+			// update-ca-trust (p11-kit) materializes — its alpm hook is what
+			// we skip, so git/curl die with "error adding trust anchors"
+			// (odin 2026-11-26). Idempotent; silent no-op without the package.
+			if err := e.chrootSh(e.s.chroot,
+				"command -v update-ca-trust >/dev/null || exit 0; update-ca-trust"); err != nil {
+				fmt.Printf("WARNING: update-ca-trust: %v (continuing)\n", err)
+			}
 		}
 		return nil
 	case "create_user":
