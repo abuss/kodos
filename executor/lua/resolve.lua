@@ -156,7 +156,15 @@ function M.install_set(conf, backend)
         error("bootloader '" .. bl.type .. "' not offered by backend '"
               .. backend.name .. "'")
     end
-    local cfgnames, dropped = M.resolve_names(M.canonical_names(conf), backend)
+    -- desktop display_manager: its backend-mapped package ships the unit the
+    -- enable_service action links; it must be REQUESTED here so the lockfile
+    -- pins it and install_packages accepts it (resolve_names maps it, and
+    -- honors map=false as a drop+warn like every other canonical name).
+    local requested = M.canonical_names(conf)
+    if conf.desktop and conf.desktop.display_manager then
+        requested[#requested + 1] = conf.desktop.display_manager
+    end
+    local cfgnames, dropped = M.resolve_names(requested, backend)
     local all, seen = {}, {}
     local function addp(list)
         for _, n in ipairs(list or {}) do
