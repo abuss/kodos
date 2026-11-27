@@ -160,11 +160,28 @@ func diskInUse(device string, mounts map[string]string, swaps []string) bool {
 
 // isMountpoint: different st_dev than the parent (no external tools).
 func isMountpoint(path string) bool {
-	var a, b syscall.Stat_t
-	if syscall.Lstat(path, &a) != nil || syscall.Lstat(filepath.Dir(path), &b) != nil {
-		return false
+	// dev-compare is blind to same-filesystem bind mounts (the /usr bind
+	// of a gen tree lives on the root fs): consult mountinfo instead.
+	b, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		var a, p syscall.Stat_t
+		if syscall.Lstat(path, &a) != nil || syscall.Lstat(filepath.Dir(path), &p) != nil {
+			return false
+		}
+		return a.Dev != p.Dev
 	}
-	return a.Dev != b.Dev
+	target := filepath.Clean(path)
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 5 {
+			continue
+		}
+		mp := strings.ReplaceAll(f[4], "\\040", " ")
+		if mp == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- partition planning (pure, selftested) ----
