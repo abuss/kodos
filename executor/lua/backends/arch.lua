@@ -54,9 +54,12 @@ M.map = {
 -- has a provider). extra_packages stays additive on top; unknown names
 -- fall through to hand-listed packages (generate.lua warns).
 M.sessions = {
-    gnome = { "gdm", "gnome-backgrounds", "gnome-control-center", "gnome-online-accounts",
-              "gnome-session", "gnome-settings-daemon", "gnome-shell", "gnome-terminal",
-              "gvfs", "nautilus" },
+    gnome = { "epiphany", "evolution-data-server", "gdm",
+              "gnome-backgrounds", "gnome-calculator", "gnome-control-center",
+              "gnome-online-accounts", "gnome-session", "gnome-settings-daemon",
+              "gnome-shell", "gnome-system-monitor", "gnome-terminal",
+              "gnome-text-editor", "gvfs", "nautilus",
+              "xdg-desktop-portal-gnome" },
     plasma = { "dolphin", "kde-cli-tools", "konsole", "plasma-desktop", "plasma-nm",
                "plasma-pa", "plasma-keyboard", "plasma-workspace", "polkit-kde-agent",
                "sddm", "xdg-desktop-portal-kde" },
