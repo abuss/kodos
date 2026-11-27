@@ -308,6 +308,11 @@ if [ "$src" -ef "$cur" ]; then
 	exit 0 # selected == current: no bind needed
 fi
 mount --bind "$src" "$cur" || echo "kodos: bind gen $gen FAILED; booting current" >&2
+# live /usr is a real dir (usr-merge shape): overlay the selected
+# generation there too, so /bin -> /usr/bin style links follow the
+# selection. On an unmigrated symlinked /usr this just re-binds the
+# same dir as above; harmless.
+mount --bind "$src" /sysroot/usr || echo "kodos: /sysroot/usr bind skipped" >&2
 `},
 		{"usr/lib/systemd/system/initcpio-kodos-gen.service", 0o644, `[Unit]
 Description=Kodos: bind the grub-selected generation into /sysroot

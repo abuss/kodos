@@ -153,9 +153,21 @@ func selftest() {
 	tRelGen, _ := os.Readlink(filepath.Join(g0, "etc", "rellink"))
 	check(tRelGen == "../proc/self/mounts", "gen etc/rellink verbatim, got %q", tRelGen)
 
+	check(os.Symlink("/kod/generation/current/usr", filepath.Join(chroot, "usr")) == nil,
+		"legacy symlinked live usr fixture")
 	check(s.activateGeneration(g0) == nil, "activate gen0")
 	t, _ = os.Readlink(filepath.Join(chroot, "bin"))
 	check(t == "/kod/generation/current/bin", "top-level links through current, got %q", t)
+	// live /usr must become a REAL dir (usr-merge shape): gtk4/glycin's
+	// bwrap sandbox replicates /lib64 -> /usr/lib64 only when it
+	// canonicalizes under /usr/, and a /kod-rooted symlink /usr makes the
+	// image loader (every GTK4 icon/background) die (odin 2026-11-27).
+	check(isRealDir(filepath.Join(chroot, "usr")), "live /usr migrated to real dir")
+	check(readOr(filepath.Join(chroot, "usr", "bin", "b")) == "B0\n", "live usr/bin/b carries content")
+	check(sameInode(filepath.Join(chroot, "usr", "bin", "b"), filepath.Join(s.store(), "00base", "1.0", "usr", "bin", "b")),
+		"live usr/bin/b hardlinks into store")
+	t, _ = os.Readlink(filepath.Join(chroot, "sbin"))
+	check(t == "/usr/sbin", "live sbin alias goes through live /usr, got %q", t)
 	check(sameInode(filepath.Join(chroot, "etc", "foo"), filepath.Join(g0, "etc_store", "foo")),
 		"live etc entry is a hardlink into the generation store")
 	check(readOr(filepath.Join(chroot, "etc", "foo")) == "upstream\n",

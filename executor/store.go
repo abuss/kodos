@@ -753,6 +753,24 @@ func (s *system) activateGeneration(generation string) error {
 		}
 		item := filepath.Join(generation, name)
 		dst := filepath.Join(s.chroot, name)
+		if name == "usr" && lexists(dst) && !isRealDir(dst) && !isMountpoint(dst) {
+			// Migrate the old symlinked-/usr shape: live /usr must be a REAL
+			// directory (canonical usr-merge form). Sandboxed image loaders
+			// (gtk4/glycin under bubblewrap) replicate the ELF-interpreter
+			// /lib64 symlink into their sandbox ONLY when canonicalize(/lib64)
+			// lands under /usr/ — impossible while /usr is a /kod-rooted
+			// symlink (odin 2026-11-27: every GTK4 icon and background blank).
+			// After the flip /usr is an apk-style hardlink farm re-merged
+			// from the activated generation on every activation (incl.
+			// rollback, which re-runs activate_generation). Files deleted
+			// between generations can linger (etc/home precedent).
+			os.Remove(dst)
+		}
+		if name == "usr" && !lexists(dst) {
+			if err := os.MkdirAll(dst, 0o755); err != nil {
+				return err
+			}
+		}
 		if isRealDir(dst) {
 			if isMountpoint(dst) {
 				// a mountpoint belongs to the storage ops, not to the
@@ -770,7 +788,16 @@ func (s *system) activateGeneration(generation string) error {
 				return err
 			}
 		} else {
-			if err := symlinkChroot(dst, filepath.Join(current, name), s.chroot); err != nil {
+			if t, err := os.Readlink(item); err == nil && strings.HasPrefix(t, "/kod/generation/current/") {
+				// Merged-usr alias (bin, lib, lib64, sbin -> usr/*): the LIVE
+				// link goes through the live root's OWN top dir (/bin ->
+				// /usr/bin), never through /kod: sandbox tools bind /usr and
+				// then must still resolve the interpreter /lib64/ld-linux.
+				os.Remove(dst)
+				if err := os.Symlink("/"+strings.TrimPrefix(t, "/kod/generation/current/"), dst); err != nil {
+					return err
+				}
+			} else if err := symlinkChroot(dst, filepath.Join(current, name), s.chroot); err != nil {
 				return err
 			}
 		}
