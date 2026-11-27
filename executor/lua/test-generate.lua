@@ -445,7 +445,9 @@ return {
         desktops = {
             gnome = { enable = true, extra_packages = { { repo = "base", name = "gnome-tweaks" } } },
             plasma = { enable = true, extra_packages = { { repo = "base", name = "dolphin" } } },
-            cosmic = { enable = true }
+            cosmic = { enable = true },
+            xfce = { enable = true },
+            sway = { enable = true }
         }
     },
 }
@@ -468,7 +470,9 @@ assert(pos(ar_desktop, '"cosmic-greeter"') < pos(ar_desktop, '"op": "install_pac
 -- backend-owned session sets: enabling a known desktop pulls its whole set
 for _, p in ipairs({ "gnome-shell", "gdm", "gnome-session", "gnome-settings-daemon",
                      "plasma-desktop", "sddm", "xdg-desktop-portal-kde",
-                     "cosmic-session", "cosmic-osk" }) do
+                     "cosmic-session", "cosmic-osk",
+                     "xfce4-session", "lightdm-gtk-greeter", "xfdesktop",
+                     "sway", "greetd-tuigreet", "xdg-desktop-portal-wlr" }) do
     assert(ar_desktop:find('"' .. p .. '"', 1, true),
            "session set package missing: " .. p)
 end
