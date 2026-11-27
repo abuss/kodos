@@ -36,7 +36,7 @@ local eszkoz = {
         kernel = {
             -- variant = "lts",
             modules = { "xhci_pci", "ehci_pci", "ohci_pci", "virtio_pci",
-                        "virtio_blk", "ahci", "usbhid", "sr_mod" },
+                        "virtio_blk", "ahci", "usbhid" },
             arguments = { "iommu=pt" },
         },
     },

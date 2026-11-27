@@ -1286,44 +1286,29 @@ func (e *executor) configureTimezone(act map[string]any) error {
 
 func (e *executor) loadKernelModules(act map[string]any) error {
 	mods := strList(act, "modules")
-	if e.meta != nil && e.meta.Distro == "arch" {
-		// systemd-modules-load reads /etc/modules-load.d/*.conf at boot
-		// (Alpine's /etc/modules is an OpenRC-only file)
-		p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules-load.d/kodos.conf"))
-		os.MkdirAll(filepath.Dir(p), 0o755)
-		b, _ := os.ReadFile(p) // idempotent: skip modules already listed
-		existing := strings.TrimRight(string(b), "\n")
-		var add []string
-		for _, m := range mods {
-			if !strings.Contains(existing, m) {
-				add = append(add, m)
-			}
-		}
-		if len(add) == 0 {
-			return nil
-		}
-		out := strings.Join(add, "\n") + "\n"
-		if existing != "" {
-			out = existing + "\n" + out
-		}
-		return os.WriteFile(p, []byte(out), 0o644)
+	arch := e.meta != nil && e.meta.Distro == "arch"
+	// systemd-modules-load reads /etc/modules-load.d/*.conf at boot
+	// (Alpine's /etc/modules is an OpenRC-only file).
+	// AUTHORITATIVE list, not append: kodos owns this file, and an
+	// append-only op means removing a module from the config can never
+	// remove it from the machine (jetKVM sr_mod boot stall, 2026-11-26:
+	// ~40s of coldplug waiting for a phantom CD drive).
+	rel := filepath.Join(e.s.chroot, "etc/modules")
+	if arch {
+		rel = filepath.Join(e.s.chroot, "etc/modules-load.d/kodos.conf")
 	}
-	// chrootResolve: live /etc/modules may be a chroot-rooted managed link;
-	// its target only resolves rooted at the chroot (see writeFileTo).
-	p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules"))
-	b, _ := os.ReadFile(p) // idempotent: skip modules already listed
-	existing := string(b)
-	var add []string
-	for _, m := range mods {
-		if !strings.Contains(existing, m) {
-			add = append(add, m)
-		}
+	// chrootResolve: live /etc entries may be chroot-rooted managed links;
+	// their targets only resolve rooted at the chroot (see writeFileTo).
+	p := e.s.chrootResolve(rel)
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	out := ""
+	if len(mods) > 0 {
+		out = strings.Join(mods, "\n") + "\n"
 	}
-	if len(add) == 0 {
-		return nil
+	if b, err := os.ReadFile(p); err == nil && string(b) == out {
+		return nil // idempotent
 	}
-	return os.WriteFile(p, []byte(strings.TrimRight(existing, "\n")+"\n"+
-		strings.Join(add, "\n")+"\n"), 0o644)
+	return os.WriteFile(p, []byte(out), 0o644)
 }
 
 func (e *executor) configureService(act map[string]any) error {

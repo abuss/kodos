@@ -27,6 +27,27 @@ func TestTailZeroSeekSectors(t *testing.T) {
 	}
 }
 
+// load_kernel_modules must write the AUTHORITATIVE list: a module removed
+// from the config must disappear from the machine (jetKVM sr_mod stall).
+func TestLoadKernelModulesAuthoritative(t *testing.T) {
+	root := t.TempDir()
+	e := &executor{s: &system{chroot: root}} // meta nil: alpine /etc/modules path
+	if err := e.loadKernelModules(map[string]any{
+		"modules": []any{"xhci_pci", "sr_mod"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.loadKernelModules(map[string]any{"modules": []any{"xhci_pci"}}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(root, "etc/modules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "xhci_pci\n" {
+		t.Fatalf("authoritative list must drop sr_mod, got %q", b)
+	}
+}
+
 func TestPasswdNeedsNameGecos(t *testing.T) {
 	if !passwdNeedsName("abuss:x:1000:100:Install user:/home/abuss:/bin/bash", "Antal Buss") {
 		t.Fatal("placeholder GECOS must trigger a name sync")

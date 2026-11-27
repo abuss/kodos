@@ -62,7 +62,7 @@ return {
     boot = {
         bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
         kernel = {
-            modules = { "xhci_pci", "ohci_pci", "ehci_pci", "virtio_pci", "ahci", "usbhid", "sr_mod", "virtio_blk" },
+            modules = { "xhci_pci", "ohci_pci", "ehci_pci", "virtio_pci", "ahci", "usbhid", "virtio_blk" },
         },
     },
 
