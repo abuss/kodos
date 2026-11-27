@@ -54,11 +54,12 @@ M.map = {
 -- has a provider). extra_packages stays additive on top; unknown names
 -- fall through to hand-listed packages (generate.lua warns).
 M.sessions = {
-    -- KNOWN WORLD LIMITATION (odin 2026-11-27): this repo set ships NO
-    -- gdk-pixbuf loader modules except webp-pixbuf-loader, so GdkPixbuf
-    -- decodes no png/svg: GNOME's Shell/app-grid icons are blank on ANY
-    -- install of this world (gtk4/glycin/Qt/COSMIC paths unaffected).
-    -- Nothing to pin; report upstream if GNOME icons matter here.
+    -- Image pipeline note (odin 2026-11-27): this world's gdk-pixbuf2
+    -- ships no loader modules itself (only webp-pixbuf-loader); PNG/SVG
+    -- decode flows through its glycin bridge instead. Blank GNOME icons/
+    -- backgrounds on kodos installs were NOT that gap: glycin's bwrap
+    -- sandbox needs a canonical (real-dir) live /usr to find the ELF
+    -- interpreter — fixed by the usr-merge activation shape (PR #17).
     gnome = { "baobab", "epiphany", "evolution-data-server", "eog", "evince",
               "file-roller", "gdm", "gnome-backgrounds", "gnome-calculator",
               "gnome-characters", "gnome-control-center", "gnome-keyring",
