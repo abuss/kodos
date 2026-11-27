@@ -344,6 +344,15 @@ func (e *executor) run(act map[string]any) error {
 					"glib-compile-schemas /usr/share/glib-2.0/schemas"); err != nil {
 				fmt.Printf("WARNING: glib-compile-schemas: %v (continuing)\n", err)
 			}
+			// gdk-pixbuf2's loader cache (loaders.cache) is built by its
+			// skipped alpm hook: without it gdk decodes NO image, so every
+			// icon is blank ("Could not load a pixbuf from icon theme",
+			// odin 2026-11-27). Same command as the hook; idempotent.
+			if err := e.chrootSh(e.s.chroot,
+				"command -v gdk-pixbuf-query-loaders >/dev/null || exit 0; "+
+					"gdk-pixbuf-query-loaders --update-cache"); err != nil {
+				fmt.Printf("WARNING: gdk-pixbuf-query-loaders: %v (continuing)\n", err)
+			}
 		}
 		return nil
 	case "create_user":
