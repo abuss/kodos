@@ -11,6 +11,7 @@ import (
 
 // A kodos-installed Arch target has no on-disk CA bundle (see rootCAs below),
 // so a bundle compiled into the binary is the only guaranteed trust anchor.
+//
 //go:embed ca-bundle.pem
 var bundledCAs []byte
 
@@ -51,5 +52,22 @@ func rootCAs() *x509.CertPool {
 func httpsClient(timeout time.Duration) *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = &tls.Config{RootCAs: rootCAs()}
+	// fail a stuck handshake in 30s, not the whole request ceiling:
+	// archive.archlinux.org handshakes flake, and getRetry below eats
+	// the flake; a silent multi-minute hang is the real failure mode.
+	tr.TLSHandshakeTimeout = 30 * time.Second
 	return &http.Client{Timeout: timeout, Transport: tr}
+}
+
+// getRetry: c.Get with exactly one retry (fresh connection, brief sleep) on
+// transport errors. HTTP responses — 404 included — pass through untouched,
+// so pin drift stays loud; only dead connections/handshakes get the second
+// try (archive.archlinux.org handshakes flake, odin 2026-11-27).
+func getRetry(c *http.Client, url string) (*http.Response, error) {
+	resp, err := c.Get(url)
+	if err == nil {
+		return resp, nil
+	}
+	time.Sleep(2 * time.Second)
+	return c.Get(url)
 }

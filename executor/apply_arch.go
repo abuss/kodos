@@ -75,7 +75,7 @@ func fetchArchIndexes(mirror string, branches []string, dirArch string, tmp stri
 
 		for _, url := range urls {
 			tried = append(tried, url)
-			resp, err := client.Get(url)
+			resp, err := getRetry(client, url)
 			if err != nil {
 				lastErr = archFetchError(branch, url, err)
 				continue

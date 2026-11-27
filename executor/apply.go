@@ -83,7 +83,7 @@ func fetchIndexes(mirror string, branches []string, localRepos []localRepoRef, t
 	client := &http.Client{Timeout: 2 * time.Minute}
 	for _, br := range branches {
 		url := fmt.Sprintf("%s/%s/x86_64/APKINDEX.tar.gz", mirror, br)
-		resp, err := client.Get(url)
+		resp, err := getRetry(client, url)
 		if err != nil {
 			return nil, fmt.Errorf("fetch index %s: %w", url, err)
 		}

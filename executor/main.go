@@ -651,7 +651,7 @@ func (e *executor) fetchUnpack(name, version string) error {
 	if body == nil {
 		for _, br := range e.branches {
 			url := fmt.Sprintf("%s/%s/%s/%s-%s.apk", e.mirror, br, e.arch, name, version)
-			resp, err := client.Get(url)
+			resp, err := getRetry(client, url)
 			if err != nil {
 				lastErr = err
 				continue
@@ -704,7 +704,11 @@ func (e *executor) fetchUnpackArch(name, version string) error {
 	var tried []string
 	for _, url := range urls {
 		tried = append(tried, url)
-		resp, err := client.Get(url)
+		// one retry per URL for transport flakes only (dead TLS handshake,
+		// mid-stream reset): package fetches are idempotent temp writes.
+		// HTTP statuses come back unwrapped, so a rolling-mirror 404 stays
+		// exactly as loud as before.
+		resp, err := getRetry(client, url)
 		if err != nil {
 			lastErr = fmt.Errorf("%s: %w", url, err)
 			continue
