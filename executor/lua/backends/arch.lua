@@ -59,12 +59,14 @@ M.sessions = {
     -- decodes no png/svg: GNOME's Shell/app-grid icons are blank on ANY
     -- install of this world (gtk4/glycin/Qt/COSMIC paths unaffected).
     -- Nothing to pin; report upstream if GNOME icons matter here.
-    gnome = { "epiphany", "evolution-data-server", "gdm",
-              "gnome-backgrounds", "gnome-calculator", "gnome-control-center",
-              "gnome-online-accounts", "gnome-session", "gnome-settings-daemon",
-              "gnome-shell", "gnome-system-monitor", "gnome-terminal",
-              "gnome-text-editor", "gvfs", "nautilus",
-              "xdg-desktop-portal-gnome" },
+    gnome = { "baobab", "epiphany", "evolution-data-server", "eog", "evince",
+              "file-roller", "gdm", "gnome-backgrounds", "gnome-calculator",
+              "gnome-characters", "gnome-control-center", "gnome-keyring",
+              "gnome-online-accounts", "gnome-remote-desktop", "gnome-session",
+              "gnome-settings-daemon", "gnome-shell", "gnome-system-monitor",
+              "gnome-terminal", "gnome-text-editor", "gnome-user-docs",
+              "gvfs", "nautilus", "seahorse", "xdg-desktop-portal-gnome",
+              "yelp", "zenity" },
     plasma = { "dolphin", "kde-cli-tools", "konsole", "plasma-desktop", "plasma-nm",
                "plasma-pa", "plasma-keyboard", "plasma-workspace", "polkit-kde-agent",
                "sddm", "xdg-desktop-portal-kde" },

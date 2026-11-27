@@ -470,6 +470,7 @@ assert(pos(ar_desktop, '"cosmic-greeter"') < pos(ar_desktop, '"op": "install_pac
 -- backend-owned session sets: enabling a known desktop pulls its whole set
 for _, p in ipairs({ "gnome-shell", "gdm", "gnome-session", "gnome-settings-daemon",
                      "evolution-data-server", "xdg-desktop-portal-gnome", "epiphany",
+                     "gnome-keyring", "eog", "zenity",
                      "plasma-desktop", "sddm", "xdg-desktop-portal-kde",
                      "cosmic-session", "cosmic-osk",
                      "xfce4-session", "lightdm-gtk-greeter", "xfdesktop",
