@@ -303,6 +303,25 @@ func (e *executor) run(act map[string]any) error {
 		if err := e.s.activateGeneration(e.s.genDir(e.meta.Generation)); err != nil {
 			return err
 		}
+		// If fstab's /usr bind is live it still points at the OUTGOING
+		// generation's tree (bind sources resolve at mount time): swap it
+		// onto the new current before anything writes through /usr. On
+		// arch, establish the bind on first activation too: post-boot the
+		// runtime /usr IS the current gen tree (fstab), so activation
+		// hooks (schemas, icon/mime caches) must write the GEN tree, not
+		// the on-disk farm the bind will hide.
+		if e.meta.Distro == "arch" {
+			usr := filepath.Join(e.s.chroot, "usr")
+			genUsr := filepath.Join(e.s.chroot, "kod/generation/current/usr")
+			if !isMountpoint(usr) && lexists(genUsr) {
+				if err := run("mount", "-o", "bind", genUsr, usr); err != nil {
+					fmt.Printf("WARNING: /usr bind (live view): %v (boot fstab remounts)\n", err)
+				}
+			}
+			if err := e.remountUsrBind(); err != nil {
+				fmt.Printf("WARNING: /usr bind remount: %v (the next boot remounts it)\n", err)
+			}
+		}
 		// Review Focus 2: locale-gen needs the LIVE activated /etc — it can
 		// only run after the flip. ponytail: full file regen per activation
 		// (locale-gen is idempotent); add a per-locale check if it gets slow.

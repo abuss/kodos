@@ -270,14 +270,18 @@ func installGenSelectHook(genDir string) error {
 		{"usr/lib/initcpio/hooks/kodos-gen", 0o755,
 			"#!/bin/ash\n# systemd-mode hook: the unit does the work at runtime\n"},
 		// add_binary (not add_file): carries the script's #!/bin/sh
-		// interpreter too; add_systemd_unit auto-carries the gen tree's
-		// initrd.target.wants symlink below (mkinitcpio's reverse-dep
-		// loop) and the ExecStart binary. This initrd has NO initcpio.
-		// target: enablement = a real .wants link in the gen tree.
+		// interpreter too. add_systemd_unit does NOT exist in this
+		// world's mkinitcpio (odin 2026-11-27 build log: "add_systemd_unit:
+		// command not found" -> the unit silently never reached the image
+		// and grub gen-select was dead), so carry the unit explicitly:
+		// add_file for the service, add_symlink for the gen tree's real
+		// initrd.target.wants link (written below). This initrd has NO
+		// initcpio.target: enablement = a real .wants link in the gen tree.
 		{"usr/lib/initcpio/install/kodos-gen", 0o755, `#!/bin/sh
 build() {
 	add_binary /usr/lib/initcpio/kodos-gen-mount
-	add_systemd_unit initcpio-kodos-gen.service
+	add_file /usr/lib/systemd/system/initcpio-kodos-gen.service
+	add_symlink /usr/lib/systemd/system/initrd.target.wants/initcpio-kodos-gen.service
 }
 
 help() {
@@ -290,8 +294,16 @@ HELPEOF
 `},
 		{"usr/lib/initcpio/kodos-gen-mount", 0o755, `#!/usr/bin/ash
 # kodos boot-time generation selection (systemd initrd, runs after
-# sysroot.mount, before switch-root). No cat/readlink: the initrd only
-# guarantees busybox applets under /usr/bin and the core utils.
+# sysroot.mount, before switch-root). NOTE: /kod/generation/current is
+# an ABSOLUTE /kod-rooted symlink — unresolvable inside the initramfs —
+# so the current generation must be read with readlink, never stat'd
+# through the link (odin 2026-11-27 boot log: "current/usr: mount point
+# does not exist" made the old -ef guard and cur-bind both fail). The
+# normal current-gen /usr mount is the fstab bind (rw; systemd-remount-fs
+# keeps it rw across switch-root); this hook only overlays a DIFFERENT
+# grub-selected generation, stacked on top. A bare initrd bind would be
+# remounted read-only by switch-root: the live system then cannot build
+# gschemas.compiled and gnome-session aborts ("No GSettings schemas").
 gen=""
 read -r cmdline < /proc/cmdline
 for a in $cmdline; do
@@ -299,15 +311,19 @@ for a in $cmdline; do
 done
 [ -n "$gen" ] || exit 0
 src="/sysroot/kod/generation/$gen/usr"
-cur="/sysroot/kod/generation/current/usr"
 if [ ! -d "$src" ]; then
 	echo "kodos: generation $gen has no usr; booting current" >&2
 	exit 0
 fi
-if [ "$src" -ef "$cur" ]; then
-	exit 0 # selected == current: no bind needed
+tgt=$(readlink /sysroot/kod/generation/current)
+case "$tgt" in
+	/*) cur="/sysroot$tgt/usr";;
+	*)  cur="/sysroot/kod/generation/$tgt/usr";;
+esac
+if [ -d "$cur" ] && [ "$src" -ef "$cur" ]; then
+	exit 0 # selected == current: fstab's bind already covers it
 fi
-mount --bind "$src" "$cur" || echo "kodos: bind gen $gen FAILED; booting current" >&2
+mount --bind "$src" /sysroot/usr || echo "kodos: bind gen $gen FAILED; booting current" >&2
 `},
 		{"usr/lib/systemd/system/initcpio-kodos-gen.service", 0o644, `[Unit]
 Description=Kodos: bind the grub-selected generation into /sysroot

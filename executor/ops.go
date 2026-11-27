@@ -160,11 +160,28 @@ func diskInUse(device string, mounts map[string]string, swaps []string) bool {
 
 // isMountpoint: different st_dev than the parent (no external tools).
 func isMountpoint(path string) bool {
-	var a, b syscall.Stat_t
-	if syscall.Lstat(path, &a) != nil || syscall.Lstat(filepath.Dir(path), &b) != nil {
-		return false
+	// dev-compare is blind to same-filesystem bind mounts (the /usr bind
+	// of a gen tree lives on the root fs): consult mountinfo instead.
+	b, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		var a, p syscall.Stat_t
+		if syscall.Lstat(path, &a) != nil || syscall.Lstat(filepath.Dir(path), &p) != nil {
+			return false
+		}
+		return a.Dev != p.Dev
 	}
-	return a.Dev != b.Dev
+	target := filepath.Clean(path)
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 5 {
+			continue
+		}
+		mp := strings.ReplaceAll(f[4], "\\040", " ")
+		if mp == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- partition planning (pure, selftested) ----
@@ -1674,6 +1691,31 @@ func (e *executor) enableHomeService(act map[string]any) error {
 	return nil
 }
 
+// remountUsrBind: when live /usr is a bind of /kod/generation/<N>/usr
+// (the fstab entry installBootloader writes; see also kodos-gen-mount),
+// the source resolved at mount time — after the current flip it still
+// shows the OUTGOING generation's tree. Detach lazily (processes run
+// from it) and rebind through current.
+func (e *executor) remountUsrBind() error {
+	mp := filepath.Join(e.s.chroot, "usr")
+	if !isMountpoint(mp) {
+		return nil
+	}
+	src, err := runOut("findmnt", "-n", "-o", "SOURCE", mp)
+	if err != nil || !strings.Contains(src, "/kod/generation/") {
+		return nil
+	}
+	// rollback streams replay the fstab bind on TOP of the live one:
+	// peel every layer before rebinding (lazy: trees stay alive for
+	// running processes).
+	for i := 0; i < 10 && isMountpoint(mp); i++ {
+		if err := run("umount", "-l", mp); err != nil {
+			return err
+		}
+	}
+	return run("mount", "-o", "bind", filepath.Join(e.s.chroot, "kod/generation/current/usr"), mp)
+}
+
 func (e *executor) installBootloader(act map[string]any) error {
 	if e.rootPart == "" {
 		return fmt.Errorf("install_bootloader: root partition unknown (no mount / action?)")
@@ -1979,6 +2021,34 @@ func (e *executor) installBootloader(act map[string]any) error {
 	if err := os.WriteFile(filepath.Join(e.s.chroot, "boot/grub/grub.cfg"),
 		[]byte(cfg), 0o444); err != nil {
 		return err
+	}
+	// live /usr is the real hardlink farm of the usr-merge shape, merged
+	// at activate_generation time; this op writes fresh content into the
+	// gen tree afterwards (kodos-gen hook files, ucode install), invisible
+	// to the live system until re-merged here. Skipped when /usr is a
+	// bind of a gen tree: src and dst are then the SAME tree (activation
+	// already merged the farm pre-bind, and the boot/runtime view is the
+	// bind anyway).
+	if !isMountpoint(filepath.Join(e.s.chroot, "usr")) {
+		if err := e.s.symlinkTree(filepath.Join(gen, "usr"), filepath.Join(e.s.chroot, "usr")); err != nil {
+			return fmt.Errorf("bootloader: re-merge live /usr: %w", err)
+		}
+	}
+	// fstab-owned /usr bind: mounts the CURRENT generation's usr at boot
+	// (follows current across rollback; systemd-remount-fs keeps it rw
+	// across switch-root — a bare initrd bind would be left read-only,
+	// which ate gnome's gschemas.compiled on odin 2026-11-27). Written
+	// here (not mounted): the next boot activates it. kodos-gen-mount
+	// only overlays a grub-SELECTED different generation on top of it.
+	if e.meta.Distro == "arch" {
+		fstab := filepath.Join(e.s.chroot, "etc", "fstab")
+		if b, err := os.ReadFile(fstab); err == nil &&
+			!bytes.Contains(b, []byte("/kod/generation/current/usr")) {
+			b = append(b, []byte("\n# kodos: generation-owned /usr (bind of the current generation)\n/kod/generation/current/usr\t/usr\tnone\tbind\t0\t0\n")...)
+			if err := os.WriteFile(fstab, b, 0o644); err != nil {
+				return fmt.Errorf("bootloader: fstab /usr bind: %w", err)
+			}
+		}
 	}
 	fmt.Printf("bootloader: grub EFI (removable path) + grub.cfg for generation %d, kernel %s (%d menu entries)\n",
 		genIdx, kver, len(entries))

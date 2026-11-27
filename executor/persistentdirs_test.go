@@ -136,7 +136,13 @@ func TestActivationNeverMergesProcSys(t *testing.T) {
 			t.Fatalf("live /%s was merged from generation junk", junk)
 		}
 	}
-	if l, err := os.Readlink(filepath.Join(root, "usr")); err != nil || !filepath.IsAbs(l) {
-		t.Fatalf("normal usr relink lost: %q %v", l, err)
+	// live /usr is the usr-merge shape: a REAL dir merged from the
+	// generation (glycin/bwrap needs canonicalize(/lib64) under /usr/).
+	fi, err := os.Lstat(filepath.Join(root, "usr"))
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		t.Fatalf("live /usr must be a real merged dir, got %v %v", fi, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(root, "usr/share/thing")); err != nil || string(b) != "ok\n" {
+		t.Fatalf("live /usr content not merged: %q %v", b, err)
 	}
 }
