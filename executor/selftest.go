@@ -489,9 +489,19 @@ func selftestPure() {
 			"usr/lib/initcpio/install/kodos-gen",
 			"usr/lib/initcpio/kodos-gen-mount",
 			"usr/lib/systemd/system/initcpio-kodos-gen.service",
+			"usr/lib/systemd/system/initrd.target.wants/initcpio-kodos-gen.service",
 		} {
 			check(lexists(filepath.Join(d, p)), "gen-select file %s written", p)
 		}
+		// this world's initrd has stock systemd targets only: no
+		// initcpio.target exists, and odin proved an unlinked unit just
+		// sits inert in the image (odin report 2026-11-27: menu still
+		// booted current)
+		unit, _ := os.ReadFile(filepath.Join(d, "usr/lib/systemd/system/initcpio-kodos-gen.service"))
+		check(strings.Contains(string(unit), "WantedBy=initrd.target") &&
+			strings.Contains(string(unit), "initrd-switch-root.target") &&
+			!strings.Contains(string(unit), "initcpio.target"),
+			"gen-select unit must hook stock initrd targets, got:\n%s", unit)
 		conf := filepath.Join(d, "mkinitcpio.conf")
 		os.WriteFile(conf, []byte("MODULES=()\nHOOKS=(base systemd modconf block filesystems)\n"), 0o644)
 		check(addInitcpioHook(conf, "kodos-gen") == nil, "conf hook enable")

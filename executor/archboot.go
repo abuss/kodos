@@ -269,12 +269,15 @@ func installGenSelectHook(genDir string) error {
 	}{
 		{"usr/lib/initcpio/hooks/kodos-gen", 0o755,
 			"#!/bin/ash\n# systemd-mode hook: the unit does the work at runtime\n"},
+		// add_binary (not add_file): carries the script's #!/bin/sh
+		// interpreter too; add_systemd_unit auto-carries the gen tree's
+		// initrd.target.wants symlink below (mkinitcpio's reverse-dep
+		// loop) and the ExecStart binary. This initrd has NO initcpio.
+		// target: enablement = a real .wants link in the gen tree.
 		{"usr/lib/initcpio/install/kodos-gen", 0o755, `#!/bin/sh
 build() {
-	add_file /usr/lib/initcpio/kodos-gen-mount
+	add_binary /usr/lib/initcpio/kodos-gen-mount
 	add_systemd_unit initcpio-kodos-gen.service
-	add_symlink /usr/lib/systemd/system/initcpio.target.wants/initcpio-kodos-gen.service \
-		../initcpio-kodos-gen.service
 }
 
 help() {
@@ -285,11 +288,13 @@ HELPEOF
 }
 # vim: set ft=sh ts=4 sw=4 noet:
 `},
-		{"usr/lib/initcpio/kodos-gen-mount", 0o755, `#!/bin/sh
-# kodos boot-time generation selection (systemd initrd, runs before
-# switch-root with /sysroot mounted).
+		{"usr/lib/initcpio/kodos-gen-mount", 0o755, `#!/usr/bin/ash
+# kodos boot-time generation selection (systemd initrd, runs after
+# sysroot.mount, before switch-root). No cat/readlink: the initrd only
+# guarantees busybox applets under /usr/bin and the core utils.
 gen=""
-for a in $(cat /proc/cmdline); do
+read -r cmdline < /proc/cmdline
+for a in $cmdline; do
 	case "$a" in kodos.generation=*) gen="${a#kodos.generation=}";; esac
 done
 [ -n "$gen" ] || exit 0
@@ -299,7 +304,7 @@ if [ ! -d "$src" ]; then
 	echo "kodos: generation $gen has no usr; booting current" >&2
 	exit 0
 fi
-if [ "$(readlink -f "$src")" = "$(readlink -f "$cur")" ]; then
+if [ "$src" -ef "$cur" ]; then
 	exit 0 # selected == current: no bind needed
 fi
 mount --bind "$src" "$cur" || echo "kodos: bind gen $gen FAILED; booting current" >&2
@@ -309,7 +314,7 @@ Description=Kodos: bind the grub-selected generation into /sysroot
 DefaultDependencies=no
 ConditionKernelCommandLine=kodos.generation
 After=sysroot.mount
-Before=initcpio-switch-root.service switch-root.service
+Before=initrd-root-fs.target initrd-switch-root.target
 
 [Service]
 Type=oneshot
@@ -317,7 +322,7 @@ RemainAfterExit=yes
 ExecStart=/usr/lib/initcpio/kodos-gen-mount
 
 [Install]
-WantedBy=initcpio.target
+WantedBy=initrd.target
 `},
 	}
 	for _, f := range files {
@@ -328,6 +333,17 @@ WantedBy=initcpio.target
 		if err := os.WriteFile(p, []byte(f.body), f.mode); err != nil {
 			return fmt.Errorf("gen-select %s: %w", f.path, err)
 		}
+	}
+	// enablement: mkinitcpio add_systemd_unit carries EXISTING
+	// *.wants/<unit> symlinks into the image (reverse-dep loop); there
+	// is no systemctl preset in this initrd, so the link goes here.
+	want := filepath.Join(genDir,
+		"usr/lib/systemd/system/initrd.target.wants/initcpio-kodos-gen.service")
+	if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
+		return err
+	}
+	if err := os.Symlink("../initcpio-kodos-gen.service", want); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("gen-select enable: %w", err)
 	}
 	return nil
 }
