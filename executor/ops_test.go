@@ -11,6 +11,55 @@ import (
 	"testing"
 )
 
+// create_user must reconcile GECOS (passwd col 5, the login-screen display
+// name) on an EXISTING account: a user first created by a placeholder config
+// ("Install user" from the install media) keeps that name forever otherwise.
+// --force-wipe must find nothing stale afterwards: tailZeroSeekSectors is the
+// dd seek that zeroes the final 8 MiB (16384 x 512B) of a disk, where the
+// backup GPT copies hide. A disk smaller than the zeroed window gets false
+// (the head zero already covers it).
+func TestTailZeroSeekSectors(t *testing.T) {
+	if s, ok := tailZeroSeekSectors(118407778); !ok || s != 118391394 {
+		t.Fatalf("60GB-class disk: got seek %d ok=%v", s, ok)
+	}
+	if _, ok := tailZeroSeekSectors(16384); ok {
+		t.Fatal("disk <= 8MiB needs no separate tail zero")
+	}
+}
+
+// load_kernel_modules must write the AUTHORITATIVE list: a module removed
+// from the config must disappear from the machine (jetKVM sr_mod stall).
+func TestLoadKernelModulesAuthoritative(t *testing.T) {
+	root := t.TempDir()
+	e := &executor{s: &system{chroot: root}} // meta nil: alpine /etc/modules path
+	if err := e.loadKernelModules(map[string]any{
+		"modules": []any{"xhci_pci", "sr_mod"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.loadKernelModules(map[string]any{"modules": []any{"xhci_pci"}}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(root, "etc/modules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "xhci_pci\n" {
+		t.Fatalf("authoritative list must drop sr_mod, got %q", b)
+	}
+}
+
+func TestPasswdNeedsNameGecos(t *testing.T) {
+	if !passwdNeedsName("abuss:x:1000:100:Install user:/home/abuss:/bin/bash", "Antal Buss") {
+		t.Fatal("placeholder GECOS must trigger a name sync")
+	}
+	if passwdNeedsName("abuss:x:1000:100:Antal Buss:/home/abuss:/bin/bash", "Antal Buss") {
+		t.Fatal("matching GECOS must not re-run usermod")
+	}
+	if passwdNeedsName("", "Antal Buss") || passwdNeedsName("abuss:x:1000", "Antal Buss") {
+		t.Fatal("missing or malformed entry must not sync")
+	}
+}
+
 func TestCopyTreeSelfCopySkip(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "repo")

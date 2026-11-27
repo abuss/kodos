@@ -61,12 +61,14 @@ type executor struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua] ...")
+		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua|version] ...")
 		os.Exit(2)
 	}
 
 	cmd := os.Args[1]
 	switch cmd {
+	case "version":
+		fmt.Println(versionString())
 	case "exec":
 		if err := cmdExec(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR:", err)
@@ -107,9 +109,37 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua] ...")
+		fmt.Fprintln(os.Stderr, "usage: kodos [exec|apply|status|rollback|selftest|suitetest|lua|version] ...")
 		os.Exit(2)
 	}
+}
+
+// versionString: every go build is auto-stamped with VCS info (Go 1.18+), so
+// a binary on a USB stick or a target machine can name itself: revision +
+// commit time as the build date, "(dirty tree)" when built uncommitted.
+func versionString() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "kodos: no build info"
+	}
+	rev, when, dirty := "unknown", "unknown", false
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+			if len(rev) > 8 {
+				rev = rev[:8]
+			}
+		case "vcs.time":
+			when = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if dirty {
+		when += " (dirty tree)"
+	}
+	return "kodos " + rev + " built from " + when + ", " + bi.GoVersion
 }
 
 func cmdExec(args []string) error {
@@ -296,6 +326,24 @@ func (e *executor) run(act map[string]any) error {
 				"systemd-tmpfiles --create --prefix=/run --prefix=/var"); err != nil {
 				fmt.Printf("WARNING: systemd-tmpfiles --create: %v (continuing)\n", err)
 			}
+			// Same hook-skip gap: the packaged /etc/ssl/certs/ca-certificates.crt
+			// is only a symlink into etc/ca-certificates/extracted/, which
+			// update-ca-trust (p11-kit) materializes — its alpm hook is what
+			// we skip, so git/curl die with "error adding trust anchors"
+			// (odin 2026-11-26). Idempotent; silent no-op without the package.
+			if err := e.chrootSh(e.s.chroot,
+				"command -v update-ca-trust >/dev/null || exit 0; update-ca-trust"); err != nil {
+				fmt.Printf("WARNING: update-ca-trust: %v (continuing)\n", err)
+			}
+			// glib2's alpm hook compiles the GSettings schema cache; skipped
+			// like the rest -> GNOME/COSMIC apps die on gschemas.compiled
+			// (odin desktop report, 2026-11-26). Idempotent; harmless
+			// without glib.
+			if err := e.chrootSh(e.s.chroot,
+				"command -v glib-compile-schemas >/dev/null || exit 0; "+
+					"glib-compile-schemas /usr/share/glib-2.0/schemas"); err != nil {
+				fmt.Printf("WARNING: glib-compile-schemas: %v (continuing)\n", err)
+			}
 		}
 		return nil
 	case "create_user":
@@ -308,6 +356,12 @@ func (e *executor) run(act map[string]any) error {
 		return e.installBootloader(act)
 	case "configure_flatpak_remote", "install_flatpak":
 		return fmt.Errorf("op %q: not implemented yet (flatpak lands after the VM boots)", op)
+	case "install_aur_packages":
+		// warn-and-skip stub: real AUR execution (helper bootstrap, non-root
+		// builder, floating unpinned builds) is a later milestone.
+		fmt.Printf("WARNING: install_aur_packages: not implemented yet — skipped %d AUR package(s) (helper %q)\n",
+			len(strList(act, "names")), field(act, "helper"))
+		return nil
 	default:
 		return fmt.Errorf("unknown op %q", op)
 	}
@@ -456,12 +510,8 @@ func (e *executor) installPackages(act map[string]any) error {
 		for n, pin := range e.meta.Packages {
 			resolved[n] = pin.Version
 		}
-		for name, ver := range resolved {
-			if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
-				if err := e.fetchUnpack(name, ver); err != nil {
-					return err
-				}
-			}
+		if err := e.fetchMissing(resolved); err != nil {
+			return err
 		}
 		e.resolved = resolved
 		fmt.Printf("install_packages: %d requested -> %d pinned (arch: lockfile closure is authoritative)\n",
@@ -490,11 +540,9 @@ func (e *executor) installPackages(act map[string]any) error {
 		} else {
 			unpinned = append(unpinned, name+"-"+ver)
 		}
-		if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
-			if err := e.fetchUnpack(name, ver); err != nil {
-				return err
-			}
-		}
+	}
+	if err := e.fetchMissing(resolved); err != nil {
+		return err
 	}
 	slices.Sort(unpinned)
 	if len(unpinned) > 0 {
@@ -552,6 +600,27 @@ func (e *executor) apkSimulate(addArgs []string) (map[string]string, error) {
 		return nil, fmt.Errorf("apk resolved nothing: %s", out)
 	}
 	return resolved, nil
+}
+
+// fetchMissing: fetch+unpack every resolved package not already in the store.
+// Sorted (map order is random) with one progress line per package: a full
+// install is hundreds of downloads over minutes — silence looks like a hang.
+func (e *executor) fetchMissing(resolved map[string]string) error {
+	type pv struct{ name, ver string }
+	var todo []pv
+	for name, ver := range resolved {
+		if dst := filepath.Join(e.s.store(), name, ver); !isRealDir(dst) {
+			todo = append(todo, pv{name, ver})
+		}
+	}
+	slices.SortFunc(todo, func(a, b pv) int { return strings.Compare(a.name, b.name) })
+	for i, t := range todo {
+		fmt.Printf("  fetch %d/%d: %s %s\n", i+1, len(todo), t.name, t.ver)
+		if err := e.fetchUnpack(t.name, t.ver); err != nil {
+			return fmt.Errorf("fetch %s %s: %w", t.name, t.ver, err)
+		}
+	}
+	return nil
 }
 
 func (e *executor) fetchUnpack(name, version string) error {

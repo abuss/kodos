@@ -298,29 +298,25 @@ func renderGrubCfg(timeout int, uuid string, args []string, entries []grubEntry)
 	if len(args) > 0 {
 		cmdline += " " + strings.Join(args, " ")
 	}
-	// Serial kernel logs are useless if GRUB ignores the attached keyboard:
-	// a physical user must be able to press 'e' and edit the entry. Alpine's
-	// args have no console=ttyS0, so its grub.cfg stays byte-identical.
-	input := "serial"
-	for _, a := range args {
-		if strings.HasPrefix(a, "console=ttyS0") {
-			input = "serial console"
-			break
-		}
-	}
+	// GRUB accepts the physical console keyboard ALWAYS: serial-only input
+	// left bare-metal users unable to select or edit generation entries
+	// (odin 2026-11-26). Output to serial too so qemu -nographic still works.
 	var b strings.Builder
 	fmt.Fprintf(&b, `set default=0
 set timeout=%d
 serial --unit=0 --speed=115200
-terminal_input %s
+terminal_input serial console
 terminal_output serial console
-`, timeout, input)
+`, timeout)
 	for _, en := range entries {
+		// the entry names its generation: the kodos-gen initcpio hook (arch)
+		// binds that generation's usr, making the grub menu a real
+		// generation chooser instead of a kernel chooser
 		fmt.Fprintf(&b, `menuentry 'Kodos generation %d' {
-	linux %s/vmlinuz-%s %s
+	linux %s/vmlinuz-%s %s kodos.generation=%d
 	initrd %s/initramfs-%s%s
 }
-`, en.gen, en.dir, en.kver, cmdline, en.dir, en.kver, en.initExt)
+`, en.gen, en.dir, en.kver, cmdline, en.gen, en.dir, en.kver, en.initExt)
 	}
 	return b.String()
 }
@@ -495,17 +491,65 @@ func nameListHas(names []string, want string) bool {
 // mklabel starts from bare metal. Reached only through the wipe field the
 // installers inject; kodos apply streams never carry it.
 func (e *executor) wipeDisk(device string) error {
+	// Stale partition superblocks sit far from the disk head: wiping only the
+	// whole-disk signatures + the first MiBs leaves them, and a new layout
+	// reusing the same offsets inherits a foreign fs (bare-metal round
+	// 2026-11-26: format hit old fs + old backup GPT after --force-wipe).
+	// Wipe every existing partition first, while its node still exists.
+	// sfdisk reads the on-disk table, not the kernel's possibly stale view.
+	if dump, err := runOut("sfdisk", "-d", device); err == nil {
+		for _, p := range existingPartitions(dump, device) {
+			if out, err := runOut("wipefs", "-a", p); err != nil {
+				return fmt.Errorf("wipefs -a %s: %w: %s", p, err, out)
+			}
+		}
+	} else {
+		// A corrupt table is exactly when sfdisk refuses to dump — but the
+		// kernel's partition nodes still address real disk regions, so
+		// best-effort clear those signatures too before wiping the table.
+		for _, pat := range []string{device + "[0-9]*", device + "p[0-9]*"} {
+			parts, _ := filepath.Glob(pat)
+			for _, p := range parts {
+				_ = run("wipefs", "-a", p)
+			}
+		}
+	}
 	if out, err := runOut("wipefs", "-a", device); err != nil {
 		return fmt.Errorf("wipefs -a %s: %w: %s", device, err, out)
 	}
-	// superblocks left inside the old partition areas keep confusing blkid
-	// after the table is gone, so zero the head of the disk as well
+	// Zero the head AND the tail: a surviving backup GPT at end-of-disk lures
+	// parted/fdisk into "primary corrupt, backup OK" recovery over a layout
+	// that was supposed to be gone.
 	if err := run("dd", "if=/dev/zero", "of="+device, "bs=1M", "count=8", "conv=notrunc,sync"); err != nil {
 		return err
 	}
-	_ = run("partprobe", device) // best effort: the kernel must forget the old table
+	if sz, err := runOut("blockdev", "--getsz", device); err == nil {
+		if sectors, aerr := strconv.ParseInt(strings.TrimSpace(sz), 10, 64); aerr == nil {
+			if seek, ok := tailZeroSeekSectors(sectors); ok {
+				if err := run("dd", "if=/dev/zero", "of="+device, "bs=512",
+					"count=16384", "seek="+strconv.FormatInt(seek, 10), "conv=notrunc,sync"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	// The kernel must forget the old table or later ops format stale /dev/sdaN
+	// nodes at stale offsets: blockdev ships with util-linux (the installer
+	// already requires it); partprobe stays best-effort for older sticks.
+	_ = run("blockdev", "--rereadpt", device)
+	_ = run("partprobe", device)
 	fmt.Printf("%s: partition table + signatures wiped\n", device)
 	return nil
+}
+
+// tailZeroSeekSectors: dd seek (bs=512) covering the last 8MiB of a disk of
+// sz 512-byte sectors, false when the disk is too small for a separate tail.
+func tailZeroSeekSectors(sz int64) (int64, bool) {
+	const window = 16384 // 8 MiB in 512-byte sectors
+	if sz <= window {
+		return 0, false
+	}
+	return sz - window, true
 }
 
 func (e *executor) partitionDisk(act map[string]any) error {
@@ -1242,44 +1286,29 @@ func (e *executor) configureTimezone(act map[string]any) error {
 
 func (e *executor) loadKernelModules(act map[string]any) error {
 	mods := strList(act, "modules")
-	if e.meta != nil && e.meta.Distro == "arch" {
-		// systemd-modules-load reads /etc/modules-load.d/*.conf at boot
-		// (Alpine's /etc/modules is an OpenRC-only file)
-		p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules-load.d/kodos.conf"))
-		os.MkdirAll(filepath.Dir(p), 0o755)
-		b, _ := os.ReadFile(p) // idempotent: skip modules already listed
-		existing := strings.TrimRight(string(b), "\n")
-		var add []string
-		for _, m := range mods {
-			if !strings.Contains(existing, m) {
-				add = append(add, m)
-			}
-		}
-		if len(add) == 0 {
-			return nil
-		}
-		out := strings.Join(add, "\n") + "\n"
-		if existing != "" {
-			out = existing + "\n" + out
-		}
-		return os.WriteFile(p, []byte(out), 0o644)
+	arch := e.meta != nil && e.meta.Distro == "arch"
+	// systemd-modules-load reads /etc/modules-load.d/*.conf at boot
+	// (Alpine's /etc/modules is an OpenRC-only file).
+	// AUTHORITATIVE list, not append: kodos owns this file, and an
+	// append-only op means removing a module from the config can never
+	// remove it from the machine (jetKVM sr_mod boot stall, 2026-11-26:
+	// ~40s of coldplug waiting for a phantom CD drive).
+	rel := filepath.Join(e.s.chroot, "etc/modules")
+	if arch {
+		rel = filepath.Join(e.s.chroot, "etc/modules-load.d/kodos.conf")
 	}
-	// chrootResolve: live /etc/modules may be a chroot-rooted managed link;
-	// its target only resolves rooted at the chroot (see writeFileTo).
-	p := e.s.chrootResolve(filepath.Join(e.s.chroot, "etc/modules"))
-	b, _ := os.ReadFile(p) // idempotent: skip modules already listed
-	existing := string(b)
-	var add []string
-	for _, m := range mods {
-		if !strings.Contains(existing, m) {
-			add = append(add, m)
-		}
+	// chrootResolve: live /etc entries may be chroot-rooted managed links;
+	// their targets only resolve rooted at the chroot (see writeFileTo).
+	p := e.s.chrootResolve(rel)
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	out := ""
+	if len(mods) > 0 {
+		out = strings.Join(mods, "\n") + "\n"
 	}
-	if len(add) == 0 {
-		return nil
+	if b, err := os.ReadFile(p); err == nil && string(b) == out {
+		return nil // idempotent
 	}
-	return os.WriteFile(p, []byte(strings.TrimRight(existing, "\n")+"\n"+
-		strings.Join(add, "\n")+"\n"), 0o644)
+	return os.WriteFile(p, []byte(out), 0o644)
 }
 
 func (e *executor) configureService(act map[string]any) error {
@@ -1335,6 +1364,17 @@ func groupNameValid(g string) bool {
 	return true
 }
 
+// passwdNeedsName: does an /etc/passwd entry's comment field (GECOS, col 5,
+// what login screens show as the display name) differ from want? Missing or
+// short entries are not our business.
+func passwdNeedsName(entry, want string) bool {
+	f := strings.Split(entry, ":")
+	if len(f) < 5 {
+		return false
+	}
+	return f[4] != want
+}
+
 func (e *executor) createUser(act map[string]any) error {
 	login := field(act, "user")
 	if login == "" {
@@ -1347,9 +1387,11 @@ func (e *executor) createUser(act map[string]any) error {
 		return fmt.Errorf("create_user: cannot read target passwd: %w", err)
 	}
 	exists := false
+	entry := ""
 	for _, line := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(line, login+":") {
 			exists = true
+			entry = line
 		}
 	}
 	if !exists {
@@ -1385,6 +1427,15 @@ func (e *executor) createUser(act map[string]any) error {
 		if err := e.chrootSh(e.s.chroot, script); err != nil {
 			return fmt.Errorf("create_user %s: %w", login, err)
 		}
+	} else if want := field(act, "name"); want != "" && passwdNeedsName(entry, want) {
+		// Existing account: the config's name is authoritative for the
+		// greeter's display name; a placeholder GECOS set at first creation
+		// (install media's "Install user") never fixes itself otherwise.
+		script := fmt.Sprintf("usermod -c %s %s", shellQuote(want), shellQuote(login))
+		if err := e.chrootSh(e.s.chroot, script); err != nil {
+			return fmt.Errorf("create_user %s: name: %w", login, err)
+		}
+		fmt.Printf("create_user %s: display name synced\n", login)
 	}
 	if hash := e.secrets["users."+login+".hashed_password"]; hash != "" {
 		script := fmt.Sprintf("echo %s | chpasswd -e",
@@ -1672,6 +1723,29 @@ func (e *executor) installBootloader(act map[string]any) error {
 		archJobs, err = archKernelJobs(e.meta.Packages, archModDirs)
 		if err != nil {
 			return fmt.Errorf("bootloader: %w (kernel packages half-installed?)", err)
+		}
+		// grub generation entries only become real generation choices if
+		// every initramfs carries the kodos-gen hook: write the hook files
+		// into the gen tree and make the conf this build reads list it.
+		if err := installGenSelectHook(gen); err != nil {
+			return fmt.Errorf("bootloader: %w", err)
+		}
+		conf := e.s.chrootResolve(filepath.Join(gen, "etc", "mkinitcpio.conf"))
+		if err := addInitcpioHook(conf, "kodos-gen"); err != nil {
+			fmt.Printf("WARNING: bootloader: kodos-gen not added to mkinitcpio.conf (%v): "+
+				"grub generation entries boot the current generation\n", err)
+		}
+		// Pinned CPU ucode must ride INSIDE the initramfs (early load):
+		// stale microcode warned on odin's boot log. The microcode hook
+		// pulls /boot/{intel,amd}-ucode.img from the gen tree at build.
+		for _, ucode := range []string{"intel-ucode", "amd-ucode"} {
+			if _, pinned := e.meta.Packages[ucode]; pinned {
+				if err := addInitcpioHook(conf, "microcode"); err != nil {
+					fmt.Printf("WARNING: bootloader: microcode hook not added (%v): "+
+						"CPU microcode stays stale until next apply\n", err)
+				}
+				break
+			}
 		}
 		for _, j := range archJobs {
 			if err := e.genChrootSh("depmod " + shellQuote(j.Kver)); err != nil {

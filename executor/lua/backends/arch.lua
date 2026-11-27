@@ -8,9 +8,11 @@ local M = {}
 
 M.name = "arch"
 M.repo_types = { arch = true }
+M.repo_branches = { "core", "extra" } -- default sync repos when repos.base.branches is absent
 M.init = "systemd" -- enable mechanism: systemctl enable <unit>
 
-M.base_packages = { "base", "tzdata", "ca-certificates" } -- base meta includes systemd
+M.base_packages = { "base", "tzdata", "ca-certificates",
+    "mkinitcpio" } -- base meta includes systemd; base no longer ships mkinitcpio (2026-11)
 -- Kernel variants (boot.kernel.variant): Arch has the richest menu.
 M.kernel_packages = {
     default = { "linux", "linux-firmware" },
@@ -45,6 +47,59 @@ M.map = {
     sddm = "sddm",
     lightdm = "lightdm",
     ["cosmic-greeter"] = "cosmic-greeter",
+}
+
+-- Backend-owned desktop session sets: enabling a known desktop pulls the
+-- whole set (greeter included, so the DM unit always
+-- has a provider). extra_packages stays additive on top; unknown names
+-- fall through to hand-listed packages (generate.lua warns).
+M.sessions = {
+    gnome = { "gdm", "gnome-backgrounds", "gnome-control-center", "gnome-online-accounts",
+              "gnome-session", "gnome-settings-daemon", "gnome-shell", "gnome-terminal",
+              "gvfs", "nautilus" },
+    plasma = { "dolphin", "kde-cli-tools", "konsole", "plasma-desktop", "plasma-nm",
+               "plasma-pa", "plasma-keyboard", "plasma-workspace", "polkit-kde-agent",
+               "sddm", "xdg-desktop-portal-kde" },
+    cosmic = { "cosmic-greeter", "cosmic-osk", "cosmic-session" },
+
+    -- X11 desktops pair with lightdm+gtk-greeter, wayland compositors
+    -- with greetd+tui greeter: display_manager must name a greeter the
+    -- chosen set provides (or one mapped in M.map). xorg-xinit is in
+    -- the X sets so bare WMs can also start from a tty. cage is a
+    -- single-app kiosk: no greeter by design. All names verified
+    -- against the live index (2026-11-26).
+    xfce = { "lightdm", "lightdm-gtk-greeter", "thunar", "xfce4-panel",
+             "xfce4-power-manager", "xfce4-session", "xfce4-settings",
+             "xfce4-terminal", "xfce4-whiskermenu-plugin", "xfdesktop",
+             "xfwm4", "xorg-server", "xorg-xinit" },
+    mate = { "caja", "lightdm", "lightdm-gtk-greeter", "marco",
+             "mate-control-center", "mate-panel", "mate-session-manager",
+             "mate-settings-daemon", "mate-terminal", "xorg-server",
+             "xorg-xinit" },
+    cinnamon = { "cinnamon", "cinnamon-session", "cinnamon-settings-daemon",
+                 "gdm", "gnome-terminal", "nemo", "xdg-desktop-portal-gnome" },
+    budgie = { "budgie-desktop", "budgie-extras", "gdm",
+               "gnome-control-center", "nautilus" },
+    lxqt = { "lxqt-panel", "lxqt-runner", "lxqt-session", "pcmanfm-qt",
+             "qterminal", "sddm", "xorg-server", "xorg-xinit" },
+    i3 = { "dmenu", "i3-wm", "i3lock", "i3status", "lightdm",
+           "lightdm-gtk-greeter", "xterm", "xorg-server", "xorg-xinit" },
+    openbox = { "lightdm", "lightdm-gtk-greeter", "openbox", "xterm",
+                "xorg-server", "xorg-xinit" },
+    enlightenment = { "enlightenment", "lightdm", "lightdm-gtk-greeter",
+                      "terminology", "xorg-server", "xorg-xinit" },
+    sway = { "foot", "foot-terminfo", "fuzzel", "greetd", "greetd-tuigreet",
+             "mako", "sway", "swaybg", "swaylock", "xdg-desktop-portal-wlr" },
+    hyprland = { "foot", "foot-terminfo", "fuzzel", "greetd",
+                 "greetd-tuigreet", "hyprland", "hyprlock", "hyprpaper",
+                 "xdg-desktop-portal-wlr" },
+    wayfire = { "foot", "foot-terminfo", "greetd", "greetd-tuigreet", "mako",
+                "wayfire", "wf-recorder", "wofi", "xdg-desktop-portal-wlr" },
+    labwc = { "foot", "foot-terminfo", "fuzzel", "greetd", "greetd-tuigreet",
+              "labwc", "xdg-desktop-portal-wlr" },
+    river = { "foot", "foot-terminfo", "fuzzel", "greetd", "greetd-tuigreet",
+              "river", "xdg-desktop-portal-wlr" },
+    cage = { "cage" },
 }
 
 -- Service registry (see alpine.lua for the Alpine -openrc quirk; Arch has

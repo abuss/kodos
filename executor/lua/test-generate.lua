@@ -444,10 +444,12 @@ return {
         display_manager = "cosmic-greeter",
         desktops = {
             gnome = { enable = true, extra_packages = { { repo = "base", name = "gnome-tweaks" } } },
-            cosmic = { enable = true }
+            plasma = { enable = true, extra_packages = { { repo = "base", name = "dolphin" } } },
+            cosmic = { enable = true },
+            xfce = { enable = true },
+            sway = { enable = true }
         }
     },
-    users = {}, packages = {}
 }
 ]])
 f_desktop:close()
@@ -459,6 +461,237 @@ assert(ar_desktop:find('"name": "cosmic-greeter"', 1, true),
 -- Verify desktop extra_packages in install
 assert(ar_desktop:find('"gnome-tweaks"', 1, true),
        "Desktop extra packages should be installed")
+-- display_manager's own package (backend.map value) must be installed too:
+-- enable_service hard-fails on a unit no shipped package provides. Within
+-- the install action json.lua sorts keys, so its names array precedes the
+-- "op" marker; the enable_service action's copy comes after it.
+assert(pos(ar_desktop, '"cosmic-greeter"') < pos(ar_desktop, '"op": "install_packages"'),
+       "display_manager package must be in the install_packages set")
+-- backend-owned session sets: enabling a known desktop pulls its whole set
+for _, p in ipairs({ "gnome-shell", "gdm", "gnome-session", "gnome-settings-daemon",
+                     "plasma-desktop", "sddm", "xdg-desktop-portal-kde",
+                     "cosmic-session", "cosmic-osk",
+                     "xfce4-session", "lightdm-gtk-greeter", "xfdesktop",
+                     "sway", "greetd-tuigreet", "xdg-desktop-portal-wlr" }) do
+    assert(ar_desktop:find('"' .. p .. '"', 1, true),
+           "session set package missing: " .. p)
+end
 os.remove("_scratch_desktop.lua")
+
+-- ====== AUR packages: extracted from config with aur_packages() ======
+local cfg_aur = {
+    repos = {
+        base = { type = "arch", mirror = "https://mirror.example.com/arch" },
+        aur = { type = "aur", helper = "yay" }
+    },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 10 }, kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {
+        testuser = {
+            name = "Test", group = "users", home_directory = "/home/testuser", shell = "/bin/bash",
+            environment = {
+                packages = {
+                    { repo = "base", name = "git" },
+                    { repo = "aur", name = "visual-studio-code-bin" },
+                    { repo = "aur", name = "quickemu" }
+                }
+            }
+        }
+    },
+    packages = {}
+}
+local resolve = require("resolve")
+local backend_aur = resolve.backend_for(cfg_aur)
+local aur_list = resolve.aur_packages(cfg_aur, backend_aur)
+assert(#aur_list == 2, "Should extract 2 AUR packages, got " .. #aur_list)
+assert(aur_list[1] == "quickemu" and aur_list[2] == "visual-studio-code-bin",
+       "AUR packages should be sorted: " .. table.concat(aur_list, ","))
+
+-- AUR packages empty on Alpine
+local cfg_alpine = {
+    repos = {
+        base = { type = "apk", mirror = "https://dl-cdn.alpinelinux.org/alpine/v3.24" },
+    },
+    system = { host_name = "test", locale = { default = "en_US.UTF-8" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 10 }, kernel = {} },
+    storage = { devices = { disk0 = { device = "/dev/nvme0n1", type = "gpt", efi = true,
+        partitions = { { name = "boot", size = "512MB", type = "esp",
+            filesystem = "vfat", mountpoint = "/boot" } } } } },
+    generations = { storage = "store", root = "/kod" },
+    users = {},
+    packages = {}
+}
+local backend_alpine = resolve.backend_for(cfg_alpine)
+local aur_empty = resolve.aur_packages(cfg_alpine, backend_alpine)
+assert(#aur_empty == 0, "AUR packages should be empty on Alpine, got " .. #aur_empty)
+
+-- ====== AUR IR generation: install_aur_packages action ======
+local f_aur = assert(io.open("_scratch_aur.lua", "w"))
+f_aur:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } },
+              aur = { type = "aur", helper = "yay" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "aurtest", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    users = { testuser = { name = "Test", group = "users",
+        home_directory = "/home/testuser", shell = "/bin/bash",
+        environment = { packages = {
+            { repo = "aur", name = "visual-studio-code-bin" },
+            { repo = "aur", name = "quickemu" }
+        } } } }
+}
+]])
+f_aur:close()
+local aur_ir = run("_scratch_aur.lua")
+assert(aur_ir:find('"op": "install_aur_packages"', 1, true),
+       "IR should include install_aur_packages action")
+assert(aur_ir:find('"helper": "yay"', 1, true),
+       "install_aur_packages action should have helper=yay")
+assert(aur_ir:find('"visual-studio-code-bin"', 1, true),
+       "install_aur_packages names should include visual-studio-code-bin")
+assert(aur_ir:find('"quickemu"', 1, true),
+       "install_aur_packages names should include quickemu")
+assert(pos(aur_ir, '"op": "install_packages"') < pos(aur_ir, '"op": "install_aur_packages"'),
+       "install_aur_packages must come AFTER install_packages")
+os.remove("_scratch_aur.lua")
+
+-- AUR packages without repos.aur must error
+local f_aur2 = assert(io.open("_scratch_aur_noconf.lua", "w"))
+f_aur2:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "aurtest2", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    users = { testuser = { name = "Test", group = "users",
+        home_directory = "/home/testuser", shell = "/bin/bash",
+        environment = { packages = {
+            { repo = "aur", name = "visual-studio-code-bin" }
+        } } } }
+}
+]])
+f_aur2:close()
+local h_aur2 = assert(io.popen((os.getenv("KODOS_LUA_CMD") or "lua") .. " generate.lua _scratch_aur_noconf.lua 2>&1"))
+local err_aur2 = h_aur2:read("*a")
+h_aur2:close()
+os.remove("_scratch_aur_noconf.lua")
+assert(err_aur2:find("AUR packages declared but repos.aur not configured", 1, true),
+       "AUR packages without repos.aur must abort with the right message, got: " .. err_aur2)
+
+-- ====== Test A: AUR packages silently dropped on Alpine ======
+local f_alpine_aur = assert(io.open("_scratch_alpine_aur.lua", "w"))
+f_alpine_aur:write([[
+return {
+    repos = { base = { type = "apk", mirror = "https://dl-cdn.alpinelinux.org/alpine/v3.24" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "alpineaur", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    users = { aurtest = { name = "AurTest", group = "users",
+        home_directory = "/home/aurtest", shell = "/bin/bash",
+        environment = { packages = {
+            { repo = "base", name = "git" },
+            { repo = "aur", name = "yay" }
+        } } } }
+}
+]])
+f_alpine_aur:close()
+local alpine_aur_ir = run("_scratch_alpine_aur.lua")
+assert(not alpine_aur_ir:find('"op": "install_aur_packages"', 1, true),
+       "Alpine should not emit install_aur_packages action even with user AUR packages")
+os.remove("_scratch_alpine_aur.lua")
+
+-- ====== Test B: AUR packages at system level are dropped (Arch only) ======
+local f_arch_sys_aur = assert(io.open("_scratch_arch_sys_aur.lua", "w"))
+f_arch_sys_aur:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com",
+                       branches = { "core", "extra" } },
+              aur = { type = "aur", helper = "yay" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "archsysaur", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } },
+    packages = {
+        { repo = "base", name = "linux" },
+        { repo = "aur", name = "some-aur-pkg" }
+    },
+    users = { aurtest = { name = "AurTest", group = "users",
+        home_directory = "/home/aurtest", shell = "/bin/bash",
+        environment = { packages = {
+            { repo = "aur", name = "user-aur-pkg" }
+        } } } }
+}
+]])
+f_arch_sys_aur:close()
+local arch_sys_aur_ir = run("_scratch_arch_sys_aur.lua")
+-- System-level AUR package should NOT be in install_aur_packages action
+assert(arch_sys_aur_ir:find('"op": "install_aur_packages"', 1, true),
+       "User-level AUR packages on Arch should emit install_aur_packages action")
+-- The system-level package should NOT appear anywhere in the IR (AUR packages are user-level only)
+assert(not arch_sys_aur_ir:find('"some-aur-pkg"', 1, true),
+       "System-level AUR package 'some-aur-pkg' must not appear anywhere in the IR")
+-- User-level package must appear in install_aur_packages action
+assert(arch_sys_aur_ir:find('"user-aur-pkg"', 1, true),
+       "User-level AUR package 'user-aur-pkg' should appear in install_aur_packages")
+os.remove("_scratch_arch_sys_aur.lua")
+
+-- ====== arch default branches: repos.base.branches absent -> backend default
+-- core+extra must land in configure_repos (apply.go requires non-empty branches) ======
+local f_arch_nb = assert(io.open("_scratch_arch_nobranch.lua", "w"))
+f_arch_nb:write([[
+return {
+    repos = { base = { type = "arch", mirror = "https://geo.mirror.pkgbuild.com" } },
+    boot = { bootloader = { type = "grub", efi = true, timeout = 5 } },
+    system = { host_name = "nbarch", timezone = "UTC",
+               locale = { default = "en_US.UTF-8" } },
+    generations = { storage = "store", root = "/kod", keep = 5 },
+    storage = { devices = { disk0 = { device = "/dev/nbd0", type = "gpt", efi = true,
+        partitions = {
+            { name = "boot", size = "512MB", type = "esp", filesystem = "vfat",
+              mountpoint = "/boot", check = false },
+            { name = "root", size = "100%", type = "linux", filesystem = "ext4",
+              mountpoint = "/" } } } } }
+}
+]])
+f_arch_nb:close()
+local nb = run("_scratch_arch_nobranch.lua")
+os.remove("_scratch_arch_nobranch.lua")
+assert(nb:find('"branches": [', 1, true) and nb:find('"core"', 1, true)
+       and nb:find('"extra"', 1, true),
+       "arch config without branches must get backend-default core+extra in configure_repos")
 
 print("PASS: IR stream (layered config, ordered, deterministic, strict)")

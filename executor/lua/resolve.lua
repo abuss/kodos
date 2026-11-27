@@ -84,6 +84,23 @@ end
 
 function M.canonical_names(conf) return M.names_in(conf, "base") end
 
+-- AUR packages: {repo="aur", name="pkg"} extracted only on Arch backend,
+-- user-level only (system-level AUR not supported). Returns sorted list of
+-- AUR package names; empty on Alpine/Deb or if no users have AUR packages.
+function M.aur_packages(conf, backend)
+    if backend.name ~= "arch" then
+        return {}  -- AUR only on Arch
+    end
+    local out, seen = {}, {}
+    for _, u in pairs((conf or {}).users or {}) do
+        for _, n in ipairs(M.names_in(u, "aur")) do
+            if not seen[n] then seen[n] = true; out[#out + 1] = n end
+        end
+    end
+    table.sort(out)
+    return out
+end
+
 -- canonical names out of a tagged package list (service/user level lists)
 function M.tagged_canons(list)
     local out = {}
@@ -139,7 +156,15 @@ function M.install_set(conf, backend)
         error("bootloader '" .. bl.type .. "' not offered by backend '"
               .. backend.name .. "'")
     end
-    local cfgnames, dropped = M.resolve_names(M.canonical_names(conf), backend)
+    -- desktop display_manager: its backend-mapped package ships the unit the
+    -- enable_service action links; it must be REQUESTED here so the lockfile
+    -- pins it and install_packages accepts it (resolve_names maps it, and
+    -- honors map=false as a drop+warn like every other canonical name).
+    local requested = M.canonical_names(conf)
+    if conf.desktop and conf.desktop.display_manager then
+        requested[#requested + 1] = conf.desktop.display_manager
+    end
+    local cfgnames, dropped = M.resolve_names(requested, backend)
     local all, seen = {}, {}
     local function addp(list)
         for _, n in ipairs(list or {}) do
@@ -156,6 +181,23 @@ function M.install_set(conf, backend)
     end
     for _, s in ipairs(M.service_plan(conf, backend)) do addp(s.packages) end
     for _, s in ipairs(M.home_service_plan(conf, backend)) do addp(s.packages) end
+    -- backend-owned desktop session sets (arch.lua M.sessions): enabling a
+    -- known desktop pulls its whole set here, so generate.lua's IR and
+    -- lockfile.lua's pins stay identical. extra_packages (already swept by
+    -- names_in) layers on top; unknown desktop names warn and rely on it.
+    if conf.desktop then
+        for dname, dcfg in pairs(conf.desktop.desktops or {}) do
+            if dcfg.enable then
+                local set = backend.sessions and backend.sessions[dname]
+                if set then
+                    addp(set)
+                else
+                    io.stderr:write("no backend session set for desktop " .. dname
+                        .. ": list its packages in extra_packages\n")
+                end
+            end
+        end
+    end
     if conf.system.locale then addp(backend.locale_packages) end
     if conf.repos.flatpak then addp(backend.flatpak_packages) end
     table.sort(all)

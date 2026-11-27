@@ -123,7 +123,7 @@ act("mount", { partition = "tmpfs", point = "/tmp", filesystem = "tmpfs",
 local configure_repos_act = {
     type = conf.repos.base.type,
     mirror = conf.repos.base.mirror,
-    branches = conf.repos.base.branches,
+    branches = conf.repos.base.branches or backend.repo_branches,
 }
 if conf.repositories then
     local rnames = {}
@@ -215,6 +215,8 @@ local hplan = resolve.home_service_plan(conf, backend)
 local all, dropped = resolve.install_set(conf, backend)
 
 -- Add desktop extra packages to the install set
+-- (display_manager's mapped package now enters via resolve.install_set,
+-- shared with lockfile.lua so pins and requests stay identical)
 if conf.desktop then
     for desktop_name, desktop_cfg in pairs(conf.desktop.desktops or {}) do
         if desktop_cfg.enable and desktop_cfg.extra_packages then
@@ -233,6 +235,15 @@ if conf.desktop then
 end
 
 act("install_packages", { names = all })
+
+-- ====== AUR packages (Arch only) ======
+local aur_pkgs = resolve.aur_packages(conf, backend)
+if #aur_pkgs > 0 then
+    if not conf.repos.aur then
+        error("AUR packages declared but repos.aur not configured")
+    end
+    act("install_aur_packages", { helper = conf.repos.aur.helper, names = aur_pkgs })
+end
 
 -- ====== 9-10. flatpak (needs the flatpak tool, so after install_packages;
 -- app ids are Flathub-native: no backend mapping involved) ======

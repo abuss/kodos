@@ -49,6 +49,11 @@ return {
             type = "arch",
             mirror = "https://mirror.rackspace.com/archlinux",
         },
+        -- AUR packages require explicit repos.aur configuration.
+        aur = {
+            type = "aur",
+            helper = "yay",
+        },
     },
 
     -- ====== BOOT (neutral; kernel/bootloader packages from the backend) ======
@@ -61,7 +66,7 @@ return {
         kernel = {
             -- variant = "lts",
             modules = { "xhci_pci", "ehci_pci", "ohci_pci", "virtio_pci",
-                "virtio_blk", "ahci", "usbhid", "sr_mod" },
+                "virtio_blk", "ahci", "usbhid" },
             arguments = { "iommu=pt" },
         },
     },
@@ -281,7 +286,12 @@ return {
             },
             cosmic = {
                 enable = true
-            }
+                -- session packages (cosmic-session, cosmic-greeter,
+                -- cosmic-osk) are backend-owned: desktops.cosmic pulls
+                -- the set automatically (was hand-listed here)
+            },
+            -- plasma = { enable = true } with display_manager = "sddm"
+            -- pulls the full KDE session set the same way
         }
     },
 
@@ -300,6 +310,9 @@ return {
             "podman-compose", "distrobox"),
         base("alacritty", "foot", "wezterm"),
         base("openssh", "tailscale", "iw"),
+        -- wifi regulatory.db (cfg80211 warning without it) + early CPU
+        -- microcode (install_bootloader places it in the initramfs)
+        base("wireless-regdb", "intel-ucode"),
         base("networkmanager"), -- DE is machine-layer material (COSMIC), not a system default
         base("font-noto", "font-noto-emoji", "font-dejavu",
             "font-liberation", "font-fira-code")

@@ -59,6 +59,7 @@ var opRank = map[string]int{
 	"partition_disk": 1, "format": 2, "create_swap": 3, "mount": 4,
 	"copy_tree": 5, "configure_repos": 6, "write_file": 7,
 	"install_packages":         8,
+	"install_aur_packages":     8, // same rank: emitted right after install_packages
 	"configure_flatpak_remote": 9, "install_flatpak": 10,
 	"configure_locale": 11, "configure_keyboard": 12, "configure_timezone": 13,
 	"load_kernel_modules": 14, "set_kernel_arguments": 15,

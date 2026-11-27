@@ -465,26 +465,56 @@ func selftestPure() {
 		!strings.Contains(cfg, "search.fs_uuid"),
 		"grub serial, no search: kernel loads from ESP where grub.cfg lives")
 
-	// When the kernel logs to ttyS0, GRUB must also accept the console
-	// keyboard; otherwise a physical user cannot edit the menu entry.
+	// GRUB must ALWAYS accept the physical console keyboard, serial or not:
+	// a bare-metal user needs to navigate/edit the generation menu
+	// (odin 2026-11-26: terminal_input serial alone left the keyboard dead
+	// at the grub menu). Input both, output both, no arg sniffing.
 	serialCfg := renderGrubCfg(5, "UUID-X",
 		[]string{"console=tty0", "console=ttyS0,115200"},
 		[]grubEntry{{4, "6.18.63-r0", "", ""}})
-	check(strings.Contains(serialCfg, "terminal_input serial console"),
-		"serial-console grub must accept console keyboard, got:\n%s", serialCfg)
-	check(strings.Contains(cfg, "terminal_input serial\n") &&
-		!strings.Contains(cfg, "terminal_input serial console"),
-		"alpine grub input must stay byte-identical")
-	// Alpine VM guests (vm/guest-config, vm/vm-layer) boot with console=ttyS0,
-	// so their grub also gains the console keyboard. Intended (serial console
-	// should be editable), but it IS a delta vs. the quiet-args media, so pin
-	// it here to stop it silently drifting.
-	alpineSerial := renderGrubCfg(5, "UUID-X",
-		[]string{"console=ttyS0"},
-		[]grubEntry{{4, "6.18.63-r0", "", ""}})
-	check(strings.Contains(alpineSerial, "terminal_input serial console") &&
-		!strings.Contains(alpineSerial, "terminal_input serial\n"),
-		"alpine VM serial grub must accept console keyboard, got:\n%s", alpineSerial)
+	for name, g := range map[string]string{"quiet-args grub": cfg, "serial-args grub": serialCfg} {
+		check(strings.Contains(g, "terminal_input serial console"),
+			"%s must accept console keyboard, got:\n%s", name, g)
+	}
+
+	// generation choice at the grub menu: every entry names its generation,
+	// and the gen-select hook files + HOOKS edit are what make that arg real
+	check(strings.Contains(cfg, "kodos.generation=4") &&
+		strings.Contains(cfg, "kodos.generation=3"),
+		"grub entries must carry kodos.generation=N, got:\n%s", cfg)
+	if d, err := os.MkdirTemp("", "kodos-genselect-"); err == nil {
+		check(installGenSelectHook(d) == nil, "gen-select hook install")
+		for _, p := range []string{
+			"usr/lib/initcpio/hooks/kodos-gen",
+			"usr/lib/initcpio/install/kodos-gen",
+			"usr/lib/initcpio/kodos-gen-mount",
+			"usr/lib/systemd/system/initcpio-kodos-gen.service",
+			"usr/lib/systemd/system/initrd.target.wants/initcpio-kodos-gen.service",
+		} {
+			check(lexists(filepath.Join(d, p)), "gen-select file %s written", p)
+		}
+		// this world's initrd has stock systemd targets only: no
+		// initcpio.target exists, and odin proved an unlinked unit just
+		// sits inert in the image (odin report 2026-11-27: menu still
+		// booted current)
+		unit, _ := os.ReadFile(filepath.Join(d, "usr/lib/systemd/system/initcpio-kodos-gen.service"))
+		check(strings.Contains(string(unit), "WantedBy=initrd.target") &&
+			strings.Contains(string(unit), "initrd-switch-root.target") &&
+			!strings.Contains(string(unit), "initcpio.target"),
+			"gen-select unit must hook stock initrd targets, got:\n%s", unit)
+		conf := filepath.Join(d, "mkinitcpio.conf")
+		os.WriteFile(conf, []byte("MODULES=()\nHOOKS=(base systemd modconf block filesystems)\n"), 0o644)
+		check(addInitcpioHook(conf, "kodos-gen") == nil, "conf hook enable")
+		check(addInitcpioHook(conf, "kodos-gen") == nil, "conf hook enable again (idempotent path)")
+		check(addInitcpioHook(conf, "microcode") == nil, "microcode hook enable")
+		b, _ := os.ReadFile(conf)
+		check(strings.Contains(string(b), "HOOKS=(microcode kodos-gen base systemd") &&
+			strings.Count(string(b), "kodos-gen") == 1,
+			"HOOKS gains each hook exactly once, got:\n%s", b)
+		check(addInitcpioHook(filepath.Join(d, "nope.conf"), "kodos-gen") != nil,
+			"missing conf must error (caller warns, boot falls back)")
+		os.RemoveAll(d)
+	}
 
 	// sshd-style setting keys
 	check(settingsKey("permit_root_login") == "PermitRootLogin", "CamelCase key")

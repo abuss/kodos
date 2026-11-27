@@ -251,3 +251,119 @@ func cpioSegmentEnd(b []byte) (int, error) {
 	}
 	return 0, fmt.Errorf("cpio stream truncated (no TRAILER)")
 }
+
+// ---- boot-time generation selection (grub entry -> generation) ----
+
+// grub entries carry kodos.generation=N; the initrd unit below bind-mounts
+// that generation's usr OVER the current one, so the /usr dir-link resolves
+// to the selected generation for THIS boot only (rollback stays the
+// persistent switch). These are unmanaged files (kodos-binary precedent):
+// install_bootloader re-writes them before every mkinitcpio build, so each
+// generation's initramfs carries the unit. ponytail: /etc is NOT switched
+// with the generation — live /etc is generation-agnostic by model.
+func installGenSelectHook(genDir string) error {
+	files := []struct {
+		path string
+		mode os.FileMode
+		body string
+	}{
+		{"usr/lib/initcpio/hooks/kodos-gen", 0o755,
+			"#!/bin/ash\n# systemd-mode hook: the unit does the work at runtime\n"},
+		// add_binary (not add_file): carries the script's #!/bin/sh
+		// interpreter too; add_systemd_unit auto-carries the gen tree's
+		// initrd.target.wants symlink below (mkinitcpio's reverse-dep
+		// loop) and the ExecStart binary. This initrd has NO initcpio.
+		// target: enablement = a real .wants link in the gen tree.
+		{"usr/lib/initcpio/install/kodos-gen", 0o755, `#!/bin/sh
+build() {
+	add_binary /usr/lib/initcpio/kodos-gen-mount
+	add_systemd_unit initcpio-kodos-gen.service
+}
+
+help() {
+	cat <<HELPEOF
+Honors the kodos.generation=N grub entry argument: the initrd bind-mounts
+that generation's usr over the current one, booting the selected generation.
+HELPEOF
+}
+# vim: set ft=sh ts=4 sw=4 noet:
+`},
+		{"usr/lib/initcpio/kodos-gen-mount", 0o755, `#!/usr/bin/ash
+# kodos boot-time generation selection (systemd initrd, runs after
+# sysroot.mount, before switch-root). No cat/readlink: the initrd only
+# guarantees busybox applets under /usr/bin and the core utils.
+gen=""
+read -r cmdline < /proc/cmdline
+for a in $cmdline; do
+	case "$a" in kodos.generation=*) gen="${a#kodos.generation=}";; esac
+done
+[ -n "$gen" ] || exit 0
+src="/sysroot/kod/generation/$gen/usr"
+cur="/sysroot/kod/generation/current/usr"
+if [ ! -d "$src" ]; then
+	echo "kodos: generation $gen has no usr; booting current" >&2
+	exit 0
+fi
+if [ "$src" -ef "$cur" ]; then
+	exit 0 # selected == current: no bind needed
+fi
+mount --bind "$src" "$cur" || echo "kodos: bind gen $gen FAILED; booting current" >&2
+`},
+		{"usr/lib/systemd/system/initcpio-kodos-gen.service", 0o644, `[Unit]
+Description=Kodos: bind the grub-selected generation into /sysroot
+DefaultDependencies=no
+ConditionKernelCommandLine=kodos.generation
+After=sysroot.mount
+Before=initrd-root-fs.target initrd-switch-root.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/initcpio/kodos-gen-mount
+
+[Install]
+WantedBy=initrd.target
+`},
+	}
+	for _, f := range files {
+		p := filepath.Join(genDir, f.path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, []byte(f.body), f.mode); err != nil {
+			return fmt.Errorf("gen-select %s: %w", f.path, err)
+		}
+	}
+	// enablement: mkinitcpio add_systemd_unit carries EXISTING
+	// *.wants/<unit> symlinks into the image (reverse-dep loop); there
+	// is no systemctl preset in this initrd, so the link goes here.
+	want := filepath.Join(genDir,
+		"usr/lib/systemd/system/initrd.target.wants/initcpio-kodos-gen.service")
+	if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
+		return err
+	}
+	if err := os.Symlink("../initcpio-kodos-gen.service", want); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("gen-select enable: %w", err)
+	}
+	return nil
+}
+
+// addInitcpioHook: idempotent HOOKS+=(hook) in the mkinitcpio.conf the BUILD
+// chroot reads. Error = conf missing or no HOOKS line: the caller warns and
+// the boot falls back (no gen selection / stale ucode), never fails.
+func addInitcpioHook(confPath, hook string) error {
+	b, err := os.ReadFile(confPath)
+	if err != nil {
+		return err
+	}
+	already := regexp.MustCompile(`(?m)^HOOKS=\([^)]*\b` + regexp.QuoteMeta(hook) + `\b[^)]*\)`)
+	if already.Match(b) {
+		return nil
+	}
+	lineRe := regexp.MustCompile(`(?m)^HOOKS=\(`)
+	if !lineRe.Match(b) {
+		return fmt.Errorf("%s has no HOOKS= line", confPath)
+	}
+	out := lineRe.ReplaceAll(b, []byte("HOOKS=("+hook+" "))
+	return os.WriteFile(confPath, out, 0o644)
+}

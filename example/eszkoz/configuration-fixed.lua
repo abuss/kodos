@@ -62,7 +62,7 @@ return {
     boot = {
         bootloader = { type = "systemd-boot", efi = true, timeout = 10 },
         kernel = {
-            modules = { "xhci_pci", "ohci_pci", "ehci_pci", "virtio_pci", "ahci", "usbhid", "sr_mod", "virtio_blk" },
+            modules = { "xhci_pci", "ohci_pci", "ehci_pci", "virtio_pci", "ahci", "usbhid", "virtio_blk" },
         },
     },
 
@@ -284,7 +284,8 @@ return {
         -- GNOME
         base("gnome-shell", "gnome-tweaks", "gnome-connections"),
         
-        -- COSMIC
-        base("cosmic-desktop", "cosmic-greeter")
+        -- COSMIC (cosmic-session = the login session + wayland session file;
+        -- cosmic-desktop is not an Arch package)
+        base("cosmic-session", "cosmic-greeter")
     ),
 }

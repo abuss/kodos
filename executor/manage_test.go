@@ -499,3 +499,37 @@ func TestStatusBootDefaultAndBrokenCurrent(t *testing.T) {
 		t.Errorf("alias target %q must not parse as generation 2, got %v", "2abc", err)
 	}
 }
+
+func TestRollbackGenBootable(t *testing.T) {
+	root := t.TempDir()
+	mk := func(path string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// arch: kernel lives at usr/lib/modules/<kver>/vmlinuz-<flavor>; the
+	// initramfs is rebuilt by the rollback stream's own install_bootloader.
+	arch := filepath.Join(root, "gen-arch")
+	if err := rollbackGenBootable(arch, "arch"); err == nil {
+		t.Fatal("empty arch gen must not be bootable")
+	}
+	mk(filepath.Join(arch, "usr/lib/modules/6.18.65-1/vmlinuz-linux"))
+	if err := rollbackGenBootable(arch, "arch"); err != nil {
+		t.Fatalf("arch gen with kernel must be bootable: %v", err)
+	}
+
+	// alpine: needs the exact-kver initramfs pair in /boot.
+	alp := filepath.Join(root, "gen-alp")
+	mk(filepath.Join(alp, "boot/vmlinuz-6.18.63-r0"))
+	if err := rollbackGenBootable(alp, "alpine"); err == nil {
+		t.Fatal("alpine gen without initramfs must not be bootable")
+	}
+	mk(filepath.Join(alp, "boot/initramfs-6.18.63-r0"))
+	if err := rollbackGenBootable(alp, "alpine"); err != nil {
+		t.Fatalf("complete alpine gen must be bootable: %v", err)
+	}
+}
