@@ -1980,6 +1980,13 @@ func (e *executor) installBootloader(act map[string]any) error {
 		[]byte(cfg), 0o444); err != nil {
 		return err
 	}
+	// live /usr is the real hardlink farm of the usr-merge shape, merged
+	// at activate_generation time; this op writes fresh content into the
+	// gen tree afterwards (kodos-gen hook files, ucode install), invisible
+	// to the live system until re-merged here.
+	if err := e.s.symlinkTree(filepath.Join(gen, "usr"), filepath.Join(e.s.chroot, "usr")); err != nil {
+		return fmt.Errorf("bootloader: re-merge live /usr: %w", err)
+	}
 	fmt.Printf("bootloader: grub EFI (removable path) + grub.cfg for generation %d, kernel %s (%d menu entries)\n",
 		genIdx, kver, len(entries))
 	return nil
