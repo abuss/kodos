@@ -292,8 +292,11 @@ return {
                 -- the set automatically (was hand-listed here, odin
                 -- greeter report 2026-11-26)
             },
-            -- plasma = { enable = true } with display_manager = "sddm"
-            -- pulls the full KDE session set the same way
+            plasma = {
+                enable = true
+                -- with display_manager = "sddm"
+                -- pulls the full KDE session set the same way
+            }
         }
     },
 

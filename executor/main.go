@@ -363,6 +363,36 @@ func (e *executor) run(act map[string]any) error {
 					"glib-compile-schemas /usr/share/glib-2.0/schemas"); err != nil {
 				fmt.Printf("WARNING: glib-compile-schemas: %v (continuing)\n", err)
 			}
+			// gdk-pixbuf2's loader cache (loaders.cache) is built by its
+			// skipped alpm hook: without it gdk decodes NO image, so every
+			// icon is blank ("Could not load a pixbuf from icon theme",
+			// odin 2026-11-27). Same command as the hook; idempotent.
+			if err := e.chrootSh(e.s.chroot,
+				"command -v gdk-pixbuf-query-loaders >/dev/null || exit 0; "+
+					"gdk-pixbuf-query-loaders --update-cache"); err != nil {
+				fmt.Printf("WARNING: gdk-pixbuf-query-loaders: %v (continuing)\n", err)
+			}
+			// The desktop cache hooks alpm also runs (all skipped here):
+			// icon-theme caches (gtk-update-icon-cache.hook script),
+			// application MIME/desktop db, and the shared-mime db that
+			// nautilus "file type" columns and open-with rely on. All
+			// idempotent rebuilds; no-op without the tools.
+			for _, hook := range []struct{ desc, cmd string }{
+				{"gtk-update-icon-cache",
+					"command -v gtk-update-icon-cache >/dev/null || exit 0; " +
+						"for d in /usr/share/icons/*/; do [ -e \"$d/index.theme\" ] && " +
+						"gtk-update-icon-cache -q \"$d\"; done; exit 0"},
+				{"update-desktop-database",
+					"command -v update-desktop-database >/dev/null || exit 0; " +
+						"update-desktop-database --quiet"},
+				{"update-mime-database",
+					"command -v update-mime-database >/dev/null || exit 0; " +
+						"PKGSYSTEM_ENABLE_FSYNC=0 update-mime-database /usr/share/mime"},
+			} {
+				if err := e.chrootSh(e.s.chroot, hook.cmd); err != nil {
+					fmt.Printf("WARNING: %s: %v (continuing)\n", hook.desc, err)
+				}
+			}
 		}
 		return nil
 	case "create_user":

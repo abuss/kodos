@@ -54,9 +54,20 @@ M.map = {
 -- has a provider). extra_packages stays additive on top; unknown names
 -- fall through to hand-listed packages (generate.lua warns).
 M.sessions = {
-    gnome = { "gdm", "gnome-backgrounds", "gnome-control-center", "gnome-online-accounts",
-              "gnome-session", "gnome-settings-daemon", "gnome-shell", "gnome-terminal",
-              "gvfs", "nautilus" },
+    -- Image pipeline note (odin 2026-11-27): this world's gdk-pixbuf2
+    -- ships no loader modules itself (only webp-pixbuf-loader); PNG/SVG
+    -- decode flows through its glycin bridge instead. Blank GNOME icons/
+    -- backgrounds on kodos installs were NOT that gap: glycin's bwrap
+    -- sandbox needs a canonical (real-dir) live /usr to find the ELF
+    -- interpreter — fixed by the usr-merge activation shape (PR #17).
+    gnome = { "baobab", "epiphany", "evolution-data-server", "eog", "evince",
+              "file-roller", "gdm", "gnome-backgrounds", "gnome-calculator",
+              "gnome-characters", "gnome-control-center", "gnome-keyring",
+              "gnome-online-accounts", "gnome-remote-desktop", "gnome-session",
+              "gnome-settings-daemon", "gnome-shell", "gnome-system-monitor",
+              "gnome-terminal", "gnome-text-editor", "gnome-user-docs",
+              "gvfs", "nautilus", "seahorse", "xdg-desktop-portal-gnome",
+              "yelp", "zenity" },
     plasma = { "dolphin", "kde-cli-tools", "konsole", "plasma-desktop", "plasma-nm",
                "plasma-pa", "plasma-keyboard", "plasma-workspace", "polkit-kde-agent",
                "sddm", "xdg-desktop-portal-kde" },
