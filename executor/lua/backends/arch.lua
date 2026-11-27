@@ -49,6 +49,20 @@ M.map = {
     ["cosmic-greeter"] = "cosmic-greeter",
 }
 
+-- Backend-owned desktop session sets: enabling a known desktop pulls the
+-- whole set (greeter included, so the DM unit always
+-- has a provider). extra_packages stays additive on top; unknown names
+-- fall through to hand-listed packages (generate.lua warns).
+M.sessions = {
+    gnome = { "gdm", "gnome-backgrounds", "gnome-control-center", "gnome-online-accounts",
+              "gnome-session", "gnome-settings-daemon", "gnome-shell", "gnome-terminal",
+              "gvfs", "nautilus" },
+    plasma = { "dolphin", "kde-cli-tools", "konsole", "plasma-desktop", "plasma-nm",
+               "plasma-pa", "plasma-keyboard", "plasma-workspace", "polkit-kde-agent",
+               "sddm", "xdg-desktop-portal-kde" },
+    cosmic = { "cosmic-greeter", "cosmic-osk", "cosmic-session" },
+}
+
 -- Service registry (see alpine.lua for the Alpine -openrc quirk; Arch has
 -- no unit subpackages). Units: systemd unit names, .service implied.
 M.services = {

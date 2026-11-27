@@ -286,19 +286,14 @@ return {
                 }
             },
             cosmic = {
-                enable = true,
-                extra_packages = {
-                    -- the greeter's login session: cosmic-greeter's deps
-                    -- cover only the greeter stack; cosmic-session ships
-                    -- /usr/share/wayland-sessions/cosmic.desktop + the
-                    -- session itself. Without it: empty session menu,
-                    -- login flashes black and returns to the greeter
-                    -- (odin, 2026-11-26).
-                    { repo = "base", name = "cosmic-session" },
-                    -- the greeter spawns it; without it: failed-to-spawn spam
-                    { repo = "base", name = "cosmic-osk" }
-                }
-            }
+                enable = true
+                -- session packages (cosmic-session, cosmic-greeter,
+                -- cosmic-osk) are backend-owned: desktops.cosmic pulls
+                -- the set automatically (was hand-listed here, odin
+                -- greeter report 2026-11-26)
+            },
+            -- plasma = { enable = true } with display_manager = "sddm"
+            -- pulls the full KDE session set the same way
         }
     },
 

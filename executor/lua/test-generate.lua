@@ -444,6 +444,7 @@ return {
         display_manager = "cosmic-greeter",
         desktops = {
             gnome = { enable = true, extra_packages = { { repo = "base", name = "gnome-tweaks" } } },
+            plasma = { enable = true, extra_packages = { { repo = "base", name = "dolphin" } } },
             cosmic = { enable = true }
         }
     },
@@ -464,6 +465,13 @@ assert(ar_desktop:find('"gnome-tweaks"', 1, true),
 -- "op" marker; the enable_service action's copy comes after it.
 assert(pos(ar_desktop, '"cosmic-greeter"') < pos(ar_desktop, '"op": "install_packages"'),
        "display_manager package must be in the install_packages set")
+-- backend-owned session sets: enabling a known desktop pulls its whole set
+for _, p in ipairs({ "gnome-shell", "gdm", "gnome-session", "gnome-settings-daemon",
+                     "plasma-desktop", "sddm", "xdg-desktop-portal-kde",
+                     "cosmic-session", "cosmic-osk" }) do
+    assert(ar_desktop:find('"' .. p .. '"', 1, true),
+           "session set package missing: " .. p)
+end
 os.remove("_scratch_desktop.lua")
 
 -- ====== AUR packages: extracted from config with aur_packages() ======

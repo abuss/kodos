@@ -181,6 +181,23 @@ function M.install_set(conf, backend)
     end
     for _, s in ipairs(M.service_plan(conf, backend)) do addp(s.packages) end
     for _, s in ipairs(M.home_service_plan(conf, backend)) do addp(s.packages) end
+    -- backend-owned desktop session sets (arch.lua M.sessions): enabling a
+    -- known desktop pulls its whole set here, so generate.lua's IR and
+    -- lockfile.lua's pins stay identical. extra_packages (already swept by
+    -- names_in) layers on top; unknown desktop names warn and rely on it.
+    if conf.desktop then
+        for dname, dcfg in pairs(conf.desktop.desktops or {}) do
+            if dcfg.enable then
+                local set = backend.sessions and backend.sessions[dname]
+                if set then
+                    addp(set)
+                else
+                    io.stderr:write("no backend session set for desktop " .. dname
+                        .. ": list its packages in extra_packages\n")
+                end
+            end
+        end
+    end
     if conf.system.locale then addp(backend.locale_packages) end
     if conf.repos.flatpak then addp(backend.flatpak_packages) end
     table.sort(all)

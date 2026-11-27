@@ -285,17 +285,13 @@ return {
                 }
             },
             cosmic = {
-                enable = true,
-                extra_packages = {
-                    -- the greeter's login session: cosmic-greeter only
-                    -- hard-depends on the greeter stack, NOT the session, so
-                    -- without this the password succeeds and greetd falls
-                    -- straight back to the greeter (no session to start).
-                    { repo = "base", name = "cosmic-session" },
-                    -- the greeter spawns it; without it: failed-to-spawn spam
-                    { repo = "base", name = "cosmic-osk" }
-                }
-            }
+                enable = true
+                -- session packages (cosmic-session, cosmic-greeter,
+                -- cosmic-osk) are backend-owned: desktops.cosmic pulls
+                -- the set automatically (was hand-listed here)
+            },
+            -- plasma = { enable = true } with display_manager = "sddm"
+            -- pulls the full KDE session set the same way
         }
     },
 
