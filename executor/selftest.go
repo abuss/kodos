@@ -494,12 +494,14 @@ func selftestPure() {
 		}
 		conf := filepath.Join(d, "mkinitcpio.conf")
 		os.WriteFile(conf, []byte("MODULES=()\nHOOKS=(base systemd modconf block filesystems)\n"), 0o644)
-		check(enableGenSelectInConf(conf) == nil, "conf hook enable")
-		check(enableGenSelectInConf(conf) == nil, "conf hook enable again (idempotent path)")
+		check(addInitcpioHook(conf, "kodos-gen") == nil, "conf hook enable")
+		check(addInitcpioHook(conf, "kodos-gen") == nil, "conf hook enable again (idempotent path)")
+		check(addInitcpioHook(conf, "microcode") == nil, "microcode hook enable")
 		b, _ := os.ReadFile(conf)
-		check(strings.Contains(string(b), "HOOKS=(kodos-gen base systemd") &&
-			strings.Count(string(b), "kodos-gen") == 1, "HOOKS gains kodos-gen exactly once, got:\n%s", b)
-		check(enableGenSelectInConf(filepath.Join(d, "nope.conf")) != nil,
+		check(strings.Contains(string(b), "HOOKS=(microcode kodos-gen base systemd") &&
+			strings.Count(string(b), "kodos-gen") == 1,
+			"HOOKS gains each hook exactly once, got:\n%s", b)
+		check(addInitcpioHook(filepath.Join(d, "nope.conf"), "kodos-gen") != nil,
 			"missing conf must error (caller warns, boot falls back)")
 		os.RemoveAll(d)
 	}

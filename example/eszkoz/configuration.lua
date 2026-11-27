@@ -291,7 +291,9 @@ return {
                     -- hard-depends on the greeter stack, NOT the session, so
                     -- without this the password succeeds and greetd falls
                     -- straight back to the greeter (no session to start).
-                    { repo = "base", name = "cosmic-session" }
+                    { repo = "base", name = "cosmic-session" },
+                    -- the greeter spawns it; without it: failed-to-spawn spam
+                    { repo = "base", name = "cosmic-osk" }
                 }
             }
         }
@@ -312,6 +314,9 @@ return {
             "podman-compose", "distrobox"),
         base("alacritty", "foot", "wezterm"),
         base("openssh", "tailscale", "iw"),
+        -- wifi regulatory.db (cfg80211 warning without it) + early CPU
+        -- microcode (install_bootloader places it in the initramfs)
+        base("wireless-regdb", "intel-ucode"),
         base("networkmanager"), -- DE is machine-layer material (COSMIC), not a system default
         base("font-noto", "font-noto-emoji", "font-dejavu",
             "font-liberation", "font-fira-code")

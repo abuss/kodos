@@ -294,7 +294,9 @@ return {
                     -- session itself. Without it: empty session menu,
                     -- login flashes black and returns to the greeter
                     -- (odin, 2026-11-26).
-                    { repo = "base", name = "cosmic-session" }
+                    { repo = "base", name = "cosmic-session" },
+                    -- the greeter spawns it; without it: failed-to-spawn spam
+                    { repo = "base", name = "cosmic-osk" }
                 }
             }
         }
@@ -315,6 +317,10 @@ return {
             "podman-compose", "distrobox"),
         base("alacritty", "foot", "wezterm"),
         base("openssh", "tailscale", "iw"),
+        -- wifi regulatory.db (cfg80211 warning without it) + early CPU
+        -- microcode (install_bootloader places it in the initramfs;
+        -- odin = Lenovo 10RRS02G00, Intel)
+        base("wireless-regdb", "intel-ucode"),
         base("networkmanager"), -- DE is machine-layer material (COSMIC), not a system default
         base("font-noto", "font-noto-emoji", "font-dejavu",
             "font-liberation", "font-fira-code")

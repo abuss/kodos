@@ -1730,10 +1730,22 @@ func (e *executor) installBootloader(act map[string]any) error {
 		if err := installGenSelectHook(gen); err != nil {
 			return fmt.Errorf("bootloader: %w", err)
 		}
-		if err := enableGenSelectInConf(
-			e.s.chrootResolve(filepath.Join(gen, "etc", "mkinitcpio.conf"))); err != nil {
+		conf := e.s.chrootResolve(filepath.Join(gen, "etc", "mkinitcpio.conf"))
+		if err := addInitcpioHook(conf, "kodos-gen"); err != nil {
 			fmt.Printf("WARNING: bootloader: kodos-gen not added to mkinitcpio.conf (%v): "+
 				"grub generation entries boot the current generation\n", err)
+		}
+		// Pinned CPU ucode must ride INSIDE the initramfs (early load):
+		// stale microcode warned on odin's boot log. The microcode hook
+		// pulls /boot/{intel,amd}-ucode.img from the gen tree at build.
+		for _, ucode := range []string{"intel-ucode", "amd-ucode"} {
+			if _, pinned := e.meta.Packages[ucode]; pinned {
+				if err := addInitcpioHook(conf, "microcode"); err != nil {
+					fmt.Printf("WARNING: bootloader: microcode hook not added (%v): "+
+						"CPU microcode stays stale until next apply\n", err)
+				}
+				break
+			}
 		}
 		for _, j := range archJobs {
 			if err := e.genChrootSh("depmod " + shellQuote(j.Kver)); err != nil {

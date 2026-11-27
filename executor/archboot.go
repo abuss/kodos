@@ -332,23 +332,22 @@ WantedBy=initcpio.target
 	return nil
 }
 
-// genSelectConfHookRe: mkinitcpio.conf already carries our hook name?
-var genSelectConfHookRe = regexp.MustCompile(`(?m)^HOOKS=\([^)]*\bkodos-gen\b[^)]*\)`)
-
-// enableGenSelectInConf: idempotent HOOKS+=(kodos-gen) in the mkinitcpio.conf
-// the BUILD will read (runs chrooted in the gen tree). False = conf missing
-// or no HOOKS line: the boot stays on `current` (default HOOKS carry no
-// selection), so the caller warns rather than failing the boot path.
-func enableGenSelectInConf(confPath string) error {
+// addInitcpioHook: idempotent HOOKS+=(hook) in the mkinitcpio.conf the BUILD
+// chroot reads. Error = conf missing or no HOOKS line: the caller warns and
+// the boot falls back (no gen selection / stale ucode), never fails.
+func addInitcpioHook(confPath, hook string) error {
 	b, err := os.ReadFile(confPath)
 	if err != nil {
 		return err
 	}
-	if genSelectConfHookRe.Match(b) {
+	already := regexp.MustCompile(`(?m)^HOOKS=\([^)]*\b` + regexp.QuoteMeta(hook) + `\b[^)]*\)`)
+	if already.Match(b) {
 		return nil
 	}
-	out := genSelectHookLineRe.ReplaceAll(b, []byte("HOOKS=(kodos-gen ${1}"))
+	lineRe := regexp.MustCompile(`(?m)^HOOKS=\(`)
+	if !lineRe.Match(b) {
+		return fmt.Errorf("%s has no HOOKS= line", confPath)
+	}
+	out := lineRe.ReplaceAll(b, []byte("HOOKS=("+hook+" "))
 	return os.WriteFile(confPath, out, 0o644)
 }
-
-var genSelectHookLineRe = regexp.MustCompile(`(?m)^HOOKS=\(`)

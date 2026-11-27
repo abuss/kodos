@@ -335,6 +335,15 @@ func (e *executor) run(act map[string]any) error {
 				"command -v update-ca-trust >/dev/null || exit 0; update-ca-trust"); err != nil {
 				fmt.Printf("WARNING: update-ca-trust: %v (continuing)\n", err)
 			}
+			// glib2's alpm hook compiles the GSettings schema cache; skipped
+			// like the rest -> GNOME/COSMIC apps die on gschemas.compiled
+			// (odin desktop report, 2026-11-26). Idempotent; harmless
+			// without glib.
+			if err := e.chrootSh(e.s.chroot,
+				"command -v glib-compile-schemas >/dev/null || exit 0; "+
+					"glib-compile-schemas /usr/share/glib-2.0/schemas"); err != nil {
+				fmt.Printf("WARNING: glib-compile-schemas: %v (continuing)\n", err)
+			}
 		}
 		return nil
 	case "create_user":
