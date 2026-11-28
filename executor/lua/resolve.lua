@@ -117,12 +117,13 @@ function M.aur_users(conf, backend)
 end
 
 -- AUR build toolchain: the executor clones aurweb with git and runs makepkg
--- AS THE BUILDER USER, and non-root makepkg hard-requires fakeroot. Like the
--- desktop session sets, these belong to BOTH generate.lua's install_packages
--- and lockfile.lua's request set, so they live here once.
+-- AS THE BUILDER USER: non-root makepkg hard-requires fakeroot, and pacman
+-- 7.x split debugedit (needed for the default debug splits) into its own
+-- package. Like the desktop session sets, these belong to BOTH generate.lua's
+-- install_packages and lockfile.lua's request set, so they live here once.
 function M.aur_toolchain(conf, backend)
     if #M.aur_packages(conf, backend) == 0 then return {} end
-    return { "fakeroot", "git" }
+    return { "debugedit", "fakeroot", "git" }
 end
 
 -- canonical names out of a tagged package list (service/user level lists)
