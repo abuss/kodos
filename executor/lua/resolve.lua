@@ -116,6 +116,15 @@ function M.aur_users(conf, backend)
     return out
 end
 
+-- AUR build toolchain: the executor clones aurweb with git and runs makepkg
+-- AS THE BUILDER USER, and non-root makepkg hard-requires fakeroot. Like the
+-- desktop session sets, these belong to BOTH generate.lua's install_packages
+-- and lockfile.lua's request set, so they live here once.
+function M.aur_toolchain(conf, backend)
+    if #M.aur_packages(conf, backend) == 0 then return {} end
+    return { "fakeroot", "git" }
+end
+
 -- canonical names out of a tagged package list (service/user level lists)
 function M.tagged_canons(list)
     local out = {}
@@ -215,6 +224,7 @@ function M.install_set(conf, backend)
     end
     if conf.system.locale then addp(backend.locale_packages) end
     if conf.repos.flatpak then addp(backend.flatpak_packages) end
+    addp(M.aur_toolchain(conf, backend))
     table.sort(all)
     return all, dropped
 end
