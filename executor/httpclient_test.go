@@ -4,7 +4,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 // archive.archlinux.org handshakes flake (odin, 2026-11-27): one transport
@@ -40,5 +43,40 @@ func TestGetRetryOnce(t *testing.T) {
 	defer srv2.Close()
 	if resp, err := getRetry(srv2.Client(), srv2.URL); err != nil || resp.StatusCode != 404 {
 		t.Fatalf("404 must pass through unwrapped: %v %v", resp.StatusCode, err)
+	}
+}
+
+// file:// mirrors (local repos, self-hosted kodos): served without HTTP.
+func TestGetFileLocalRepo(t *testing.T) {
+	dir := t.TempDir()
+	want := "hello-local"
+	path := filepath.Join(dir, "kodos.db.tar.gz")
+	if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := httpsClient(time.Second)
+
+	resp, err := getRetry(c, "file://"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("local file: status %d", resp.StatusCode)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if string(b) != want {
+		t.Fatalf("body = %q", b)
+	}
+
+	// missing file must surface as 404, not an error: the
+	// db.tar.gz -> db fallback chain relies on the status
+	resp2, err := getRetry(c, "file://"+filepath.Join(dir, "nope.db"))
+	if err != nil {
+		t.Fatalf("missing file must not error: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing file: status %d, want 404", resp2.StatusCode)
 	}
 }

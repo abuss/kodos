@@ -94,3 +94,59 @@ func TestCowCopyStillCopiesRegularFiles(t *testing.T) {
 		t.Fatalf("setuid bit dropped: mode = %v", st.Mode())
 	}
 }
+
+// TestSymlinkTreeReMergeRelinks: merging into a POPULATED dst must relink
+// (remove + link), never overwrite in place or copy: odin's pre-#17 rounds
+// turned generations into multi-GB private-copy forests. Second run must
+// produce zero new inodes.
+func TestSymlinkTreeReMergeRelinks(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	os.MkdirAll(filepath.Join(src, "sub"), 0o755)
+	for _, f := range []string{"bin", "sub/file"} {
+		if err := os.WriteFile(filepath.Join(src, f), []byte("data"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := &system{chroot: dir}
+	dst := filepath.Join(dir, "dst")
+
+	// stale private copies in the destination (old farm shape)
+	os.MkdirAll(filepath.Join(dst, "sub"), 0o755)
+	for _, f := range []string{"bin", "sub/file"} {
+		if err := os.WriteFile(filepath.Join(dst, f), []byte("stale"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inodes := func() [2]uint64 {
+		var out [2]uint64
+		for i, f := range []string{"bin", "sub/file"} {
+			st, err := os.Stat(filepath.Join(dst, f))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out[i] = st.Sys().(*syscall.Stat_t).Ino
+		}
+		return out
+	}
+	if err := s.symlinkTree(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	first := inodes()
+	for _, f := range []string{"bin", "sub/file"} {
+		a, _ := os.Stat(filepath.Join(src, f))
+		b, _ := os.Stat(filepath.Join(dst, f))
+		if a.Sys().(*syscall.Stat_t).Ino != b.Sys().(*syscall.Stat_t).Ino {
+			t.Fatalf("%s not hardlinked into src after re-merge", f)
+		}
+		if b.Sys().(*syscall.Stat_t).Nlink < 2 {
+			t.Fatalf("%s link count %d: content copied, not shared", f, b.Sys().(*syscall.Stat_t).Nlink)
+		}
+	}
+	if err := s.symlinkTree(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if second := inodes(); second != first {
+		t.Fatal("re-merge allocated new inodes (copy churn)")
+	}
+}

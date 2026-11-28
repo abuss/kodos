@@ -166,13 +166,12 @@ func TestChooseIndexFetch(t *testing.T) {
 		t.Fatalf("apk with local repo: got %q, %v", got, err)
 	}
 
-	_, err := chooseIndexFetch("arch", []localRepoRef{{name: "local"}})
-	if err == nil || !strings.Contains(err.Error(), "local repositories are not supported for Arch") {
-		t.Fatalf("arch with local repo: error %v", err)
+	if got, err := chooseIndexFetch("arch", []localRepoRef{{name: "kodos"}}); err != nil || got != "arch" {
+		t.Fatalf("arch with local repo: got %q, %v", got, err)
 	}
 
 	for _, repoType := range []string{"", "deb"} {
-		_, err = chooseIndexFetch(repoType, nil)
+		_, err := chooseIndexFetch(repoType, nil)
 		if err == nil || !strings.Contains(err.Error(), "unsupported repo type") {
 			t.Fatalf("repo type %q: error %v", repoType, err)
 		}

@@ -465,6 +465,19 @@ func renderPacmanConf(branches []string) string {
 func (e *executor) configureRepos(act map[string]any) error {
 	e.mirror, _ = act["mirror"].(string)
 	e.branches = strList(act, "branches")
+	// local (file://) repos: captured for BOTH distros — apk resolves them
+	// live, arch serves them via getRetry's file:// path (mkarchrepo.sh).
+	e.localRepos = nil
+	repos, _ := act["repos"].([]any)
+	for _, r := range repos {
+		m, _ := r.(map[string]any)
+		name, url := field(m, "name"), field(m, "url")
+		if name == "" || url == "" {
+			return fmt.Errorf("configureRepos: malformed repos entry (name=%q url=%q) — generator bug", name, url)
+		}
+		hostSrc, _ := m["src"].(string)
+		e.localRepos = append(e.localRepos, struct{ name, url, hostSrc string }{name, url, hostSrc})
+	}
 	if e.meta != nil && e.meta.Distro == "arch" {
 		// arch: one mirror pattern covers every repo; sections only list names
 		if err := e.writeFileTo("/etc/pacman.d/mirrorlist", renderMirrorList(e.mirror), 0o644); err != nil {
@@ -480,17 +493,8 @@ func (e *executor) configureRepos(act map[string]any) error {
 		return err
 	}
 	// write per-name .list files for local file:// repos
-	e.localRepos = nil
-	repos, _ := act["repos"].([]any)
-	for _, r := range repos {
-		m, _ := r.(map[string]any)
-		name, url := field(m, "name"), field(m, "url")
-		if name == "" || url == "" {
-			return fmt.Errorf("configureRepos: malformed repos entry (name=%q url=%q) — generator bug", name, url)
-		}
-		hostSrc, _ := m["src"].(string)
-		e.localRepos = append(e.localRepos, struct{ name, url, hostSrc string }{name, url, hostSrc})
-		if err := e.writeFileTo("/etc/apk/repositories.d/"+name+".list", url+"\n", 0o644); err != nil {
+	for _, lr := range e.localRepos {
+		if err := e.writeFileTo("/etc/apk/repositories.d/"+lr.name+".list", lr.url+"\n", 0o644); err != nil {
 			return err
 		}
 	}
@@ -743,7 +747,16 @@ func (e *executor) fetchUnpackArch(name, version string) error {
 	}
 	// A rolling mirror may have dropped the pinned filename; the archive keeps
 	// old tarballs. It is tried last, with the same sha256 pin as the mirror.
-	urls := make([]string, 0, len(repos)+1)
+	urls := make([]string, 0, len(repos)+len(e.localRepos)+1)
+	// local (file://) repos first: self-hosted packages (kodos itself)
+	// exist nowhere else; a miss there is one cheap 404 for mirror pkgs.
+	for _, lr := range e.localRepos {
+		base := lr.url
+		if lr.hostSrc != "" {
+			base = "file://" + lr.hostSrc
+		}
+		urls = append(urls, archPkgURL(base, pin.Repo, e.arch, name, version, pin.Arch))
+	}
 	for _, r := range repos {
 		urls = append(urls, archPkgURL(e.mirror, r, e.arch, name, version, pin.Arch))
 	}
