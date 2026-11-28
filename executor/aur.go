@@ -172,6 +172,12 @@ func (e *executor) installAurPackages(act map[string]any) error {
 			continue
 		}
 
+		// Disable debug-split packaging for builders: kodos skips -debug
+		// artifacts anyway, and the debug pipeline (debugedit + gdb-add-index
+		// per bundled .so) burned 30+ minutes on megasync-bin for nothing.
+		if out, err := e.chrootShOut(fmt.Sprintf("su - %s -c \"echo 'BUILDENV=(!debug)' > .makepkg.conf\"", user)); err != nil {
+			return fmt.Errorf("aur %s: builder makepkg.conf: %s", name, out)
+		}
 		// --nodeps: makepkg's dep check shells out to `pacman -T`, which is
 		// fatal in a kodos world (no /var/lib/pacman db — kodos IS the
 		// package manager). v1 rule stands: makedepends must be declared as
