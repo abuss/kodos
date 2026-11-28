@@ -254,7 +254,10 @@ func cowCopy(src, dst string) error {
 		return err
 	}
 	if st, err := in.Stat(); err == nil {
-		os.Chmod(dst, st.Mode().Perm())
+		// FULL mode, not Perm(): Perm() silently drops setuid/setgid.
+		// cowCopy of /usr/bin/sudo during a merge un-privileged it and
+		// bricked the machine (odin 2026-11-27, twice).
+		os.Chmod(dst, st.Mode())
 	}
 	return nil
 }
