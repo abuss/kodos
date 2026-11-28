@@ -172,11 +172,18 @@ func (e *executor) installAurPackages(act map[string]any) error {
 			continue
 		}
 
-		build := fmt.Sprintf("su - %s -c \"cd .kodos-aur/%s && makepkg -c --noconfirm --skipinteg --ignorearch\"", user, name)
+		// --nodeps: makepkg's dep check shells out to `pacman -T`, which is
+		// fatal in a kodos world (no /var/lib/pacman db — kodos IS the
+		// package manager). v1 rule stands: makedepends must be declared as
+		// system packages; a missing one fails during the build itself.
+		build := fmt.Sprintf("su - %s -c \"cd .kodos-aur/%s && makepkg -c --noconfirm --skipinteg --ignorearch --nodeps\"", user, name)
 		fmt.Printf("  aur build %s as %s\n", name, user)
 		if out, err := e.chrootShOut(build); err != nil {
 			lines := strings.Split(strings.TrimSpace(out), "\n")
-			fmt.Printf("WARNING: aur %s: build failed: %s\n", name, lines[len(lines)-1])
+			if len(lines) > 6 {
+				lines = lines[len(lines)-6:]
+			}
+			fmt.Printf("WARNING: aur %s: build failed:\n%s\n", name, strings.Join(lines, "\n"))
 			continue
 		}
 
