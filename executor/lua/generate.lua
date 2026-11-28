@@ -245,16 +245,19 @@ if conf.desktop then
 end
 
 -- ====== AUR packages (Arch only; user-level) ======
--- makepkg runs in the live chroot as the builder user, so its toolchain
--- (fakeroot REQUIRED for non-root builds, git for the aurweb clone) joins
--- the mirror closure before install_aur_packages executes.
+-- makepkg runs in the live chroot as the builder user, so the toolchain
+-- (fakeroot + git, resolve.aur_toolchain) joins the mirror closure before
+-- install_aur_packages executes; install_set locks the very same names.
 local aur_pkgs = resolve.aur_packages(conf, backend)
 if #aur_pkgs > 0 then
     if not conf.repos.aur then
         error("AUR packages declared but repos.aur not configured")
     end
-    all[#all + 1] = "fakeroot"
-    all[#all + 1] = "git"
+    local seen = {}
+    for _, n in ipairs(all) do seen[n] = true end
+    for _, t in ipairs(resolve.aur_toolchain(conf, backend)) do
+        if not seen[t] then all[#all + 1] = t end
+    end
     table.sort(all)
 end
 
