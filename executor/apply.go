@@ -57,17 +57,15 @@ func resolveConfig(arg string) (string, string, error) {
 type localRepoRef struct{ name, url, src string }
 
 // chooseIndexFetch decides which index fetcher apply runs from the
-// configure_repos repo type. Alpine ("apk") supports local repos; Arch
-// ("arch") reads live mirror DBs and does not in this milestone. Anything
-// else is rejected before any fetch happens.
+// configure_repos repo type. Both fetchers also serve local repos: apk via
+// APKINDEX paths, arch via ALPM DBs under <url>/<name>/os/<arch>/ (see
+// build/mkarchrepo.sh — self-hosted kodos). Anything else is rejected
+// before any fetch happens.
 func chooseIndexFetch(repoType string, localRepos []localRepoRef) (string, error) {
 	switch repoType {
 	case "apk":
 		return "apk", nil
 	case "arch":
-		if len(localRepos) > 0 {
-			return "", fmt.Errorf("apply: local repositories are not supported for Arch in this milestone")
-		}
 		return "arch", nil
 	default:
 		return "", fmt.Errorf("apply: unsupported repo type %q", repoType)
@@ -297,6 +295,20 @@ func apply(configArg string, dryRun bool, root, apkBin string) error {
 	var indexes []string
 	if kind == "arch" {
 		indexes, err = fetchArchIndexes(mirror, branches, "x86_64", tmp)
+		// local arch repos: same ALPM layout, branch dir = entry name;
+		// appended last so "first index wins" keeps the mirror authoritative.
+		for _, lr := range localRepos {
+			if err != nil {
+				break
+			}
+			base := lr.url
+			if lr.src != "" {
+				base = "file://" + lr.src
+			}
+			var extra []string
+			extra, err = fetchArchIndexes(base, []string{lr.name}, "x86_64", tmp)
+			indexes = append(indexes, extra...)
+		}
 	} else {
 		indexes, err = fetchIndexes(mirror, branches, localRepos, tmp)
 	}

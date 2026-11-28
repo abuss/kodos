@@ -150,3 +150,23 @@ func TestFetchArchIndexesTLSCertHint(t *testing.T) {
 		t.Errorf("TLS fetch left %d files in tmp dir", len(ents))
 	}
 }
+
+// local (file://) arch repos: mkarchrepo.sh layout <mirror>/<branch>/os/...
+func TestFetchArchIndexesFileURL(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "kodos/os/x86_64")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	blob := archDBTarGz(t, [][2]string{{"kodos/desc", coreDesc}})
+	if err := os.WriteFile(filepath.Join(dir, "kodos.db.tar.gz"), blob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := fetchArchIndexes("file://"+root, []string{"kodos"}, "x86_64", t.TempDir())
+	if err != nil {
+		t.Fatalf("file:// arch repo: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("want 1 desc path, got %v", paths)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -63,11 +64,28 @@ func httpsClient(timeout time.Duration) *http.Client {
 // transport errors. HTTP responses — 404 included — pass through untouched,
 // so pin drift stays loud; only dead connections/handshakes get the second
 // try (archive.archlinux.org handshakes flake, odin 2026-11-27).
+// file:// URLs bypass HTTP entirely (local repos, e.g. self-hosted kodos).
 func getRetry(c *http.Client, url string) (*http.Response, error) {
+	if strings.HasPrefix(url, "file://") {
+		return getFile(strings.TrimPrefix(url, "file://"))
+	}
 	resp, err := c.Get(url)
 	if err == nil {
 		return resp, nil
 	}
 	time.Sleep(2 * time.Second)
 	return c.Get(url)
+}
+
+// getFile serves a local file with HTTP semantics: missing -> 404 (the
+// db.tar.gz -> db fallback chain relies on 404, not on an error).
+func getFile(path string) (*http.Response, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody}, nil
+		}
+		return nil, err
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: f}, nil
 }
