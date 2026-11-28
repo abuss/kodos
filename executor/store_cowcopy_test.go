@@ -75,4 +75,22 @@ func TestCowCopyStillCopiesRegularFiles(t *testing.T) {
 	if st, _ := os.Stat(dst); st.Mode().Perm() != 0o644 {
 		t.Fatal("mode not preserved")
 	}
+
+	// setuid must survive too: a merge that cow-copies /usr/bin/sudo with
+	// Perm() silently un-privileges it (odin 2026-11-27: sudo bricked,
+	// twice, same root cause).
+	suid := filepath.Join(dir, "suid")
+	if err := os.WriteFile(suid, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(suid, 0o755|os.ModeSetuid); err != nil {
+		t.Fatal(err)
+	}
+	sdst := filepath.Join(dir, "sdst")
+	if err := cowCopy(suid, sdst); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(sdst); st.Mode()&os.ModeSetuid == 0 {
+		t.Fatalf("setuid bit dropped: mode = %v", st.Mode())
+	}
 }

@@ -162,6 +162,16 @@ for _, s in ipairs(swaps) do
 end
 fstab[#fstab + 1] = table.concat(
     { "tmpfs", "/tmp", "tmpfs", tmpfs_options, 0, 0 }, "\t")
+-- arch: the /usr view is the CURRENT generation's tree, bind-mounted (the
+-- live farm shape is only the no-fstab fallback). Must be GENERATED here:
+-- fstab is a managed write_file, so anything appended to the live file
+-- (install_bootloader's safety net) is rewritten every apply, and an apply
+-- that dies before the bootloader boots without the rw bind (odin
+-- 2026-11-27: initrd-only bind is read-only, gnome-session aborted).
+if conf.repos.base.type == "arch" then
+    fstab[#fstab + 1] = table.concat(
+        { "/kod/generation/current/usr", "/usr", "none", "bind", 0, 0 }, "\t")
+end
 act("write_file", { path = "/etc/fstab",
                     content = table.concat(fstab, "\n") .. "\n" })
 act("write_file", { path = "/etc/hostname",

@@ -343,6 +343,11 @@ return {
 f_ar:close()
 local ar = run("_scratch_arch.lua")
 assert(pos(ar, '"distro": "arch"'))
+-- arch fstab must CARRY the /usr bind: it is a managed write_file, so a
+-- live-appended line dies on every apply (odin 2026-11-27: an apply that
+-- died before install_bootloader booted without the rw bind).
+assert(pos(ar, '/kod/generation/current/usr\\t/usr\\tnone\\tbind\\t0\\t0'),
+       "arch fstab must generate the generation-owned /usr bind")
 assert(pos(ar, '"unit": "serial-getty@ttyS0"') > pos(ar, '"op": "activate_generation"'),
        "serial console unit enables AFTER activation, like any unit")
 assert(pos(ar, '"runlevel": "getty"'))
