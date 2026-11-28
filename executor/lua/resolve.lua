@@ -101,6 +101,21 @@ function M.aur_packages(conf, backend)
     return out
 end
 
+-- AUR builder attribution: pkg name -> first (sorted) user that declares it.
+-- v1 builds are user-level only; the user's own account runs makepkg.
+function M.aur_users(conf, backend)
+    if backend.name ~= "arch" then return {} end
+    local out, unames = {}, {}
+    for u in pairs((conf or {}).users or {}) do unames[#unames + 1] = u end
+    table.sort(unames)
+    for _, u in ipairs(unames) do
+        for _, n in ipairs(M.names_in(conf.users[u], "aur")) do
+            if not out[n] then out[n] = u end
+        end
+    end
+    return out
+end
+
 -- canonical names out of a tagged package list (service/user level lists)
 function M.tagged_canons(list)
     local out = {}

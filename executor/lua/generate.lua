@@ -244,15 +244,28 @@ if conf.desktop then
     table.sort(all)
 end
 
-act("install_packages", { names = all })
-
--- ====== AUR packages (Arch only) ======
+-- ====== AUR packages (Arch only; user-level) ======
+-- makepkg runs in the live chroot as the builder user, so its toolchain
+-- (fakeroot REQUIRED for non-root builds, git for the aurweb clone) joins
+-- the mirror closure before install_aur_packages executes.
 local aur_pkgs = resolve.aur_packages(conf, backend)
 if #aur_pkgs > 0 then
     if not conf.repos.aur then
         error("AUR packages declared but repos.aur not configured")
     end
-    act("install_aur_packages", { helper = conf.repos.aur.helper, names = aur_pkgs })
+    all[#all + 1] = "fakeroot"
+    all[#all + 1] = "git"
+    table.sort(all)
+end
+
+act("install_packages", { names = all })
+
+if #aur_pkgs > 0 then
+    act("install_aur_packages", {
+        helper = conf.repos.aur.helper,
+        names  = aur_pkgs,
+        users  = resolve.aur_users(conf, backend),
+    })
 end
 
 -- ====== 9-10. flatpak (needs the flatpak tool, so after install_packages;

@@ -406,11 +406,7 @@ func (e *executor) run(act map[string]any) error {
 	case "configure_flatpak_remote", "install_flatpak":
 		return fmt.Errorf("op %q: not implemented yet (flatpak lands after the VM boots)", op)
 	case "install_aur_packages":
-		// warn-and-skip stub: real AUR execution (helper bootstrap, non-root
-		// builder, floating unpinned builds) is a later milestone.
-		fmt.Printf("WARNING: install_aur_packages: not implemented yet — skipped %d AUR package(s) (helper %q)\n",
-			len(strList(act, "names")), field(act, "helper"))
-		return nil
+		return e.installAurPackages(act)
 	default:
 		return fmt.Errorf("unknown op %q", op)
 	}

@@ -29,8 +29,9 @@ func TestCheckDistro(t *testing.T) {
 	}
 }
 
-// install_aur_packages must load (ranked beside install_packages) and run as
-// a warn-and-skip stub until the real AUR milestone lands.
+// install_aur_packages must load (ranked beside install_packages) and run
+// gracefully on an executor without metadata (arch-only guard + no builder
+// user -> warn-and-continue).
 func TestAURStubOp(t *testing.T) {
 	af := actionsFile{SchemaVersion: 1, Distro: "arch", Actions: []map[string]any{
 		{"op": "install_packages"},
